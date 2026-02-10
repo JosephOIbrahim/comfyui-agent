@@ -1,11 +1,25 @@
 [project]
 name = "comfyui-agent"
 version = "0.1.0"
-description = "AI co-pilot for ComfyUI — inspect, discover, pilot, verify"
+description = "AI co-pilot for ComfyUI — inspect, discover, modify, and execute workflows through natural conversation"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Joseph Ibrahim"}]
 requires-python = ">=3.10"
+keywords = ["comfyui", "ai-agent", "stable-diffusion", "workflow", "anthropic", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "anthropic>=0.52.0",
     "jsonpatch>=1.33",
@@ -23,6 +37,11 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/JosephOIbrahim/comfyui-agent"
+Repository = "https://github.com/JosephOIbrahim/comfyui-agent"
+Issues = "https://github.com/JosephOIbrahim/comfyui-agent/issues"
 
 [project.scripts]
 agent = "agent.cli:app"

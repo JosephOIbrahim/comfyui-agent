@@ -1,10 +1,33 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
 *.egg-info/
 dist/
 build/
-.env
-sessions/*.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting
 .ruff_cache/
+.mypy_cache/
+
+# Environment
+.env
+
+# Sessions (user data, not code)
+sessions/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
