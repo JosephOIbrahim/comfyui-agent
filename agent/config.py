@@ -23,7 +23,6 @@ API_RETRY_DELAY = 1.0  # seconds — base delay, doubles each retry
 COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1")
 COMFYUI_PORT = int(os.getenv("COMFYUI_PORT", "8188"))
 COMFYUI_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
-COMFYUI_WS_URL = f"ws://{COMFYUI_HOST}:{COMFYUI_PORT}"
 
 # Paths — note: Custom_Nodes has capital C and N on this installation
 COMFYUI_DATABASE = Path(os.getenv("COMFYUI_DATABASE", "G:/COMFYUI_Database"))

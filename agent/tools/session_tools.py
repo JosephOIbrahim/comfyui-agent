@@ -6,7 +6,6 @@ in the sessions/ directory.
 """
 
 import copy
-import json
 
 from ..memory.session import save_session, load_session, list_sessions, add_note, restore_workflow_state
 from ._util import to_json

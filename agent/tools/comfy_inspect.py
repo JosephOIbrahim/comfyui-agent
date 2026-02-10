@@ -5,7 +5,6 @@ custom nodes, models, and their on-disk details — without
 needing ComfyUI to be running.
 """
 
-import json
 from pathlib import Path
 
 from ..config import CUSTOM_NODES_DIR, MODELS_DIR

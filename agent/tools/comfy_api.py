@@ -5,8 +5,6 @@ query the running ComfyUI instance for node info, system stats,
 queue status, and execution history.
 """
 
-import json
-
 import httpx
 
 from ..config import COMFYUI_URL

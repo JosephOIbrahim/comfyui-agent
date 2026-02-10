@@ -8,7 +8,6 @@ Secondary: HuggingFace Hub API for broader model search.
 """
 
 import json
-import re
 from pathlib import Path
 
 import httpx
