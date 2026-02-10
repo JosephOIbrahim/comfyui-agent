@@ -1,6 +1,8 @@
 """Command-line interface for the ComfyUI Agent."""
 
 import json
+import logging
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -22,8 +24,17 @@ def run(
         None, "--session", "-s",
         help="Named session for memory persistence",
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="Show debug logging (API timing, tool execution, context management)",
+    ),
 ):
     """Start an interactive agent session."""
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(name)s: %(message)s",
+    )
     # Validate API key
     if not ANTHROPIC_API_KEY:
         console.print(
@@ -59,21 +70,29 @@ def run(
 
     client = create_client()
 
-    def on_text(text: str):
-        console.print(text)
+    # Streaming callbacks
+    _streamed_any = False
+
+    def on_text_delta(text: str):
+        nonlocal _streamed_any
+        _streamed_any = True
+        print(text, end="", flush=True)
 
     def on_tool_call(name: str, inp: dict):
-        # Show tool call in dim
+        nonlocal _streamed_any
+        if _streamed_any:
+            print()  # Newline after streamed text
+            _streamed_any = False
         inp_summary = json.dumps(inp, default=str)
         if len(inp_summary) > 80:
             inp_summary = inp_summary[:77] + "..."
-        console.print(f"  [dim]→ {name}({inp_summary})[/dim]")
+        console.print(f"  [dim]-> {name}({inp_summary})[/dim]")
 
-    def on_thinking(text: str):
-        # Optionally show thinking indicator
-        if text:
-            preview = text[:60].replace("\n", " ")
-            console.print(f"  [dim italic]thinking: {preview}...[/dim italic]")
+    def on_stream_end():
+        nonlocal _streamed_any
+        if _streamed_any:
+            print()  # Final newline after streamed text
+            _streamed_any = False
 
     def on_user_input() -> str | None:
         try:
@@ -84,9 +103,9 @@ def run(
 
     run_interactive(
         client,
-        on_text=on_text,
+        on_text_delta=on_text_delta,
         on_tool_call=on_tool_call,
-        on_thinking=on_thinking,
+        on_stream_end=on_stream_end,
         on_user_input=on_user_input,
     )
 

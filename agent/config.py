@@ -12,6 +12,13 @@ AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-4-6-20250929")
 MAX_TOKENS = 16384
 MAX_AGENT_TURNS = 30
 
+# Context management
+COMPACT_THRESHOLD = 120_000  # tokens — start compacting at this level
+
+# API resilience
+API_MAX_RETRIES = 3
+API_RETRY_DELAY = 1.0  # seconds — base delay, doubles each retry
+
 # ComfyUI connection
 COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1")
 COMFYUI_PORT = int(os.getenv("COMFYUI_PORT", "8188"))

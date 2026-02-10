@@ -5,7 +5,11 @@ Each tool module exports:
   handle(name, input)  — Execute a tool call, return result string
 """
 
+import logging
+
 from . import comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools
+
+log = logging.getLogger(__name__)
 
 _MODULES = (comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools)
 
@@ -25,5 +29,10 @@ def handle(name: str, tool_input: dict) -> str:
     """Dispatch a tool call to the right handler."""
     mod = _HANDLERS.get(name)
     if mod is None:
+        log.warning("Unknown tool called: %s", name)
         return f"Unknown tool: {name}"
-    return mod.handle(name, tool_input)
+    try:
+        return mod.handle(name, tool_input)
+    except Exception:
+        log.error("Unhandled error in tool %s", name, exc_info=True)
+        raise

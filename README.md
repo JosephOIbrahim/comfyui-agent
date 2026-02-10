@@ -1,228 +1,170 @@
 # ComfyUI Agent
 
-AI co-pilot for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — inspect, discover, modify, and execute workflows through natural conversation.
+An AI assistant for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) that understands your workflows and helps you work faster through natural conversation.
 
-Built on the [Anthropic API](https://docs.anthropic.com/) with a tool-use agent loop. The agent decides which tools to call; you just describe what you want.
+Instead of manually editing JSON, hunting for node packs, or debugging broken workflows yourself, just describe what you want and the agent handles it.
 
-## Features
+## What It Does
 
-- **Inspect** your ComfyUI installation — models, custom nodes, GPU stats, queue status
-- **Understand** workflows — auto-detect format (API/UI/hybrid), trace connections, find editable fields
-- **Modify** workflows — RFC6902 JSON patches with full undo history, preview, and diff
-- **Execute** workflows — queue prompts, poll for completion, inspect outputs
-- **Discover** node packs and models — search ComfyUI Manager registry (31,000+ node types) and HuggingFace Hub
-- **Remember** across sessions — save/load workflow state, record notes and preferences
+- **"What models do I have?"** — scans your installation instantly
+- **"Load this workflow and change the seed to 42"** — reads, modifies, and saves with undo support
+- **"What node pack do I need for IPAdapter?"** — searches 31,000+ node types to find the right pack
+- **"Run this with 30 steps instead of 20"** — patches the workflow and queues it to ComfyUI
+- **"Find me a good anime LoRA"** — searches ComfyUI Manager's registry and HuggingFace
+- **"Remember that I prefer SDXL for landscapes"** — saves notes for next time
 
-## Quick Start
+The agent talks to ComfyUI's API directly. It reads your actual installation, sees what's really installed, and works with your real workflows.
+
+## Installation
+
+You'll need:
+
+- **Python 3.10 or newer** (check with `python --version`)
+- **ComfyUI** running on your machine (the agent talks to it over HTTP)
+- **An Anthropic API key** (sign up at [console.anthropic.com](https://console.anthropic.com/))
+
+### Step 1: Download
 
 ```bash
-# Install
 git clone https://github.com/JosephOIbrahim/comfyui-agent.git
 cd comfyui-agent
+```
+
+### Step 2: Install
+
+```bash
+pip install -e .
+```
+
+For development (includes test tools):
+
+```bash
 pip install -e ".[dev]"
+```
 
-# Configure
+### Step 3: Configure
+
+```bash
 cp .env.example .env
-# Edit .env — add your ANTHROPIC_API_KEY
-
-# Run
-agent run                          # Interactive agent session
-agent run --session my-project     # With session persistence
 ```
 
-## Requirements
+Open `.env` in any text editor and add your API key:
 
-- Python >= 3.10
-- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running locally (default: `http://127.0.0.1:8188`)
-- Anthropic API key ([get one here](https://console.anthropic.com/))
+```
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
 
-## CLI Commands
+If your ComfyUI is installed somewhere other than `G:/COMFYUI_Database`, also set:
 
-### `agent run`
+```
+COMFYUI_DATABASE=/path/to/your/ComfyUI
+```
 
-Start an interactive agent session. The agent has access to all 28 tools and will use them based on your requests.
+### Step 4: Run
+
+Make sure ComfyUI is running first, then:
 
 ```bash
-agent run                          # Basic session
-agent run --session flux-portrait  # Named session (auto-save on exit)
+agent run
 ```
 
-### `agent inspect`
+That's it. Type what you want in plain English. Type `quit` to exit.
 
-Quick summary of your local ComfyUI installation — installed models by type and custom node packs.
+## Commands
+
+### Interactive session
 
 ```bash
-agent inspect
+agent run                             # Start chatting with the agent
+agent run --session my-project        # Auto-save your progress to resume later
+agent run --verbose                   # Show what's happening under the hood
 ```
 
-### `agent parse`
-
-Analyze a workflow file offline (no ComfyUI required).
+### Offline tools (no API key needed)
 
 ```bash
-agent parse workflow.json
+agent inspect                         # See what models and nodes you have installed
+agent parse workflow.json             # Analyze a workflow file
+agent sessions                        # See your saved sessions
 ```
 
-### `agent search`
-
-Search for custom node packs or models.
+### Search
 
 ```bash
-agent search "controlnet" --nodes       # Search node packs by name
-agent search "KSampler" --node-type     # Find which pack provides a node type
-agent search "sdxl" --models            # Search model registry
-agent search "flux" --hf                # Search HuggingFace Hub
-agent search "anime" --models --type lora  # Filter by model type
+agent search "controlnet" --nodes           # Find node packs
+agent search "KSampler" --node-type         # Which pack provides this node?
+agent search "sdxl" --models                # Search model registry
+agent search "flux lora" --hf               # Search HuggingFace
+agent search "anime" --models --type lora   # Filter by model type
 ```
 
-### `agent sessions`
+## How It Works
 
-List all saved sessions.
+The agent uses Claude (Anthropic's AI) with 28 specialized tools:
 
-```bash
-agent sessions
-```
+| Category | Tools | What they do |
+|----------|-------|-------------|
+| **Inspection** | 6 | Talk to ComfyUI's API — check status, list nodes, GPU stats |
+| **Filesystem** | 4 | Scan your models folder and custom nodes directory |
+| **Workflow Analysis** | 3 | Read workflows, detect format, trace connections, find editable fields |
+| **Workflow Editing** | 8 | Modify workflows with undo support, save, execute |
+| **Discovery** | 3 | Search ComfyUI Manager registry and HuggingFace |
+| **Session Memory** | 4 | Save your progress and preferences between conversations |
 
-## Tools Reference
-
-28 tools organized across 5 functional areas:
-
-### Inspection (6 tools)
-
-| Tool | Description |
-|------|-------------|
-| `is_comfyui_running` | Health check — GPU, Python version, connectivity |
-| `get_all_nodes` | All registered node types with optional filtering |
-| `get_node_info` | Full schema for a single node (inputs, outputs, types) |
-| `get_system_stats` | GPU memory, loaded models, system info |
-| `get_queue_status` | Running and pending queue items |
-| `get_history` | Past execution results by prompt ID |
-
-### Filesystem (4 tools)
-
-| Tool | Description |
-|------|-------------|
-| `list_custom_nodes` | Scan Custom_Nodes directory |
-| `list_models` | List model files by type with sizes |
-| `get_models_summary` | Aggregate model counts across all types |
-| `read_node_source` | Read a node pack's source code |
-
-### Workflow Analysis (3 tools)
-
-| Tool | Description |
-|------|-------------|
-| `load_workflow` | Full analysis — format detection, connection tracing, editable fields |
-| `validate_workflow` | Check against running ComfyUI (node types, required inputs, type compatibility) |
-| `get_editable_fields` | List tunable parameters grouped by node class |
-
-### Workflow Editing (8 tools)
-
-| Tool | Description |
-|------|-------------|
-| `apply_workflow_patch` | Apply RFC6902 JSON patches with undo support |
-| `preview_workflow_patch` | Dry-run — see what would change without committing |
-| `undo_workflow_patch` | Step back through patch history |
-| `get_workflow_diff` | Show all changes from base workflow |
-| `save_workflow` | Persist current state to file |
-| `reset_workflow` | Discard all patches, return to base |
-| `execute_workflow` | Queue prompt and poll for completion |
-| `get_execution_status` | Check execution status by prompt ID |
-
-### Discovery (3 tools)
-
-| Tool | Description |
-|------|-------------|
-| `search_custom_nodes` | Search ComfyUI Manager registry by name or node type |
-| `search_models` | Search local registry or HuggingFace Hub |
-| `find_missing_nodes` | Analyze workflow dependencies, suggest packs to install |
-
-### Session Memory (4 tools)
-
-| Tool | Description |
-|------|-------------|
-| `save_session` | Persist workflow state and notes |
-| `load_session` | Restore a previous session |
-| `list_sessions` | List all saved sessions with metadata |
-| `add_note` | Record observations and preferences for future sessions |
-
-## Architecture
-
-```
-User --> CLI (typer/rich) --> Agent Loop (anthropic tool-use) --> Tool Registry
-                                  |                                    |
-                                  v                                    v
-                            System Prompt                   7 Tool Modules (28 tools)
-                            + Knowledge                            |
-                                                        +----------+----------+
-                                                        v          v          v
-                                                  ComfyUI API   Filesystem  Session Memory
-                                                  (httpx)       (pathlib)   (JSON files)
-```
-
-**Single-agent, synchronous tool-use loop.** Claude picks which tools to call based on your request. No multi-agent orchestration, no async streaming — deliberately simple.
-
-The agent loop (`agent/main.py`) sends messages to the Anthropic API with all 28 tool definitions. When Claude responds with `tool_use` blocks, we execute them via the tool registry and feed results back. This continues until Claude produces a final text response.
-
-### Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Single agent | ComfyUI workflows are sequential; multi-agent adds complexity without benefit |
-| HTTP polling | Simpler tool context than WebSocket streaming for execution monitoring |
-| RFC6902 patches | Standard, composable, reversible — enables undo/preview/diff for free |
-| Module-level state | Single user, single session — avoids database complexity |
-| ComfyUI Manager JSONs | 31,312 node types + 527 models available offline, no API key needed |
-| Deterministic JSON | `sort_keys=True` everywhere for reproducible outputs ([He2025](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)) |
-| Format auto-detection | Users shouldn't need to know API vs UI format; agent handles both |
+When you ask a question, Claude decides which tools to use, calls them, reads the results, and responds. It streams text as it thinks, so you're never staring at a blank screen.
 
 ## Configuration
 
-All configuration via environment variables (`.env` file or shell):
+All settings go in your `.env` file:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | (required) | Your Anthropic API key |
-| `COMFYUI_HOST` | `127.0.0.1` | ComfyUI server host |
-| `COMFYUI_PORT` | `8188` | ComfyUI server port |
-| `COMFYUI_DATABASE` | `G:/COMFYUI_Database` | ComfyUI installation path |
-| `AGENT_MODEL` | `claude-opus-4-6-20250929` | Claude model to use |
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `ANTHROPIC_API_KEY` | (required) | Your API key for Claude |
+| `COMFYUI_HOST` | `127.0.0.1` | Where ComfyUI is running |
+| `COMFYUI_PORT` | `8188` | ComfyUI port |
+| `COMFYUI_DATABASE` | `G:/COMFYUI_Database` | Your ComfyUI installation folder |
+| `AGENT_MODEL` | `claude-opus-4-6-20250929` | Which Claude model to use |
+
+## Session Memory
+
+Sessions let the agent remember your workflow state and notes between conversations:
+
+```bash
+# Start a session
+agent run --session portrait-project
+
+# The agent remembers your loaded workflow, patches, and notes
+# Next time, just load the same session:
+agent run --session portrait-project
+```
+
+Sessions are saved as JSON files in the `sessions/` folder. You can list them with `agent sessions`.
+
+## Workflow Formats
+
+ComfyUI exports workflows in different formats. The agent handles all of them:
+
+- **API format** — the JSON you get from "Save (API Format)" in ComfyUI. Full node data with inputs and connections. Best for the agent.
+- **UI format with API data** — the default "Save" export. Contains visual layout plus embedded API data. Agent extracts what it needs.
+- **UI-only format** — older exports with only visual layout. The agent can read the structure but can't modify or execute these.
+
+## Troubleshooting
+
+**"ANTHROPIC_API_KEY not set"** — Make sure your `.env` file exists and has the key. Run from the `comfyui-agent` directory.
+
+**"Could not connect to ComfyUI"** — Start ComfyUI first. The agent needs it running to inspect nodes, execute workflows, and validate changes.
+
+**"Node type not found"** — The workflow uses a custom node that isn't installed. Ask the agent: "find missing nodes in this workflow" and it will tell you which packs to install.
 
 ## Testing
 
+Tests run without ComfyUI — everything is mocked:
+
 ```bash
-# Run all tests (no ComfyUI required — everything is mocked)
 python -m pytest tests/ -v
-
-# 121 tests, ~0.5s
-```
-
-Tests cover all 28 tools with mocked HTTP responses, temporary filesystems, and isolated session state. No live ComfyUI instance needed.
-
-## Project Structure
-
-```
-comfyui-agent/
-  agent/
-    cli.py              # 5 CLI commands (typer)
-    main.py             # Agent loop (tool-use)
-    config.py           # Environment + paths
-    system_prompt.py    # Prompt builder + rules
-    knowledge/          # ComfyUI reference docs
-    memory/             # Session persistence
-    tools/              # 28 tools across 7 modules
-      _util.py          # Deterministic JSON helper
-      comfy_api.py      # Live API tools
-      comfy_inspect.py  # Filesystem tools
-      workflow_parse.py # Workflow analysis
-      workflow_patch.py # RFC6902 editing + undo
-      comfy_execute.py  # Execution + polling
-      comfy_discover.py # Registry + HuggingFace search
-      session_tools.py  # Session memory bridge
-  tests/                # 121 tests (8 modules)
-  sessions/             # Saved session JSON files
-  workflows/            # User workflow storage
+# 134 tests, under 1 second
 ```
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — use it however you want.
