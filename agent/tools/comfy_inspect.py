@@ -38,7 +38,8 @@ TOOLS: list[dict] = [
         "description": (
             "List model files in a specific model subdirectory "
             "(e.g. 'checkpoints', 'loras', 'controlnet', 'vae'). "
-            "Returns filenames and sizes."
+            "Use format='names_only' for just filenames, "
+            "'summary' (default) for name+size, 'full' for all details."
         ),
         "input_schema": {
             "type": "object",
@@ -49,6 +50,15 @@ TOOLS: list[dict] = [
                         "Subdirectory under models/ to scan. "
                         "Common: checkpoints, loras, vae, controlnet, "
                         "clip, upscale_models, embeddings, unet, diffusion_models."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["names_only", "summary", "full"],
+                    "description": (
+                        "'names_only': just filenames. "
+                        "'summary': name + human-readable size (default). "
+                        "'full': name + size + size_bytes."
                     ),
                 },
             },
@@ -170,6 +180,7 @@ def _handle_list_custom_nodes(tool_input: dict) -> str:
 
 def _handle_list_models(tool_input: dict) -> str:
     model_type = tool_input["model_type"]
+    fmt = tool_input.get("format", "summary")
     model_dir = MODELS_DIR / model_type
 
     if not model_dir.exists():
@@ -180,26 +191,39 @@ def _handle_list_models(tool_input: dict) -> str:
             "available_types": sorted(available),
         })
 
-    models = []
-    for f in sorted(model_dir.rglob("*")):
-        if not f.is_file():
-            continue
-        if f.suffix.lower() not in _MODEL_EXTENSIONS:
-            continue
-        # Path relative to model_dir
-        rel = f.relative_to(model_dir)
-        models.append({
-            "name": str(rel),
-            "size": _human_size(f.stat().st_size),
-            "size_bytes": f.stat().st_size,
-        })
+    # Collect model paths
+    model_files = sorted(
+        f for f in model_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in _MODEL_EXTENSIONS
+    )
 
-    return to_json({
+    base = {
         "model_type": model_type,
         "directory": str(model_dir),
-        "count": len(models),
-        "models": models,
-    })
+        "count": len(model_files),
+    }
+
+    if fmt == "names_only":
+        base["models"] = [str(f.relative_to(model_dir)) for f in model_files]
+        return to_json(base)
+
+    if fmt == "full":
+        base["models"] = [
+            {
+                "name": str(f.relative_to(model_dir)),
+                "size": _human_size(f.stat().st_size),
+                "size_bytes": f.stat().st_size,
+            }
+            for f in model_files
+        ]
+        return to_json(base)
+
+    # Default: summary (name + human-readable size)
+    base["models"] = [
+        {"name": str(f.relative_to(model_dir)), "size": _human_size(f.stat().st_size)}
+        for f in model_files
+    ]
+    return to_json(base)
 
 
 def _handle_get_models_summary() -> str:

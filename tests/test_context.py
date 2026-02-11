@@ -75,7 +75,7 @@ class TestCompaction:
         result = _compact_messages(messages, threshold=2000)
         # Should keep summary + recent 6
         assert len(result) <= 7
-        assert "omitted" in result[0]["content"]
+        assert "Context Summary" in result[0]["content"]
 
     def test_preserves_recent_messages(self):
         messages = [

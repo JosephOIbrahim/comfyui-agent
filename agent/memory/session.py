@@ -9,7 +9,6 @@ File format: JSON in sessions/{name}.json with sort_keys=True
 for deterministic serialization (He2025 alignment).
 """
 
-import copy
 import json
 import time
 from pathlib import Path

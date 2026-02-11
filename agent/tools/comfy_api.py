@@ -30,10 +30,11 @@ TOOLS: list[dict] = [
     {
         "name": "get_all_nodes",
         "description": (
-            "Get the complete list of all registered node types in ComfyUI "
-            "via GET /object_info. Returns every node's class_type, inputs, "
-            "outputs, and category. This can be large — prefer get_node_info "
-            "for a specific node."
+            "Get registered node types in ComfyUI via GET /object_info. "
+            "Use format='names_only' (just class_type names) or "
+            "'summary' (name+category) to control response size. "
+            "Use 'full' for complete input/output schemas. "
+            "Prefer get_node_info for a specific node."
         ),
         "input_schema": {
             "type": "object",
@@ -51,6 +52,15 @@ TOOLS: list[dict] = [
                     "description": (
                         "Optional substring to filter nodes by class_type name "
                         "(e.g. 'KSampler', 'ControlNet'). Case-insensitive."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["names_only", "summary", "full"],
+                    "description": (
+                        "Response format. 'names_only': just class_type names (smallest). "
+                        "'summary': name + category + display_name (default). "
+                        "'full': includes input types and output types."
                     ),
                 },
             },
@@ -164,41 +174,53 @@ def _handle_is_running() -> str:
 def _handle_get_all_nodes(tool_input: dict) -> str:
     cat_filter = (tool_input.get("category_filter") or "").lower()
     name_filter = (tool_input.get("name_filter") or "").lower()
+    fmt = tool_input.get("format", "summary")
 
     all_info = _get("/object_info", timeout=30.0)
 
-    # Filter if requested
-    if cat_filter or name_filter:
-        filtered = {}
-        for name, info in sorted(all_info.items()):
-            cat = (info.get("category") or "").lower()
-            if cat_filter and cat_filter not in cat:
-                continue
-            if name_filter and name_filter not in name.lower():
-                continue
-            filtered[name] = {
+    # Apply filters
+    filtered_names = []
+    for name in sorted(all_info.keys()):
+        info = all_info[name]
+        cat = (info.get("category") or "").lower()
+        if cat_filter and cat_filter not in cat:
+            continue
+        if name_filter and name_filter not in name.lower():
+            continue
+        filtered_names.append(name)
+
+    # Format output based on requested detail level
+    if fmt == "names_only":
+        return to_json({
+            "count": len(filtered_names),
+            "nodes": filtered_names,
+        })
+
+    if fmt == "full":
+        nodes = {}
+        for name in filtered_names:
+            info = all_info[name]
+            nodes[name] = {
                 "category": info.get("category", ""),
                 "display_name": info.get("display_name", name),
                 "description": info.get("description", ""),
                 "input_types": list((info.get("input", {}).get("required", {})).keys()),
                 "output_types": info.get("output", []),
             }
-        return to_json({
-            "count": len(filtered),
-            "nodes": filtered,
-        })
+        return to_json({"count": len(nodes), "nodes": nodes})
 
-    # No filter — return summary (full object_info is huge)
-    summary = {}
-    for name, info in sorted(all_info.items()):
-        summary[name] = {
+    # Default: summary (name + category + display_name)
+    nodes = {}
+    for name in filtered_names:
+        info = all_info[name]
+        nodes[name] = {
             "category": info.get("category", ""),
             "display_name": info.get("display_name", name),
         }
     return to_json({
-        "count": len(summary),
-        "nodes": summary,
-        "hint": "Use name_filter or category_filter to narrow results, or get_node_info for details on a specific node.",
+        "count": len(nodes),
+        "nodes": nodes,
+        "hint": "Use format='names_only' for smaller response, or get_node_info for details on a specific node.",
     })
 
 

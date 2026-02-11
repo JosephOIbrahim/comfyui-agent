@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import patch
 from agent.tools import workflow_parse
 
@@ -300,7 +299,6 @@ class TestValidateWorkflow:
 
     def test_validation_with_mock_comfyui(self, api_workflow):
         """Mock a successful validation against object_info."""
-        import httpx
 
         mock_object_info = {
             "CheckpointLoaderSimple": {

@@ -1,6 +1,5 @@
 """Test the tool registry and dispatch."""
 
-import json
 from agent.tools import ALL_TOOLS, handle
 
 
@@ -22,46 +21,78 @@ class TestToolRegistry:
         assert "Unknown tool" in result
 
     def test_expected_tools_present(self):
-        """Phase 1 + Phase 2 + Phase 3 tools should all be registered."""
+        """All tools should be registered."""
         names = {t["name"] for t in ALL_TOOLS}
         expected = {
-            # Phase 1: ComfyUI API
+            # ComfyUI API
             "is_comfyui_running",
             "get_all_nodes",
             "get_node_info",
             "get_system_stats",
             "get_queue_status",
             "get_history",
-            # Phase 1: Filesystem inspection
+            # Filesystem inspection
             "list_custom_nodes",
             "list_models",
             "get_models_summary",
             "read_node_source",
-            # Phase 2: Workflow parsing
+            # Workflow parsing
             "load_workflow",
             "validate_workflow",
             "get_editable_fields",
-            # Phase 3: Workflow patching
+            # Workflow patching (RFC6902)
             "apply_workflow_patch",
             "preview_workflow_patch",
             "undo_workflow_patch",
             "get_workflow_diff",
             "save_workflow",
             "reset_workflow",
-            # Phase 3: Execution
+            # Semantic composition
+            "add_node",
+            "connect_nodes",
+            "set_input",
+            # Execution
+            "validate_before_execute",
             "execute_workflow",
             "get_execution_status",
-            # Phase 4: Discovery
+            # Discovery
             "search_custom_nodes",
             "search_models",
             "find_missing_nodes",
-            # Phase 5: Session memory
+            # Templates
+            "list_workflow_templates",
+            "get_workflow_template",
+            # Session memory
             "save_session",
             "load_session",
             "list_sessions",
             "add_note",
+            # Brain: Vision
+            "analyze_image",
+            "compare_outputs",
+            "suggest_improvements",
+            # Brain: Planner
+            "plan_goal",
+            "get_plan",
+            "complete_step",
+            "replan",
+            # Brain: Memory
+            "record_outcome",
+            "get_learned_patterns",
+            "get_recommendations",
+            # Brain: Orchestrator
+            "spawn_subtask",
+            "check_subtasks",
+            # Brain: Optimizer
+            "profile_workflow",
+            "suggest_optimizations",
+            "check_tensorrt_status",
+            "apply_optimization",
+            # Brain: Demo
+            "start_demo",
+            "demo_checkpoint",
         }
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 28, f"Expected 28 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 52, f"Expected 52 tools, got {len(ALL_TOOLS)}"

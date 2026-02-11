@@ -1,7 +1,6 @@
 """Tests for comfy_api tool — mocked HTTP, no real ComfyUI needed."""
 
 import json
-import pytest
 from unittest.mock import patch, MagicMock
 from agent.tools import comfy_api
 

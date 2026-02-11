@@ -6,7 +6,6 @@ import logging
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.text import Text
 
 from .config import AGENT_MODEL, COMFYUI_URL, COMFYUI_DATABASE, ANTHROPIC_API_KEY
 from .tools import comfy_inspect, comfy_discover, session_tools
@@ -52,6 +51,8 @@ def run(
         title="ComfyUI Agent v0.1",
     ))
 
+    # Load session context for system prompt injection
+    session_context = None
     if session:
         console.print(f"[dim]Session: {session}[/dim]")
         # Restore session state
@@ -62,6 +63,16 @@ def run(
                 console.print(f"[dim]Workflow loaded: {load_result.get('workflow_path')}[/dim]")
             if load_result.get("notes_count", 0) > 0:
                 console.print(f"[dim]{load_result['notes_count']} note(s) from previous session[/dim]")
+            # Build session context for system prompt
+            session_context = {
+                "name": session,
+                "notes": load_result.get("notes", []),
+                "workflow": {
+                    "loaded_path": load_result.get("workflow_path"),
+                    "format": load_result.get("workflow_format"),
+                    "history_depth": 0,
+                },
+            }
 
     console.print("[dim]Type your question or command. 'quit' to exit.[/dim]\n")
 
@@ -103,6 +114,7 @@ def run(
 
     run_interactive(
         client,
+        session_context=session_context,
         on_text_delta=on_text_delta,
         on_tool_call=on_tool_call,
         on_stream_end=on_stream_end,
@@ -185,11 +197,6 @@ def parse(
             for node in data["nodes"]:
                 nid = str(node.get("id", ""))
                 node_type = node.get("type", "Unknown")
-                # Extract widget values as inputs
-                inputs = {}
-                for inp in node.get("inputs", []):
-                    if isinstance(inp, dict) and "name" in inp:
-                        pass  # connection inputs handled separately
                 widgets = node.get("widgets_values", [])
                 nodes[nid] = {
                     "class_type": node_type,

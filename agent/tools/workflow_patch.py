@@ -203,6 +203,89 @@ TOOLS: list[dict] = [
             "required": [],
         },
     },
+    # --- Semantic composition tools ---
+    {
+        "name": "add_node",
+        "description": (
+            "Add a new node to the loaded workflow. Assigns a unique node ID "
+            "and sets up the node with the given class_type and optional input values. "
+            "Returns the assigned node_id so you can connect it to other nodes. "
+            "A workflow must be loaded first (via apply_workflow_patch or load from template)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "class_type": {
+                    "type": "string",
+                    "description": "Node class_type (e.g. 'KSampler', 'CLIPTextEncode', 'CheckpointLoaderSimple').",
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": (
+                        "Optional initial input values. Keys are input names, "
+                        "values are literals (int, float, str). Connections should "
+                        "be set separately with connect_nodes."
+                    ),
+                },
+            },
+            "required": ["class_type"],
+        },
+    },
+    {
+        "name": "connect_nodes",
+        "description": (
+            "Connect one node's output to another node's input. "
+            "This sets the connection in the workflow graph. "
+            "Example: connect KSampler output 0 to VAEDecode input 'samples'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_node": {
+                    "type": "string",
+                    "description": "Source node ID (the node producing the output).",
+                },
+                "from_output": {
+                    "type": "integer",
+                    "description": "Output index on the source node (usually 0).",
+                },
+                "to_node": {
+                    "type": "string",
+                    "description": "Target node ID (the node receiving the input).",
+                },
+                "to_input": {
+                    "type": "string",
+                    "description": "Input name on the target node (e.g. 'model', 'samples', 'clip').",
+                },
+            },
+            "required": ["from_node", "from_output", "to_node", "to_input"],
+        },
+    },
+    {
+        "name": "set_input",
+        "description": (
+            "Set a literal input value on a node. For connections between nodes, "
+            "use connect_nodes instead. This is for values like seed, steps, "
+            "cfg, sampler_name, prompt text, model filenames, etc."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string",
+                    "description": "Target node ID.",
+                },
+                "input_name": {
+                    "type": "string",
+                    "description": "Input field name (e.g. 'seed', 'steps', 'text', 'ckpt_name').",
+                },
+                "value": {
+                    "description": "The value to set (string, int, float, bool).",
+                },
+            },
+            "required": ["node_id", "input_name", "value"],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -290,7 +373,7 @@ def _handle_preview_patch(tool_input: dict) -> str:
     preview = []
     try:
         jp = jsonpatch.JsonPatch(patches)
-        result = jp.apply(copy.deepcopy(_state["current_workflow"]))
+        jp.apply(copy.deepcopy(_state["current_workflow"]))
     except Exception as e:
         return to_json({"error": f"Patch would fail: {e}"})
 
@@ -384,6 +467,118 @@ def _handle_reset() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Semantic composition handlers
+# ---------------------------------------------------------------------------
+
+def _next_node_id() -> str:
+    """Find the next available numeric node ID."""
+    workflow = _state["current_workflow"]
+    if not workflow:
+        return "1"
+    existing = set()
+    for key in workflow:
+        try:
+            existing.add(int(key))
+        except ValueError:
+            pass
+    next_id = max(existing, default=0) + 1
+    return str(next_id)
+
+
+def _handle_add_node(tool_input: dict) -> str:
+    err = _ensure_loaded()
+    if err:
+        return to_json({"error": err})
+
+    class_type = tool_input["class_type"]
+    inputs = tool_input.get("inputs", {})
+
+    # Save state for undo
+    _state["history"].append(copy.deepcopy(_state["current_workflow"]))
+
+    node_id = _next_node_id()
+    _state["current_workflow"][node_id] = {
+        "class_type": class_type,
+        "inputs": inputs,
+    }
+
+    return to_json({
+        "added": True,
+        "node_id": node_id,
+        "class_type": class_type,
+        "inputs": inputs,
+        "total_nodes": len(_state["current_workflow"]),
+    })
+
+
+def _handle_connect_nodes(tool_input: dict) -> str:
+    err = _ensure_loaded()
+    if err:
+        return to_json({"error": err})
+
+    from_node = tool_input["from_node"]
+    from_output = tool_input["from_output"]
+    to_node = tool_input["to_node"]
+    to_input = tool_input["to_input"]
+
+    workflow = _state["current_workflow"]
+
+    # Validate nodes exist
+    if from_node not in workflow:
+        return to_json({"error": f"Source node '{from_node}' not found in workflow."})
+    if to_node not in workflow:
+        return to_json({"error": f"Target node '{to_node}' not found in workflow."})
+
+    # Save state for undo
+    _state["history"].append(copy.deepcopy(workflow))
+
+    # Set connection (ComfyUI format: [source_node_id_str, output_index_int])
+    old_value = workflow[to_node].get("inputs", {}).get(to_input)
+    workflow[to_node].setdefault("inputs", {})[to_input] = [from_node, from_output]
+
+    from_class = workflow[from_node].get("class_type", "?")
+    to_class = workflow[to_node].get("class_type", "?")
+
+    return to_json({
+        "connected": True,
+        "from": f"{from_class} [{from_node}] output {from_output}",
+        "to": f"{to_class} [{to_node}].{to_input}",
+        "previous_value": old_value,
+    })
+
+
+def _handle_set_input(tool_input: dict) -> str:
+    err = _ensure_loaded()
+    if err:
+        return to_json({"error": err})
+
+    node_id = tool_input["node_id"]
+    input_name = tool_input["input_name"]
+    value = tool_input["value"]
+
+    workflow = _state["current_workflow"]
+
+    if node_id not in workflow:
+        return to_json({"error": f"Node '{node_id}' not found in workflow."})
+
+    # Save state for undo
+    _state["history"].append(copy.deepcopy(workflow))
+
+    old_value = workflow[node_id].get("inputs", {}).get(input_name)
+    workflow[node_id].setdefault("inputs", {})[input_name] = value
+
+    class_type = workflow[node_id].get("class_type", "?")
+
+    return to_json({
+        "set": True,
+        "node": f"{class_type} [{node_id}]",
+        "input": input_name,
+        "old_value": old_value,
+        "new_value": value,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -402,6 +597,12 @@ def handle(name: str, tool_input: dict) -> str:
             return _handle_save(tool_input)
         elif name == "reset_workflow":
             return _handle_reset()
+        elif name == "add_node":
+            return _handle_add_node(tool_input)
+        elif name == "connect_nodes":
+            return _handle_connect_nodes(tool_input)
+        elif name == "set_input":
+            return _handle_set_input(tool_input)
         else:
             return to_json({"error": f"Unknown tool: {name}"})
     except Exception as e:

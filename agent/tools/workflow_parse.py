@@ -264,7 +264,6 @@ def _build_summary(nodes: dict, connections: list[dict], fmt: str) -> str:
 
         for target, conns in sorted(by_target.items()):
             sources = [f"{c['from_class']}.out[{c['from_output']}]" for c in conns]
-            inputs = [c['to_input'] for c in conns]
             lines.append(f"  {target} <- {', '.join(sources)}")
 
     if fmt == "ui_only":
@@ -331,7 +330,6 @@ def _validate_against_comfyui(nodes: dict, connections: list[dict]) -> dict:
 
     # Check connection type compatibility
     for conn in connections:
-        source_id = conn["from_node"]
         source_class = conn["from_class"]
         output_idx = conn["from_output"]
         target_class = conn["to_class"]
