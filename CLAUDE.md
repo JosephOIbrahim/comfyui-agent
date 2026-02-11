@@ -22,13 +22,14 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-52 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+61 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
 OPTIMIZER, DEMO). Natural conversation drives workflow inspection, discovery, modification,
 execution, optimization, and learning. Built with the Anthropic SDK, httpx, and jsonpatch.
 
-The transport layer (HTTP/WS to ComfyUI) is deliberately thin and swappable. Our value
-lives in the intelligence and brain layers above it.
+The transport layer (HTTP/WS to ComfyUI) is deliberately thin and swappable. MCP transport
+is also available as an optional adapter (`agent/mcp_server.py`). Our value lives in the
+intelligence and brain layers above the transport.
 
 ---
 
@@ -42,7 +43,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (236 tests, all mocked, <10s)
+# Tests (347 tests, all mocked, <20s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -59,31 +60,30 @@ ruff format agent/ tests/
 
 ### Four Intelligence Layers
 
-The agent's 34 tools are organized into four layers, each solving a distinct problem
-for the artist. The transport underneath is commodity plumbing — our value lives here.
+The agent's 41 intelligence + 20 brain tools are organized into four layers, each solving
+a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
-┌──────────────────── SUPER DUPER AGENT v0.2.0 ─────────────────────┐
+┌──────────────────── SUPER DUPER AGENT v0.3.0 ─────────────────────┐
 │                                                                    │
-│  BRAIN LAYER (18 tools)                                            │
+│  BRAIN LAYER (20 tools)                                            │
 │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌───────┐ ┌───────┐ │
 │  │PLANNER │ │ VISION │ │ MEMORY │ │ ORCH  │ │OPTIM  │ │ DEMO  │ │
-│  │4 tools │ │3 tools │ │3 tools │ │2 tools│ │4 tools│ │2 tools│ │
+│  │4 tools │ │4 tools │ │4 tools │ │2 tools│ │4 tools│ │2 tools│ │
 │  └───┬────┘ └───┬────┘ └───┬────┘ └───┬───┘ └───┬───┘ └───┬───┘ │
 │      └──────────┴──────┬───┴──────────┴─────────┴─────────┘     │
 │                   _protocol.py (BrainMessage)                     │
 │      ┌──────────────┬──┴───────┬──────────────┐                   │
 │                                                                    │
-│  INTELLIGENCE LAYERS (34 tools)                                    │
+│  INTELLIGENCE LAYERS (41 tools)                                    │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │ UNDERSTAND│  │ DISCOVER  │  │  PILOT   │  │   VERIFY     │    │
-│  │ 13 tools  │  │  5 tools  │  │ 13 tools │  │   3 tools    │    │
+│  │ 13 tools  │  │  8 tools  │  │ 13 tools │  │   7 tools    │    │
 │  └─────┬─────┘  └─────┬─────┘  └────┬─────┘  └──────┬───────┘    │
 │        └──────────────┴──────┬───────┴───────────────┘            │
 │                    ┌─────────▼─────────┐                          │
 │                    │    TRANSPORT      │  <- Thin, swappable      │
-│                    │  (HTTP/WS today)  │                          │
-│                    │  (MCP tomorrow)   │                          │
+│                    │  (HTTP/WS + MCP)  │                          │
 │                    └─────────┬─────────┘                          │
 └──────────────────────────────┼────────────────────────────────────┘
                     ┌──────────▼──────────┐
@@ -96,47 +96,54 @@ for the artist. The transport underneath is commodity plumbing — our value liv
 
 | Layer | Module | Tools | Status |
 |-------|--------|-------|--------|
-| **UNDERSTAND** | `tools/workflow_parse.py` | 3 | ✅ loads, detects format, traces connections, extracts editable fields |
-| **UNDERSTAND** | `tools/comfy_inspect.py` | 4 | ✅ filesystem scanning, `list_models` with progressive disclosure |
-| **UNDERSTAND** | `tools/comfy_api.py` | 6 | ✅ live HTTP queries, `format` param for progressive disclosure |
-| **DISCOVER** | `tools/comfy_discover.py` | 3 | ✅ ComfyUI Manager registries (31k+ node types) + HuggingFace |
-| **DISCOVER** | `tools/workflow_templates.py` | 2 | ✅ starter workflows in `agent/templates/` |
-| **PILOT** | `tools/workflow_patch.py` | 9 | ✅ RFC6902 patching (6) + semantic: `add_node`, `connect_nodes`, `set_input` (3) |
-| **PILOT** | `tools/session_tools.py` | 4 | ✅ save/load/list sessions via `memory/session.py` |
-| **VERIFY** | `tools/comfy_execute.py` | 3 | ✅ `validate_before_execute`, `execute_workflow`, `get_execution_status` |
-| **BRAIN:VISION** | `brain/vision.py` | 3 | ✅ `analyze_image`, `compare_outputs`, `suggest_improvements` via Claude Vision |
-| **BRAIN:PLANNER** | `brain/planner.py` | 4 | ✅ `plan_goal`, `get_plan`, `complete_step`, `replan` — goal decomposition |
-| **BRAIN:MEMORY** | `brain/memory.py` | 3 | ✅ `record_outcome`, `get_learned_patterns`, `get_recommendations` — JSONL outcomes |
-| **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | ✅ `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
-| **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | ✅ `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
-| **BRAIN:DEMO** | `brain/demo.py` | 2 | ✅ `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
+| **UNDERSTAND** | `tools/workflow_parse.py` | 3 | loads, detects format, traces connections, extracts editable fields |
+| **UNDERSTAND** | `tools/comfy_inspect.py` | 4 | filesystem scanning, `list_models` with progressive disclosure |
+| **UNDERSTAND** | `tools/comfy_api.py` | 6 | live HTTP queries, `format` param for progressive disclosure |
+| **DISCOVER** | `tools/comfy_discover.py` | 4 | ComfyUI Manager registries (31k+ node types) + HuggingFace + freshness tracking |
+| **DISCOVER** | `tools/workflow_templates.py` | 2 | starter workflows in `agent/templates/` |
+| **DISCOVER** | `tools/civitai_api.py` | 3 | CivitAI search, model details, trending models + local cross-ref |
+| **DISCOVER** | `tools/model_compat.py` | 2 | model family identification (SD1.5/SDXL/Flux/SD3), compatibility checking |
+| **PILOT** | `tools/workflow_patch.py` | 9 | RFC6902 patching (6) + semantic: `add_node`, `connect_nodes`, `set_input` (3) |
+| **PILOT** | `tools/session_tools.py` | 4 | save/load/list sessions via `memory/session.py` |
+| **VERIFY** | `tools/comfy_execute.py` | 4 | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` (WebSocket) |
+| **BRAIN:VISION** | `brain/vision.py` | 4 | `analyze_image`, `compare_outputs`, `suggest_improvements`, `hash_compare_images` |
+| **BRAIN:PLANNER** | `brain/planner.py` | 4 | `plan_goal`, `get_plan`, `complete_step`, `replan` — goal decomposition |
+| **BRAIN:MEMORY** | `brain/memory.py` | 4 | `record_outcome`, `get_learned_patterns`, `get_recommendations`, `detect_implicit_feedback` |
+| **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
+| **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
+| **BRAIN:DEMO** | `brain/demo.py` | 2 | `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
+| **TRANSPORT** | `mcp_server.py` | — | MCP adapter exposing all 61 tools via Model Context Protocol (optional) |
 
 ### What's Built vs What's Next
 
 ```
-BUILT (v0.2.0 — working today):
-  ✅ 52 tools: 34 intelligence layer + 18 brain layer
+BUILT (v0.3.0 — working today):
+  ✅ 61 tools: 41 intelligence layer + 20 brain layer
   ✅ Agent loop with streaming, tool dispatch, context management
   ✅ RFC6902 patch engine with undo history
   ✅ ComfyUI Manager registry search (31k+ nodes)
   ✅ HuggingFace model search
+  ✅ CivitAI integration (search, trending, model details, local cross-ref)
   ✅ Session persistence and resume
   ✅ Knowledge system (ControlNet, Flux, video, recipes)
-  ✅ Brain: Vision (Claude Vision image analysis + A/B comparison)
+  ✅ Brain: Vision (Claude Vision + perceptual hash A/B comparison)
   ✅ Brain: Planner (goal decomposition, progress tracking, replanning)
-  ✅ Brain: Memory (outcome JSONL, pattern learning, recommendations)
-  ✅ Brain: Orchestrator (parallel sub-tasks, tool access profiles)
+  ✅ Brain: Memory (JSONL outcomes, pattern learning, contextual recs, implicit feedback)
+  ✅ Brain: Orchestrator (parallel sub-tasks, tool access profiles, TTL eviction)
   ✅ Brain: Optimizer (GPU profiles, TensorRT/CUTLASS, auto-apply)
   ✅ Brain: Demo (4 guided scenarios for streams/podcasts)
-  ✅ 236 tests, all mocked, <10s
+  ✅ MCP transport adapter (optional, exposes all 61 tools)
+  ✅ WebSocket execution monitoring (real-time progress)
+  ✅ Model compatibility tracking (SD1.5/SDXL/Flux/SD3 family detection)
+  ✅ Freshness tracking (registry staleness, cache management)
+  ✅ Path sanitization and thread safety
+  ✅ 347 tests, all mocked, <20s, 0 lint warnings
 
-NEXT (the moat — where nobody else is building):
-  🔲 CivitAI integration (community models, ratings, trending)
-  🔲 MCP transport adapter (swap in alongside HTTP/WS)
-  🔲 Perceptual hash comparison for output images
+NEXT:
   🔲 Agent SDK extraction (brain modules -> standalone agents)
-  🔲 WebSocket execution monitoring (real-time progress)
-  🔲 Model compatibility tracking (which checkpoints <-> which nodes)
+  🔲 Rich CLI formatting (panels, tables, syntax highlighting)
+  🔲 GitHub API release tracking for key custom node repos
+  🔲 Proactive surfacing: recommend when relevant, not firehose
 ```
 
 ---
@@ -196,18 +203,12 @@ that would cut your render time in half for this workflow."
 - `workflow_templates.py` — starter workflows in `agent/templates/`
 
 **Data Sources (Real-Time ACCESS, Not Learned):**
-- ✅ HuggingFace API — model search, metadata, download counts
-- ✅ ComfyUI Manager node registry — available nodes, versions, compatibility
-- ✅ Local filesystem scan — what's already installed (via `comfy_inspect.py`)
-- 🔲 CivitAI API — community models, ratings, usage stats
-- 🔲 GitHub API — release tracking for key custom node repos
-
-**Next steps (the moat):**
-- Contextual recommendations: compare workflow needs against available options
-- CivitAI integration for community model discovery
-- Freshness tracking: "new this week" vs "been around for months"
-- Model compatibility mapping (which checkpoints ↔ which nodes/samplers)
-- Proactive surfacing: recommend only when relevant, not as a firehose
+- HuggingFace API — model search, metadata, download counts
+- ComfyUI Manager node registry — available nodes, versions, compatibility
+- Local filesystem scan — what's already installed (via `comfy_inspect.py`)
+- CivitAI API — community models, ratings, usage stats, trending
+- Freshness tracking — registry staleness, cache management, model directory stats
+- Model compatibility — SD1.5/SDXL/Flux/SD3 family detection via regex patterns
 
 **Recommendation Format (target):**
 ```
@@ -248,14 +249,9 @@ modifications to existing workflows using RFC6902 JSON patches.
 **Purpose:** Trust but verify. Prove the change did what we said it would.
 
 **Current implementation:**
-- `comfy_execute.py` — `validate_before_execute` for pre-flight checks, `execute_workflow`, `get_execution_status`
-
-**Next steps:**
-- Output capture (hash outputs per workflow+seed)
-- Same-seed A/B comparison (before/after modification)
-- Render time delta tracking
-- Perceptual hash comparison for image outputs
-- Regression detection (unexpected output changes)
+- `comfy_execute.py` — `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` (WebSocket real-time monitoring with progress events)
+- `brain/vision.py` — `hash_compare_images` for perceptual hash A/B comparison (no API call)
+- `brain/memory.py` — `detect_implicit_feedback` for behavioral signal detection
 
 **Verification Report (target):**
 ```
@@ -279,9 +275,10 @@ with `tools/_util.py`.
 tomorrow. Each module is stateless per-call but state-aware via persistence.
 
 ### Brain: Vision (`brain/vision.py`)
-Uses separate Claude Vision API calls (keeps images out of main context window).
+Uses separate Claude Vision API calls with 120s timeout (keeps images out of main context window).
 Analyzes generated images, compares A/B outputs, suggests parameter improvements.
 Returns structured JSON (quality_score, artifacts, composition, suggestions).
+Also provides instant perceptual hash comparison (`hash_compare_images`) via Pillow aHash + pixel diff.
 
 ### Brain: Planner (`brain/planner.py`)
 Template-based goal decomposition — 6 patterns (build_workflow, optimize_workflow,
@@ -291,12 +288,15 @@ State persists to `sessions/{name}_goals.json`. Supports step completion, replan
 ### Brain: Memory (`brain/memory.py`)
 Append-only JSONL outcomes in `sessions/{name}_outcomes.jsonl`. Aggregation-based
 pattern detection: best model combos, optimal params, speed analysis, quality trends.
-Implicit feedback from conversation ("that looks great" -> positive).
+Contextual recommendations (workflow-aware), negative pattern avoidance, goal-specific recs.
+Implicit feedback detection: reuse (positive), abandonment (negative), refinement bursts
+(positive), parameter regression (negative) — with inferred satisfaction scoring.
 
 ### Brain: Orchestrator (`brain/orchestrator.py`)
-Parallel sub-tasks via ThreadPoolExecutor. Three tool access profiles: researcher
-(read-only), builder (can modify workflows), validator (can execute + analyze).
-Max 3 concurrent, 60s timeout, results in original order.
+Parallel sub-tasks via ThreadPoolExecutor with thread safety (locks on `_active_tasks`).
+Three tool access profiles: researcher (read-only), builder (can modify workflows),
+validator (can execute + analyze). Max 3 concurrent, 60s timeout, TTL eviction of
+completed tasks after 10 minutes, results in original order.
 
 ### Brain: Optimizer (`brain/optimizer.py`)
 GPU profiles for RTX 4090/4080/3090/3080. TensorRT integration via ComfyUI_TensorRT
@@ -349,71 +349,47 @@ Artist doesn't know or care which transport is active.
 **Decision: HTTP/WS is the primary transport. MCP is additive, not a replacement.**
 The intelligence layers don't care which transport is underneath — that's the point.
 
-### MCP Integration Strategy
+### MCP Server (`agent/mcp_server.py`)
 
-We do NOT build a full MCP server from scratch. When MCP is added:
-1. Create `transport/mcp_adapter.py` implementing the same interface as HTTP
-2. Auto-detect: if MCP server is available, use it; otherwise fall back to HTTP
-3. No tool changes needed — transport is invisible to the intelligence layers
+All 61 tools are exposed via Model Context Protocol using `mcp.server.Server`. Install with
+`pip install -e ".[mcp]"` and run `agent mcp` to start the stdio transport. Schema conversion
+bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool handlers are wrapped with
+`run_in_executor` for the async MCP runtime.
 
 ### Supported Backends (Priority Order)
-1. **Direct HTTP/WS** — ComfyUI's native API (current, always works)
-2. **IO-AtelierTech MCP** — if artist already has it installed
-3. **Comfy Pilot MCP** — alternative MCP implementation
-4. **Custom thin MCP** — only if we need features others don't expose
+1. **Direct HTTP/WS** — ComfyUI's native API (primary, always works)
+2. **MCP stdio** — `agent mcp` command, for integration with MCP clients
+3. **IO-AtelierTech MCP** — if artist already has it installed
+4. **Comfy Pilot MCP** — alternative MCP implementation
 
 ---
 
 ## Implementation Roadmap
 
-### ✅ Phase 1: Foundation (COMPLETE)
+### Phase 1: Foundation -- COMPLETE
 34 tools, agent loop, patch engine, session persistence, knowledge system, 169 tests.
 
-### ✅ Phase 1.5: Brain Layer (COMPLETE)
+### Phase 1.5: Brain Layer -- COMPLETE
 18 brain tools: vision, planner, memory, orchestrator, optimizer, demo. 236 total tests.
 
-### Phase 2: DISCOVER Enhancement ⭐ THE MOAT
-**Goal:** Contextual, real-time ecosystem awareness matched to artist context.
+### Phase 2: DISCOVER Enhancement -- COMPLETE
+CivitAI integration, contextual recommendations, freshness tracking, model compatibility,
+implicit feedback detection, perceptual hash comparison, WebSocket monitoring, MCP adapter.
+347 tests. 61 tools.
+
+### Phase 3: Hardening -- COMPLETE
+Error handling (graceful JSON errors), path sanitization, thread safety (locks on mutable
+state), orchestrator TTL eviction, vision API timeout, agent loop tests (27 tests for
+main.py).
+
+### Phase 4: Next
+**Goal:** Agent SDK extraction and rich CLI experience.
 
 **Tasks:**
-1. 🔲 Build contextual recommendation engine (workflow context → relevant discoveries)
-2. 🔲 Integrate CivitAI API (community models, ratings, trending)
-3. 🔲 Build freshness tracker (when did we last scan? what's new since?)
-4. 🔲 Model compatibility mapping (checkpoints ↔ nodes/samplers)
-5. 🔲 Proactive surfacing logic (recommend when relevant, not firehose)
-
-**Success Criteria:**
-- "What models do I have for SDXL?" → instant, accurate answer from local index
-- "Anything new for ControlNet this week?" → real-time search, filtered to relevant
-- "Can I speed up this workflow?" → analyze pipeline, suggest swaps with reasoning
-
-### Phase 3: VERIFY Enhancement
-**Goal:** Prove changes work. Catch regressions. Build trust.
-
-**Tasks:**
-1. 🔲 Output capture system (hash outputs per workflow+seed)
-2. 🔲 Same-seed A/B comparison runner
-3. 🔲 Render time delta tracking
-4. 🔲 Perceptual hash comparison for images
-5. 🔲 Regression detection and flagging
-
-### Phase 4: MCP Transport Adapter
-**Goal:** Swappable transport without touching intelligence layers.
-
-**Tasks:**
-1. 🔲 Define abstract adapter interface in `transport/adapter.py`
-2. 🔲 Refactor `comfy_api.py` to implement adapter interface
-3. 🔲 Build MCP adapter implementing same interface
-4. 🔲 Auto-detection: use MCP if available, fall back to HTTP
-
-### Phase 5: Demo Shell (THE PRODUCT)
-**Goal:** Interactive experience suitable for live demonstration to VFX artists.
-
-**Tasks:**
-1. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
-2. 🔲 Demo mode: guided walkthrough of capabilities
-3. 🔲 "Explain as you go" narration
-4. 🔲 Scripted demo scenarios (lighting setup, model swap, ControlNet addition)
+1. 🔲 Agent SDK extraction (brain modules -> standalone agents)
+2. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
+3. 🔲 GitHub API release tracking for key custom node repos
+4. 🔲 Proactive surfacing (recommend when relevant, not firehose)
 
 **Success Criteria:**
 - Non-technical artist can modify a workflow using natural language
@@ -442,9 +418,12 @@ We do NOT build a full MCP server from scratch. When MCP is added:
 - Every patch is validated before application. No exceptions.
 
 ### Error Handling
-- Transport errors → retry with backoff, then surface to artist in plain language
-- Patch validation errors → explain what went wrong and suggest alternatives
-- Missing model errors → trigger DISCOVER layer to find alternatives
+- Transport errors -> retry with backoff, then surface to artist in plain language
+- Patch validation errors -> explain what went wrong and suggest alternatives
+- Missing model errors -> trigger DISCOVER layer to find alternatives
+- Tool exceptions caught at dispatch level (both `tools/__init__.py` and `brain/__init__.py`), returned as JSON error strings to prevent agent loop crashes
+- File path sanitization in `_util.validate_path()` blocks access outside allowed directories
+- Thread safety: workflow_patch, orchestrator, and demo modules use `threading.Lock` on mutable state
 - Never show raw tracebacks to the artist. Translate to human language.
 
 ### Commit Messages

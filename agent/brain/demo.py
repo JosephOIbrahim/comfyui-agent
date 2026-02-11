@@ -6,6 +6,7 @@ in artist terms, and paces for an audience.
 """
 
 import logging
+import threading
 import time
 
 from ..tools._util import to_json
@@ -243,6 +244,7 @@ _demo_state: dict = {
     "started_at": None,
     "checkpoints": [],
 }
+_demo_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -420,9 +422,10 @@ def _handle_demo_checkpoint(tool_input: dict) -> str:
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a demo tool call."""
-    if name == "start_demo":
-        return _handle_start_demo(tool_input)
-    elif name == "demo_checkpoint":
-        return _handle_demo_checkpoint(tool_input)
-    else:
-        return to_json({"error": f"Unknown demo tool: {name}"})
+    with _demo_lock:
+        if name == "start_demo":
+            return _handle_start_demo(tool_input)
+        elif name == "demo_checkpoint":
+            return _handle_demo_checkpoint(tool_input)
+        else:
+            return to_json({"error": f"Unknown demo tool: {name}"})

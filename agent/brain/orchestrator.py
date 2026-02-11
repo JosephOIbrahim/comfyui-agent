@@ -7,6 +7,7 @@ Tomorrow: Agent SDK sub-agents with isolated context windows.
 
 import concurrent.futures
 import logging
+import threading
 import time
 import uuid
 
@@ -17,9 +18,11 @@ log = logging.getLogger(__name__)
 # Max concurrent sub-tasks (matches global constraint)
 _MAX_CONCURRENT = 3
 _SUBTASK_TIMEOUT_S = 60
+_COMPLETED_TTL_S = 600  # Evict completed tasks after 10 minutes
 
 # Active sub-tasks: {task_id: {"status": ..., "result": ..., ...}}
 _active_tasks: dict[str, dict] = {}
+_tasks_lock = threading.Lock()
 
 # Tool access levels for sub-tasks
 _TOOL_PROFILES = {
@@ -117,6 +120,18 @@ TOOLS: list[dict] = [
 ]
 
 
+def _evict_stale_tasks() -> None:
+    """Remove completed/errored tasks older than TTL. Must be called with _tasks_lock held."""
+    now = time.time()
+    stale = [
+        tid for tid, task in _active_tasks.items()
+        if task["status"] in ("completed", "error", "timeout")
+        and now - task.get("completed_at", task.get("started_at", now)) > _COMPLETED_TTL_S
+    ]
+    for tid in stale:
+        del _active_tasks[tid]
+
+
 def _run_subtask(task_id: str, profile: str, tool_calls: list[dict]) -> dict:
     """Execute a sequence of tool calls with filtered access."""
     from ..tools import handle as handle_tool
@@ -163,10 +178,12 @@ def _handle_spawn_subtask(tool_input: dict) -> str:
     profile = tool_input["profile"]
     tool_calls = tool_input["tool_calls"]
 
-    # Check concurrency limit
-    active_count = sum(
-        1 for t in _active_tasks.values() if t["status"] == "running"
-    )
+    with _tasks_lock:
+        _evict_stale_tasks()
+        # Check concurrency limit
+        active_count = sum(
+            1 for t in _active_tasks.values() if t["status"] == "running"
+        )
     if active_count >= _MAX_CONCURRENT:
         return to_json({
             "error": f"Max {_MAX_CONCURRENT} concurrent sub-tasks. Wait for one to finish.",
@@ -191,13 +208,14 @@ def _handle_spawn_subtask(tool_input: dict) -> str:
 
     task_id = uuid.uuid4().hex[:8]
 
-    _active_tasks[task_id] = {
-        "status": "running",
-        "description": task_description,
-        "profile": profile,
-        "started_at": time.time(),
-        "tool_count": len(tool_calls),
-    }
+    with _tasks_lock:
+        _active_tasks[task_id] = {
+            "status": "running",
+            "description": task_description,
+            "profile": profile,
+            "started_at": time.time(),
+            "tool_count": len(tool_calls),
+        }
 
     # Run in background thread
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -206,13 +224,16 @@ def _handle_spawn_subtask(tool_input: dict) -> str:
     def _on_done(fut):
         try:
             result = fut.result(timeout=_SUBTASK_TIMEOUT_S)
-            _active_tasks[task_id].update(result)
+            with _tasks_lock:
+                _active_tasks[task_id].update(result)
         except concurrent.futures.TimeoutError:
-            _active_tasks[task_id]["status"] = "timeout"
-            _active_tasks[task_id]["error"] = f"Timed out after {_SUBTASK_TIMEOUT_S}s"
+            with _tasks_lock:
+                _active_tasks[task_id]["status"] = "timeout"
+                _active_tasks[task_id]["error"] = f"Timed out after {_SUBTASK_TIMEOUT_S}s"
         except Exception as e:
-            _active_tasks[task_id]["status"] = "error"
-            _active_tasks[task_id]["error"] = str(e)
+            with _tasks_lock:
+                _active_tasks[task_id]["status"] = "error"
+                _active_tasks[task_id]["error"] = str(e)
         finally:
             executor.shutdown(wait=False)
 
@@ -231,10 +252,12 @@ def _handle_spawn_subtask(tool_input: dict) -> str:
 def _handle_check_subtasks(tool_input: dict) -> str:
     task_ids = tool_input.get("task_ids", [])
 
-    if task_ids:
-        tasks = {tid: _active_tasks[tid] for tid in task_ids if tid in _active_tasks}
-    else:
-        tasks = dict(_active_tasks)
+    with _tasks_lock:
+        _evict_stale_tasks()
+        if task_ids:
+            tasks = {tid: _active_tasks[tid] for tid in task_ids if tid in _active_tasks}
+        else:
+            tasks = dict(_active_tasks)
 
     if not tasks:
         return to_json({"tasks": [], "message": "No active sub-tasks."})

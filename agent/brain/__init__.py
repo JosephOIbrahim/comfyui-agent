@@ -41,6 +41,7 @@ def handle(name: str, tool_input: dict) -> str:
         return f"Unknown brain tool: {name}"
     try:
         return mod.handle(name, tool_input)
-    except Exception:
+    except Exception as e:
         log.error("Unhandled error in brain tool %s", name, exc_info=True)
-        raise
+        from ..tools._util import to_json
+        return to_json({"error": f"Internal error in {name}: {type(e).__name__}: {e}"})

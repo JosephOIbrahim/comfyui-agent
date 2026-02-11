@@ -253,6 +253,14 @@ def _handle_read_node_source(tool_input: dict) -> str:
     max_lines = tool_input.get("max_lines", 200)
 
     pack_dir = CUSTOM_NODES_DIR / node_pack
+    # Prevent path traversal (e.g., "../../etc/passwd")
+    try:
+        resolved = pack_dir.resolve()
+        if not str(resolved).startswith(str(CUSTOM_NODES_DIR.resolve())):
+            return to_json({"error": "Access denied: path escapes Custom_Nodes directory."})
+    except (OSError, ValueError):
+        return to_json({"error": f"Invalid node pack name: {node_pack}"})
+
     if not pack_dir.exists():
         # Suggest similar names
         available = [

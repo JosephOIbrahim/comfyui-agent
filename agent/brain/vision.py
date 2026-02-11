@@ -28,6 +28,7 @@ except ImportError:
 
 # Vision analysis uses a smaller max_tokens since responses are structured
 _VISION_MAX_TOKENS = 4096
+_VISION_TIMEOUT = 120  # seconds — max wait for Vision API response
 
 TOOLS: list[dict] = [
     {
@@ -152,9 +153,11 @@ TOOLS: list[dict] = [
 
 def _read_image_as_base64(path: str) -> tuple[str, str]:
     """Read an image file and return (base64_data, media_type)."""
+    from ..tools._util import validate_path
+    path_err = validate_path(path, must_exist=True)
+    if path_err:
+        raise FileNotFoundError(path_err)
     p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Image not found: {path}")
 
     suffix = p.suffix.lower()
     media_types = {
@@ -172,7 +175,7 @@ def _read_image_as_base64(path: str) -> tuple[str, str]:
 def _call_vision(system_prompt: str, user_content: list) -> str:
     """Make a separate Claude Vision API call. Returns the text response."""
     try:
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(timeout=_VISION_TIMEOUT)
         response = client.messages.create(
             model=AGENT_MODEL,
             max_tokens=_VISION_MAX_TOKENS,

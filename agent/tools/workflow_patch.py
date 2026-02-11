@@ -10,6 +10,7 @@ undo as needed, then save or execute.
 
 import copy
 import json
+import threading
 from pathlib import Path
 
 import jsonpatch
@@ -27,6 +28,7 @@ _state = {
     "history": [],             # list[dict]: previous states for undo
     "format": None,            # str: "api" | "ui_with_api" | "ui_only"
 }
+_state_lock = threading.Lock()
 
 
 def _ensure_loaded() -> str | None:
@@ -38,9 +40,11 @@ def _ensure_loaded() -> str | None:
 
 def _load_workflow(path_str: str) -> str | None:
     """Load a workflow into state. Returns error or None."""
+    from ._util import validate_path
+    path_err = validate_path(path_str, must_exist=True)
+    if path_err:
+        return path_err
     path = Path(path_str)
-    if not path.exists():
-        return f"File not found: {path_str}"
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -435,6 +439,11 @@ def _handle_save(tool_input: dict) -> str:
     if not output_path:
         return to_json({"error": "No output path specified."})
 
+    from ._util import validate_path
+    path_err = validate_path(output_path)
+    if path_err:
+        return to_json({"error": path_err})
+
     try:
         Path(output_path).write_text(
             to_json(_state["current_workflow"], indent=2),
@@ -584,29 +593,30 @@ def _handle_set_input(tool_input: dict) -> str:
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a workflow_patch tool call."""
-    try:
-        if name == "apply_workflow_patch":
-            return _handle_apply_patch(tool_input)
-        elif name == "preview_workflow_patch":
-            return _handle_preview_patch(tool_input)
-        elif name == "undo_workflow_patch":
-            return _handle_undo()
-        elif name == "get_workflow_diff":
-            return _handle_get_diff()
-        elif name == "save_workflow":
-            return _handle_save(tool_input)
-        elif name == "reset_workflow":
-            return _handle_reset()
-        elif name == "add_node":
-            return _handle_add_node(tool_input)
-        elif name == "connect_nodes":
-            return _handle_connect_nodes(tool_input)
-        elif name == "set_input":
-            return _handle_set_input(tool_input)
-        else:
-            return to_json({"error": f"Unknown tool: {name}"})
-    except Exception as e:
-        return to_json({"error": str(e)})
+    with _state_lock:
+        try:
+            if name == "apply_workflow_patch":
+                return _handle_apply_patch(tool_input)
+            elif name == "preview_workflow_patch":
+                return _handle_preview_patch(tool_input)
+            elif name == "undo_workflow_patch":
+                return _handle_undo()
+            elif name == "get_workflow_diff":
+                return _handle_get_diff()
+            elif name == "save_workflow":
+                return _handle_save(tool_input)
+            elif name == "reset_workflow":
+                return _handle_reset()
+            elif name == "add_node":
+                return _handle_add_node(tool_input)
+            elif name == "connect_nodes":
+                return _handle_connect_nodes(tool_input)
+            elif name == "set_input":
+                return _handle_set_input(tool_input)
+            else:
+                return to_json({"error": f"Unknown tool: {name}"})
+        except Exception as e:
+            return to_json({"error": str(e)})
 
 
 def get_current_workflow() -> dict | None:
