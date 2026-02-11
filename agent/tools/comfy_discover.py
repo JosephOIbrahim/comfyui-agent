@@ -5,9 +5,12 @@ Primary data source: ComfyUI Manager's local JSON registries
 These ship with ComfyUI-Manager and cover 4,000+ packs and 31,000+ node types.
 
 Secondary: HuggingFace Hub API for broader model search.
+
+Includes freshness tracking to detect stale registry data and suggest updates.
 """
 
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -121,6 +124,29 @@ TOOLS: list[dict] = [
             "required": [],
         },
     },
+    {
+        "name": "check_registry_freshness",
+        "description": (
+            "Check how fresh the local discovery data is. Reports the age of "
+            "ComfyUI Manager registry files (custom-node-list, extension-node-map, "
+            "model-list) and local model directories. Helps decide whether to use "
+            "local cache or fetch updated data from CivitAI/HuggingFace. "
+            "Use refresh=true to clear the in-memory cache and force a reload."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "refresh": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, clears the in-memory registry cache so the next "
+                        "search reloads from disk. Default: false."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -136,6 +162,17 @@ _cache: dict = {
     "model_list": None,       # list[dict] from model-list.json
 }
 
+# Freshness tracking — records when each cache was last loaded
+_freshness: dict = {
+    "custom_nodes_loaded_at": None,   # epoch timestamp
+    "extension_map_loaded_at": None,
+    "model_list_loaded_at": None,
+}
+
+# Staleness thresholds (seconds)
+_STALE_THRESHOLD = 7 * 24 * 3600   # 7 days — registry files update infrequently
+_WARN_THRESHOLD = 30 * 24 * 3600   # 30 days — strongly suggest update
+
 
 def _load_custom_nodes() -> list[dict]:
     """Load and cache custom-node-list.json."""
@@ -149,6 +186,7 @@ def _load_custom_nodes() -> list[dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         _cache["custom_nodes"] = data.get("custom_nodes", [])
+        _freshness["custom_nodes_loaded_at"] = time.time()
     except Exception:
         _cache["custom_nodes"] = []
 
@@ -166,6 +204,7 @@ def _load_extension_map() -> dict:
 
     try:
         _cache["extension_map"] = json.loads(path.read_text(encoding="utf-8"))
+        _freshness["extension_map_loaded_at"] = time.time()
     except Exception:
         _cache["extension_map"] = {}
 
@@ -206,6 +245,7 @@ def _load_model_list() -> list[dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         _cache["model_list"] = data.get("models", [])
+        _freshness["model_list_loaded_at"] = time.time()
     except Exception:
         _cache["model_list"] = []
 
@@ -620,6 +660,128 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
     })
 
 
+def _clear_cache():
+    """Clear all in-memory caches, forcing reload from disk on next access."""
+    _cache["custom_nodes"] = None
+    _cache["extension_map"] = None
+    _cache["node_to_pack"] = None
+    _cache["model_list"] = None
+    _freshness["custom_nodes_loaded_at"] = None
+    _freshness["extension_map_loaded_at"] = None
+    _freshness["model_list_loaded_at"] = None
+
+
+def _file_age_info(path: Path) -> dict:
+    """Get age info for a file. Returns dict with exists, modified_at, age_s, age_human."""
+    if not path.exists():
+        return {"exists": False, "path": str(path)}
+
+    mtime = path.stat().st_mtime
+    age_s = time.time() - mtime
+    age_days = age_s / 86400
+
+    if age_days < 1:
+        age_human = f"{age_s / 3600:.1f} hours"
+    else:
+        age_human = f"{age_days:.1f} days"
+
+    if age_s > _WARN_THRESHOLD:
+        status = "very_stale"
+    elif age_s > _STALE_THRESHOLD:
+        status = "stale"
+    else:
+        status = "fresh"
+
+    return {
+        "exists": True,
+        "path": str(path),
+        "age_seconds": round(age_s),
+        "age_human": age_human,
+        "status": status,
+    }
+
+
+def _model_dir_stats() -> dict:
+    """Count model files by type in the models directory."""
+    if not MODELS_DIR.exists():
+        return {"exists": False, "path": str(MODELS_DIR)}
+
+    types = {}
+    for subdir in sorted(MODELS_DIR.iterdir()):
+        if subdir.is_dir():
+            count = sum(1 for f in subdir.iterdir() if f.is_file() and f.suffix in (
+                ".safetensors", ".ckpt", ".pt", ".pth", ".bin",
+            ))
+            if count > 0:
+                types[subdir.name] = count
+
+    return {
+        "exists": True,
+        "path": str(MODELS_DIR),
+        "types": types,
+        "total_files": sum(types.values()),
+    }
+
+
+def _handle_check_freshness(tool_input: dict) -> str:
+    """Check freshness of registry data and model files."""
+    if tool_input.get("refresh"):
+        _clear_cache()
+
+    # Check registry files
+    registry_files = {
+        "custom_node_list": _MANAGER_DIR / "custom-node-list.json",
+        "extension_node_map": _MANAGER_DIR / "extension-node-map.json",
+        "model_list": _MANAGER_DIR / "model-list.json",
+    }
+
+    registries = {}
+    any_stale = False
+    any_missing = False
+    for key, path in sorted(registry_files.items()):
+        info = _file_age_info(path)
+        registries[key] = info
+        if not info.get("exists"):
+            any_missing = True
+        elif info.get("status") in ("stale", "very_stale"):
+            any_stale = True
+
+    # Cache status
+    cache_status = {
+        "custom_nodes_cached": _cache["custom_nodes"] is not None,
+        "extension_map_cached": _cache["extension_map"] is not None,
+        "node_to_pack_cached": _cache["node_to_pack"] is not None,
+        "model_list_cached": _cache["model_list"] is not None,
+    }
+
+    # Model directory stats
+    models = _model_dir_stats()
+
+    # Build recommendations
+    recommendations = []
+    if any_missing:
+        recommendations.append(
+            "Install ComfyUI Manager to get registry data: "
+            "https://github.com/ltdrdata/ComfyUI-Manager"
+        )
+    if any_stale:
+        recommendations.append(
+            "Registry files are stale. Open ComfyUI Manager in the browser "
+            "and click 'Update ComfyUI Manager' to refresh."
+        )
+    if tool_input.get("refresh"):
+        recommendations.append("In-memory cache cleared. Next search will reload from disk.")
+
+    return to_json({
+        "registries": registries,
+        "cache": cache_status,
+        "models": models,
+        "manager_installed": _MANAGER_DIR.exists(),
+        "recommendations": recommendations,
+        "refreshed": bool(tool_input.get("refresh")),
+    })
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -633,6 +795,8 @@ def handle(name: str, tool_input: dict) -> str:
             return _handle_search_models(tool_input)
         elif name == "find_missing_nodes":
             return _handle_find_missing_nodes(tool_input)
+        elif name == "check_registry_freshness":
+            return _handle_check_freshness(tool_input)
         else:
             return to_json({"error": f"Unknown tool: {name}"})
     except Exception as e:

@@ -179,11 +179,94 @@ class TestGetExecutionStatus:
             assert result["status"] == "running"
 
 
+class TestExecuteWithProgress:
+    def test_fallback_when_no_websocket(self, sample_workflow):
+        """Falls back to polling when websockets unavailable."""
+        queue_resp = MagicMock()
+        queue_resp.json.return_value = {"prompt_id": "ws_test"}
+        queue_resp.raise_for_status = MagicMock()
+
+        history_resp = MagicMock()
+        history_resp.json.return_value = {
+            "ws_test": {
+                "status": {"status_str": "success", "completed": True},
+                "outputs": {"2": {"images": [{"filename": "ws_out.png", "subfolder": ""}]}},
+            },
+        }
+        history_resp.raise_for_status = MagicMock()
+
+        with patch.object(comfy_execute, "_HAS_WS", False), \
+             patch("agent.tools.comfy_execute.httpx.Client") as mock_cls:
+            mock_client = mock_cls.return_value.__enter__.return_value
+            mock_client.post.return_value = queue_resp
+            mock_client.get.return_value = history_resp
+
+            result = json.loads(comfy_execute.handle("execute_with_progress", {
+                "path": str(sample_workflow),
+                "timeout": 5,
+            }))
+            assert result["status"] == "complete"
+            assert result["monitoring"] == "polling_fallback"
+
+    def test_no_workflow_error(self):
+        from agent.tools import workflow_patch
+        workflow_patch._state["current_workflow"] = None
+        result = json.loads(comfy_execute.handle("execute_with_progress", {}))
+        assert "error" in result
+
+    def test_ws_execute_with_mock(self, sample_workflow):
+        """Simulate WebSocket execution with mocked connection."""
+        queue_resp = MagicMock()
+        queue_resp.json.return_value = {"prompt_id": "ws_full"}
+        queue_resp.raise_for_status = MagicMock()
+
+        history_resp = MagicMock()
+        history_resp.json.return_value = {
+            "ws_full": {
+                "status": {"status_str": "success", "completed": True},
+                "outputs": {"2": {"images": [{"filename": "ws_result.png", "subfolder": ""}]}},
+            },
+        }
+        history_resp.raise_for_status = MagicMock()
+
+        # Build WS message sequence
+        ws_messages = [
+            json.dumps({"type": "execution_start", "data": {"prompt_id": "ws_full"}}),
+            json.dumps({"type": "executing", "data": {"node": "1", "prompt_id": "ws_full"}}),
+            json.dumps({"type": "executing", "data": {"node": "2", "prompt_id": "ws_full"}}),
+            json.dumps({"type": "progress", "data": {"value": 3, "max": 5, "prompt_id": "ws_full"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "ws_full"}}),
+        ]
+
+        mock_ws = MagicMock()
+        msg_iter = iter(ws_messages)
+        mock_ws.recv.side_effect = lambda timeout=None: next(msg_iter)
+        mock_ws.__enter__ = MagicMock(return_value=mock_ws)
+        mock_ws.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(comfy_execute, "_HAS_WS", True), \
+             patch("agent.tools.comfy_execute.httpx.Client") as mock_http, \
+             patch("agent.tools.comfy_execute.websockets.sync.client.connect", return_value=mock_ws):
+            mock_client = mock_http.return_value.__enter__.return_value
+            mock_client.post.return_value = queue_resp
+            mock_client.get.return_value = history_resp
+
+            result = json.loads(comfy_execute.handle("execute_with_progress", {
+                "path": str(sample_workflow),
+                "timeout": 30,
+            }))
+            assert result["status"] == "complete"
+            assert result["monitoring"] == "websocket"
+            assert result["progress_events"] >= 3
+            assert len(result["node_timing"]) >= 1
+
+
 class TestRegistration:
     def test_tools_registered(self):
         from agent.tools import ALL_TOOLS
         names = {t["name"] for t in ALL_TOOLS}
         assert "execute_workflow" in names
+        assert "execute_with_progress" in names
         assert "get_execution_status" in names
         assert "apply_workflow_patch" in names
         assert "undo_workflow_patch" in names

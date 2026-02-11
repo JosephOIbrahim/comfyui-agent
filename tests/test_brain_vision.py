@@ -144,3 +144,79 @@ class TestSuggestImprovements:
 
         assert len(result["suggestions"]) == 1
         assert result["suggestions"][0]["parameter"] == "steps"
+
+
+class TestHashCompare:
+    def test_no_pillow(self, fake_image):
+        """Test graceful fallback when Pillow not available."""
+        with patch.object(vision, "_HAS_PIL", False):
+            result = json.loads(vision.handle("hash_compare_images", {
+                "image_a": fake_image,
+                "image_b": fake_image,
+            }))
+            assert "error" in result
+            assert "Pillow" in result["error"]
+
+    def test_file_not_found(self):
+        result = json.loads(vision.handle("hash_compare_images", {
+            "image_a": "/fake/a.png",
+            "image_b": "/fake/b.png",
+        }))
+        assert "error" in result
+
+    @pytest.mark.skipif(not vision._HAS_PIL, reason="Pillow not installed")
+    def test_identical_images(self, tmp_path):
+        from PIL import Image as PILImage
+        img = PILImage.new("RGB", (64, 64), (128, 128, 128))
+        path = tmp_path / "identical.png"
+        img.save(path)
+        result = json.loads(vision.handle("hash_compare_images", {
+            "image_a": str(path),
+            "image_b": str(path),
+        }))
+        assert result["verdict"] == "identical"
+        assert result["hash_similarity"] == 1.0
+        assert result["pixel_diff_pct"] == 0.0
+
+    @pytest.mark.skipif(not vision._HAS_PIL, reason="Pillow not installed")
+    def test_different_images(self, tmp_path):
+        """Create two visually different images and compare."""
+        from PIL import Image as PILImage
+
+        img_a = PILImage.new("RGB", (64, 64), (255, 0, 0))  # Red
+        img_b = PILImage.new("RGB", (64, 64), (0, 0, 255))  # Blue
+        path_a = tmp_path / "red.png"
+        path_b = tmp_path / "blue.png"
+        img_a.save(path_a)
+        img_b.save(path_b)
+
+        result = json.loads(vision.handle("hash_compare_images", {
+            "image_a": str(path_a),
+            "image_b": str(path_b),
+        }))
+        assert result["verdict"] in ("different", "very_different")
+        assert result["pixel_diff_pct"] > 50.0
+
+    @pytest.mark.skipif(not vision._HAS_PIL, reason="Pillow not installed")
+    def test_similar_images(self, tmp_path):
+        """Create two slightly different images."""
+        from PIL import Image as PILImage
+
+        img_a = PILImage.new("RGB", (64, 64), (100, 100, 100))
+        img_b = PILImage.new("RGB", (64, 64), (105, 100, 100))  # Slight red shift
+        path_a = tmp_path / "a.png"
+        path_b = tmp_path / "b.png"
+        img_a.save(path_a)
+        img_b.save(path_b)
+
+        result = json.loads(vision.handle("hash_compare_images", {
+            "image_a": str(path_a),
+            "image_b": str(path_b),
+        }))
+        assert result["hash_similarity"] >= 0.8
+        assert result["resolution_a"] == "64x64"
+
+    def test_hamming_distance(self):
+        assert vision._hamming_distance(0, 0) == 0
+        assert vision._hamming_distance(0b1111, 0b0000) == 4
+        assert vision._hamming_distance(0b1010, 0b0101) == 4

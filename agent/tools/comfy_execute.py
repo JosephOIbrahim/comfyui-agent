@@ -1,18 +1,28 @@
 """Workflow execution tools.
 
 Queue workflows to ComfyUI, track execution, retrieve outputs.
-Uses HTTP polling of /history for completion detection (simpler
-and more reliable than WebSocket in a tool context).
+Supports both HTTP polling (reliable) and WebSocket monitoring
+(real-time progress for long renders and demo mode).
 """
 
 import json
+import logging
 import time
 import uuid
 
 import httpx
 
-from ..config import COMFYUI_URL
+from ..config import COMFYUI_HOST, COMFYUI_PORT, COMFYUI_URL
 from ._util import to_json
+
+log = logging.getLogger(__name__)
+
+try:
+    import websockets
+    import websockets.sync.client
+    _HAS_WS = True
+except ImportError:
+    _HAS_WS = False
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -68,6 +78,29 @@ TOOLS: list[dict] = [
                         "Max seconds to wait for completion (default 120). "
                         "Set higher for video generation or complex workflows."
                     ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "execute_with_progress",
+        "description": (
+            "Execute a workflow with real-time WebSocket progress monitoring. "
+            "Returns node-by-node execution updates, progress percentages, and "
+            "estimated time. Best for long renders (video, multi-pass, Flux). "
+            "Falls back to HTTP polling if WebSocket is unavailable."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to workflow JSON. If omitted, uses loaded workflow.",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Max seconds to wait (default 300 for progress mode).",
                 },
             },
             "required": [],
@@ -235,6 +268,182 @@ def _poll_completion(
 
 
 # ---------------------------------------------------------------------------
+# WebSocket progress monitoring
+# ---------------------------------------------------------------------------
+
+def _execute_with_websocket(
+    workflow: dict,
+    timeout: float = 300,
+) -> dict:
+    """Execute workflow with real-time WebSocket progress updates."""
+    if not _HAS_WS:
+        # Fallback to polling
+        prompt_id, err = _queue_prompt(workflow)
+        if err:
+            return {"error": err}
+        result = _poll_completion(prompt_id, timeout=timeout)
+        result["monitoring"] = "polling_fallback"
+        return result
+
+    ws_url = f"ws://{COMFYUI_HOST}:{COMFYUI_PORT}/ws?clientId={_CLIENT_ID}"
+
+    # Queue the prompt first
+    prompt_id, err = _queue_prompt(workflow)
+    if err:
+        return {"error": err}
+
+    progress_log = []
+    node_times = {}
+    current_node = None
+    start_time = time.monotonic()
+
+    try:
+        with websockets.sync.client.connect(ws_url, close_timeout=5) as ws:
+            ws.recv_bufsize = 16 * 1024 * 1024  # 16MB for preview images
+            deadline = time.monotonic() + timeout
+
+            while time.monotonic() < deadline:
+                try:
+                    raw = ws.recv(timeout=2.0)
+                except TimeoutError:
+                    continue
+
+                # Skip binary messages (preview images)
+                if isinstance(raw, bytes):
+                    continue
+
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                msg_type = msg.get("type", "")
+                data = msg.get("data", {})
+
+                if msg_type == "status":
+                    queue_remaining = data.get("status", {}).get("exec_info", {}).get("queue_remaining", 0)
+                    if queue_remaining == 0 and progress_log:
+                        # Execution finished
+                        break
+
+                elif msg_type == "execution_start":
+                    if data.get("prompt_id") == prompt_id:
+                        progress_log.append({
+                            "event": "start",
+                            "elapsed_s": round(time.monotonic() - start_time, 2),
+                        })
+
+                elif msg_type == "executing":
+                    if data.get("prompt_id") != prompt_id:
+                        continue
+                    node_id = data.get("node")
+                    if node_id is None:
+                        # Execution complete
+                        progress_log.append({
+                            "event": "complete",
+                            "elapsed_s": round(time.monotonic() - start_time, 2),
+                        })
+                        break
+                    # Track node timing
+                    now = time.monotonic()
+                    if current_node and current_node in node_times:
+                        node_times[current_node]["end"] = now
+                        node_times[current_node]["duration_s"] = round(
+                            now - node_times[current_node]["start"], 2
+                        )
+                    current_node = node_id
+                    node_times[node_id] = {"start": now}
+                    # Get class_type from workflow
+                    class_type = workflow.get(node_id, {}).get("class_type", "Unknown")
+                    progress_log.append({
+                        "event": "executing_node",
+                        "node_id": node_id,
+                        "class_type": class_type,
+                        "elapsed_s": round(now - start_time, 2),
+                    })
+
+                elif msg_type == "progress":
+                    if data.get("prompt_id", prompt_id) == prompt_id:
+                        value = data.get("value", 0)
+                        max_val = data.get("max", 1)
+                        pct = round(value / max_val * 100, 1) if max_val else 0
+                        progress_log.append({
+                            "event": "progress",
+                            "node_id": current_node,
+                            "value": value,
+                            "max": max_val,
+                            "pct": pct,
+                            "elapsed_s": round(time.monotonic() - start_time, 2),
+                        })
+
+                elif msg_type == "execution_error":
+                    if data.get("prompt_id") == prompt_id:
+                        return {
+                            "status": "error",
+                            "prompt_id": prompt_id,
+                            "error": data.get("exception_message", "Unknown error"),
+                            "node_id": data.get("node_id"),
+                            "class_type": data.get("node_type"),
+                            "progress_log": progress_log,
+                            "monitoring": "websocket",
+                        }
+
+    except Exception as e:
+        log.warning("WebSocket monitoring failed, falling back to polling: %s", e)
+        result = _poll_completion(prompt_id, timeout=max(timeout - (time.monotonic() - start_time), 10))
+        result["monitoring"] = "polling_fallback"
+        result["ws_error"] = str(e)
+        return result
+
+    # Finalize node timing
+    if current_node and current_node in node_times and "end" not in node_times[current_node]:
+        node_times[current_node]["end"] = time.monotonic()
+        node_times[current_node]["duration_s"] = round(
+            node_times[current_node]["end"] - node_times[current_node]["start"], 2
+        )
+
+    total_time = round(time.monotonic() - start_time, 2)
+
+    # Fetch outputs from history
+    outputs = []
+    try:
+        with httpx.Client() as client:
+            resp = client.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10.0)
+            resp.raise_for_status()
+            history = resp.json()
+        if prompt_id in history:
+            for node_out in history[prompt_id].get("outputs", {}).values():
+                for img in node_out.get("images", []):
+                    outputs.append({"type": "image", "filename": img.get("filename"), "subfolder": img.get("subfolder", "")})
+                for vid in node_out.get("gifs", []):
+                    outputs.append({"type": "video", "filename": vid.get("filename"), "subfolder": vid.get("subfolder", "")})
+    except Exception:
+        pass
+
+    # Build node timing summary
+    timing = []
+    for nid, t in sorted(node_times.items()):
+        class_type = workflow.get(nid, {}).get("class_type", "Unknown")
+        timing.append({
+            "node_id": nid,
+            "class_type": class_type,
+            "duration_s": t.get("duration_s", 0),
+        })
+    timing.sort(key=lambda x: x["duration_s"], reverse=True)
+
+    return {
+        "status": "complete",
+        "prompt_id": prompt_id,
+        "total_time_s": total_time,
+        "outputs": outputs,
+        "node_timing": timing[:10],
+        "slowest_node": timing[0] if timing else None,
+        "progress_events": len(progress_log),
+        "monitoring": "websocket",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
 
@@ -366,6 +575,26 @@ def _handle_execute_workflow(tool_input: dict) -> str:
     return to_json(result)
 
 
+def _handle_execute_with_progress(tool_input: dict) -> str:
+    path_str = tool_input.get("path")
+    timeout = tool_input.get("timeout", 300)
+
+    if path_str:
+        workflow, err = _load_workflow_from_file(path_str)
+        if err:
+            return to_json({"error": err})
+    else:
+        from .workflow_patch import get_current_workflow
+        workflow = get_current_workflow()
+        if workflow is None:
+            return to_json({
+                "error": "No workflow loaded. Provide a 'path' or load one first.",
+            })
+
+    result = _execute_with_websocket(workflow, timeout=timeout)
+    return to_json(result)
+
+
 def _handle_get_execution_status(tool_input: dict) -> str:
     prompt_id = tool_input["prompt_id"]
 
@@ -449,6 +678,8 @@ def handle(name: str, tool_input: dict) -> str:
             return _handle_validate_before_execute(tool_input)
         elif name == "execute_workflow":
             return _handle_execute_workflow(tool_input)
+        elif name == "execute_with_progress":
+            return _handle_execute_with_progress(tool_input)
         elif name == "get_execution_status":
             return _handle_get_execution_status(tool_input)
         else:

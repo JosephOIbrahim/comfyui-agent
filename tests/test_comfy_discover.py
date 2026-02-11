@@ -1,6 +1,7 @@
 """Tests for comfy_discover tools — mocked registries, no network needed."""
 
 import json
+import time
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -107,10 +108,7 @@ SAMPLE_MODEL_LIST = [
 @pytest.fixture(autouse=True)
 def reset_cache():
     """Clear registry cache between tests."""
-    comfy_discover._cache["custom_nodes"] = None
-    comfy_discover._cache["extension_map"] = None
-    comfy_discover._cache["node_to_pack"] = None
-    comfy_discover._cache["model_list"] = None
+    comfy_discover._clear_cache()
     yield
 
 
@@ -529,6 +527,92 @@ class TestFindMissingNodes:
 # Tests: registration
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Tests: check_registry_freshness
+# ---------------------------------------------------------------------------
+
+class TestRegistryFreshness:
+    def test_freshness_no_manager(self, tmp_path):
+        """No ComfyUI Manager installed — files don't exist."""
+        with patch.object(comfy_discover, "_MANAGER_DIR", tmp_path / "nonexistent"):
+            result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+            assert result["manager_installed"] is False
+            for key, info in result["registries"].items():
+                assert info["exists"] is False
+
+    def test_freshness_with_registries(self, mock_registries):
+        """Registry files exist and are fresh."""
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        assert result["manager_installed"] is True
+        for key, info in result["registries"].items():
+            assert info["exists"] is True
+            assert info["status"] == "fresh"
+            assert info["age_seconds"] >= 0
+
+    def test_freshness_stale_detection(self, mock_registries):
+        """Files older than threshold should be flagged stale."""
+        import os
+        # Make one file appear 10 days old
+        path = mock_registries / "custom-node-list.json"
+        old_time = time.time() - (10 * 86400)
+        os.utime(str(path), (old_time, old_time))
+
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        cnl = result["registries"]["custom_node_list"]
+        assert cnl["status"] == "stale"
+        assert cnl["age_seconds"] >= 10 * 86400 - 5  # allow small delta
+
+    def test_freshness_very_stale(self, mock_registries):
+        """Files older than 30 days should be very_stale."""
+        import os
+        path = mock_registries / "model-list.json"
+        old_time = time.time() - (35 * 86400)
+        os.utime(str(path), (old_time, old_time))
+
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        ml = result["registries"]["model_list"]
+        assert ml["status"] == "very_stale"
+
+    def test_freshness_recommendations(self, mock_registries):
+        """Stale files should trigger recommendations."""
+        import os
+        for name in ("custom-node-list.json", "extension-node-map.json", "model-list.json"):
+            path = mock_registries / name
+            old_time = time.time() - (10 * 86400)
+            os.utime(str(path), (old_time, old_time))
+
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        assert any("stale" in r.lower() or "refresh" in r.lower() for r in result["recommendations"])
+
+    def test_refresh_clears_cache(self, mock_registries):
+        """refresh=true should clear the in-memory cache."""
+        # Load some data first
+        comfy_discover._load_custom_nodes()
+        assert comfy_discover._cache["custom_nodes"] is not None
+
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {
+            "refresh": True,
+        }))
+        assert result["refreshed"] is True
+        assert comfy_discover._cache["custom_nodes"] is None
+
+    def test_cache_status_reported(self, mock_registries):
+        """Cache status should reflect loaded/unloaded state."""
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        assert result["cache"]["custom_nodes_cached"] is False
+
+        # Load data
+        comfy_discover._load_custom_nodes()
+
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        assert result["cache"]["custom_nodes_cached"] is True
+
+    def test_model_dir_stats(self, mock_registries, mock_models_dir):
+        result = json.loads(comfy_discover.handle("check_registry_freshness", {}))
+        assert result["models"]["exists"] is True
+        assert result["models"]["total_files"] >= 1
+
+
 class TestRegistration:
     def test_tools_registered(self):
         from agent.tools import ALL_TOOLS
@@ -536,3 +620,4 @@ class TestRegistration:
         assert "search_custom_nodes" in names
         assert "search_models" in names
         assert "find_missing_nodes" in names
+        assert "check_registry_freshness" in names

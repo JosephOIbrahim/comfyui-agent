@@ -91,8 +91,23 @@ class TestToolRegistry:
             # Brain: Demo
             "start_demo",
             "demo_checkpoint",
+            # CivitAI discovery
+            "search_civitai",
+            "get_civitai_model",
+            "get_trending_models",
+            # Model compatibility
+            "check_model_compatibility",
+            "identify_model_family",
+            # WebSocket execution
+            "execute_with_progress",
+            # Brain: Vision hash compare
+            "hash_compare_images",
+            # Freshness tracking
+            "check_registry_freshness",
+            # Implicit feedback
+            "detect_implicit_feedback",
         }
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 52, f"Expected 52 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 61, f"Expected 61 tools, got {len(ALL_TOOLS)}"

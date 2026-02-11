@@ -3,6 +3,9 @@
 Uses Claude Vision API to analyze generated images, compare outputs,
 and suggest parameter improvements. Vision calls use a separate API call
 to keep images out of the main conversation context window.
+
+Also provides fast perceptual hash comparison via Pillow for instant
+A/B regression testing without API calls.
 """
 
 import base64
@@ -16,6 +19,12 @@ from ..config import AGENT_MODEL
 from ..tools._util import to_json
 
 log = logging.getLogger(__name__)
+
+try:
+    from PIL import Image
+    _HAS_PIL = True
+except ImportError:
+    _HAS_PIL = False
 
 # Vision analysis uses a smaller max_tokens since responses are structured
 _VISION_MAX_TOKENS = 4096
@@ -78,6 +87,29 @@ TOOLS: list[dict] = [
                         "What was changed between A and B "
                         "(e.g., 'increased CFG from 7 to 12')."
                     ),
+                },
+            },
+            "required": ["image_a", "image_b"],
+        },
+    },
+    {
+        "name": "hash_compare_images",
+        "description": (
+            "Fast pixel-level comparison of two images using perceptual hashing. "
+            "Returns similarity score, pixel difference percentage, and average "
+            "color delta. Instant (no API call) — use as pre-check before "
+            "compare_outputs to detect identical or near-identical images."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_a": {
+                    "type": "string",
+                    "description": "Path to the first image.",
+                },
+                "image_b": {
+                    "type": "string",
+                    "description": "Path to the second image.",
                 },
             },
             "required": ["image_a", "image_b"],
@@ -318,12 +350,127 @@ def _handle_suggest_improvements(tool_input: dict) -> str:
     return to_json(result)
 
 
+def _compute_average_hash(img, hash_size: int = 8) -> int:
+    """Compute average hash (aHash) — resize to hash_size, compare to mean."""
+    resized = img.convert("L").resize((hash_size, hash_size), Image.LANCZOS)
+    pixels = list(resized.getdata())
+    mean = sum(pixels) / len(pixels)
+    bits = 0
+    for i, p in enumerate(pixels):
+        if p > mean:
+            bits |= 1 << i
+    return bits
+
+
+def _hamming_distance(h1: int, h2: int) -> int:
+    """Count differing bits between two hashes."""
+    x = h1 ^ h2
+    count = 0
+    while x:
+        count += 1
+        x &= x - 1
+    return count
+
+
+def _pixel_diff(img_a, img_b) -> dict:
+    """Compare pixels between two images. Returns diff stats."""
+    # Resize both to same dimensions for comparison
+    size = (min(img_a.width, img_b.width), min(img_a.height, img_b.height))
+    a = img_a.resize(size).convert("RGB")
+    b = img_b.resize(size).convert("RGB")
+
+    pixels_a = list(a.getdata())
+    pixels_b = list(b.getdata())
+    total = len(pixels_a)
+
+    if total == 0:
+        return {"diff_pixels": 0, "diff_pct": 0.0, "avg_color_delta": 0.0}
+
+    diff_count = 0
+    total_delta = 0.0
+    threshold = 10  # Per-channel difference threshold to count as "different"
+
+    for pa, pb in zip(pixels_a, pixels_b):
+        channel_diff = sum(abs(ca - cb) for ca, cb in zip(pa, pb))
+        avg_diff = channel_diff / 3
+        if avg_diff > threshold:
+            diff_count += 1
+        total_delta += avg_diff
+
+    return {
+        "diff_pixels": diff_count,
+        "diff_pct": round(diff_count / total * 100, 2),
+        "avg_color_delta": round(total_delta / total, 2),
+    }
+
+
+def _handle_hash_compare(tool_input: dict) -> str:
+    image_a = tool_input["image_a"]
+    image_b = tool_input["image_b"]
+
+    if not _HAS_PIL:
+        return to_json({
+            "error": "Pillow not installed. Install with: pip install Pillow",
+            "fallback": "Use compare_outputs for Vision API comparison.",
+        })
+
+    path_a = Path(image_a)
+    path_b = Path(image_b)
+
+    if not path_a.exists():
+        return to_json({"error": f"Image not found: {image_a}"})
+    if not path_b.exists():
+        return to_json({"error": f"Image not found: {image_b}"})
+
+    try:
+        img_a = Image.open(path_a)
+        img_b = Image.open(path_b)
+    except Exception as e:
+        return to_json({"error": f"Failed to open images: {e}"})
+
+    # Compute average hash
+    hash_a = _compute_average_hash(img_a)
+    hash_b = _compute_average_hash(img_b)
+    hamming = _hamming_distance(hash_a, hash_b)
+    hash_similarity = round(1.0 - hamming / 64, 4)  # 64 bits for 8x8 hash
+
+    # Pixel-level diff
+    diff = _pixel_diff(img_a, img_b)
+
+    # Classification
+    if hamming == 0 and diff["diff_pct"] == 0:
+        verdict = "identical"
+    elif hamming <= 2 and diff["diff_pct"] < 1.0:
+        verdict = "near_identical"
+    elif hamming <= 8 and diff["diff_pct"] < 10.0:
+        verdict = "similar"
+    elif hamming <= 16:
+        verdict = "different"
+    else:
+        verdict = "very_different"
+
+    return to_json({
+        "verdict": verdict,
+        "hash_similarity": hash_similarity,
+        "hamming_distance": hamming,
+        "pixel_diff_pct": diff["diff_pct"],
+        "avg_color_delta": diff["avg_color_delta"],
+        "diff_pixels": diff["diff_pixels"],
+        "resolution_a": f"{img_a.width}x{img_a.height}",
+        "resolution_b": f"{img_b.width}x{img_b.height}",
+        "image_a": image_a,
+        "image_b": image_b,
+    })
+
+
 def handle(name: str, tool_input: dict) -> str:
     """Execute a vision tool call."""
     if name == "analyze_image":
         return _handle_analyze_image(tool_input)
     elif name == "compare_outputs":
         return _handle_compare_outputs(tool_input)
+    elif name == "hash_compare_images":
+        return _handle_hash_compare(tool_input)
     elif name == "suggest_improvements":
         return _handle_suggest_improvements(tool_input)
     else:

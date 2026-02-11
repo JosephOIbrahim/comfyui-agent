@@ -351,5 +351,16 @@ def search(
             console.print(f"[yellow]No results for '{query}'[/yellow]")
 
 
+@app.command()
+def mcp():
+    """Start the MCP server (stdio transport).
+
+    Exposes all agent tools via the Model Context Protocol.
+    Configure in Claude Desktop or Claude Code settings.
+    """
+    from .mcp_server import main as mcp_main
+    mcp_main()
+
+
 if __name__ == "__main__":
     app()
