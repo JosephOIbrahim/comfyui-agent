@@ -395,7 +395,7 @@ def _compute_average_hash(img, hash_size: int = 8) -> int:
     """Compute average hash (aHash) — resize to hash_size, compare to mean."""
     resized = img.convert("L").resize((hash_size, hash_size), Image.LANCZOS)
     pixels = list(resized.getdata())
-    mean = sum(pixels) / len(pixels)
+    mean = sum(pixels) / len(pixels)  # Integer pixels — sum is exact, order-invariant
     bits = 0
     for i, p in enumerate(pixels):
         if p > mean:

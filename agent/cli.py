@@ -124,7 +124,7 @@ def run(
         if _streamed_any:
             print()  # Newline after streamed text
             _streamed_any = False
-        inp_summary = json.dumps(inp, default=str)
+        inp_summary = json.dumps(inp, default=str, sort_keys=True)
         if len(inp_summary) > 80:
             inp_summary = inp_summary[:77] + "..."
         console.print(f"  [dim]-> {name}({inp_summary})[/dim]")

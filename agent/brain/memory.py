@@ -313,6 +313,7 @@ def _best_model_combos(outcomes: list[dict]) -> list[dict]:
 
     results = []
     for combo, entries in sorted(combo_data.items()):
+        entries.sort()  # He2025: deterministic float aggregation order
         total_w = sum(w for _, w in entries)
         if total_w == 0:
             continue
@@ -350,7 +351,8 @@ def _optimal_params(outcomes: list[dict]) -> dict:
         best_value = None
         best_avg = -1.0
         best_count = 0
-        for value, entries in values.items():
+        for value, entries in sorted(values.items()):
+            entries.sort()  # He2025: deterministic float aggregation order
             total_w = sum(w for _, w in entries)
             if total_w == 0:
                 continue
@@ -689,7 +691,7 @@ def _params_similarity(p1: dict, p2: dict) -> float:
     """Compare two parameter dicts. Returns 0.0 (nothing in common) to 1.0 (identical)."""
     if not p1 or not p2:
         return 0.0
-    all_keys = set(p1.keys()) | set(p2.keys())
+    all_keys = sorted(set(p1.keys()) | set(p2.keys()))  # He2025: sort before iteration
     if not all_keys:
         return 0.0
     matches = sum(1 for k in all_keys if str(p1.get(k)) == str(p2.get(k)))
