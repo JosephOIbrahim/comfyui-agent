@@ -1,13 +1,17 @@
 """Command-line interface for the ComfyUI Agent."""
 
+import atexit
 import json
 import logging
+import signal
+import threading
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from .config import AGENT_MODEL, COMFYUI_URL, COMFYUI_DATABASE, ANTHROPIC_API_KEY
+from .config import AGENT_MODEL, COMFYUI_URL, COMFYUI_DATABASE, ANTHROPIC_API_KEY, LOG_DIR
+from .logging_config import setup_logging
 from .tools import comfy_inspect, comfy_discover, session_tools
 
 app = typer.Typer(
@@ -30,15 +34,18 @@ def run(
 ):
     """Start an interactive agent session."""
     # Configure logging
-    logging.basicConfig(
+    setup_logging(
         level=logging.DEBUG if verbose else logging.WARNING,
-        format="%(name)s: %(message)s",
+        log_file=LOG_DIR / "agent.log",
     )
     # Validate API key
     if not ANTHROPIC_API_KEY:
         console.print(
-            "[red]ANTHROPIC_API_KEY not set. "
-            "Copy .env.example to .env and add your key.[/red]"
+            "[red]ANTHROPIC_API_KEY not set.[/red]\n"
+            "Setup steps:\n"
+            "  1. Copy .env.example to .env\n"
+            "  2. Get a key from https://console.anthropic.com/\n"
+            "  3. Add: ANTHROPIC_API_KEY=sk-ant-...\n"
         )
         raise typer.Exit(1)
 
@@ -48,7 +55,7 @@ def run(
         f"Model: {AGENT_MODEL}\n"
         f"ComfyUI: {COMFYUI_URL}\n"
         f"Database: {COMFYUI_DATABASE}",
-        title="ComfyUI Agent v0.1",
+        title="ComfyUI Agent v0.2",
     ))
 
     # Load session context for system prompt injection
@@ -77,9 +84,32 @@ def run(
     console.print("[dim]Type your question or command. 'quit' to exit.[/dim]\n")
 
     # Import here to avoid loading anthropic at CLI startup
-    from .main import create_client, run_interactive
+    from .main import create_client, run_interactive, request_shutdown
 
     client = create_client()
+
+    # Graceful shutdown: save session on SIGTERM or atexit
+    _shutdown_done = threading.Event()
+
+    def _save_and_exit(signum=None, frame=None):
+        if _shutdown_done.is_set():
+            return
+        _shutdown_done.set()
+        request_shutdown()
+        if session:
+            try:
+                save_result = json.loads(
+                    session_tools.handle("save_session", {"name": session})
+                )
+                if "saved" in save_result:
+                    console.print(f"\n[dim]Session '{session}' saved.[/dim]")
+            except Exception:
+                pass
+
+    signal.signal(signal.SIGTERM, _save_and_exit)
+    atexit.register(
+        lambda: _save_and_exit() if session and not _shutdown_done.is_set() else None
+    )
 
     # Streaming callbacks
     _streamed_any = False
@@ -121,11 +151,8 @@ def run(
         on_user_input=on_user_input,
     )
 
-    # Auto-save session on exit
-    if session:
-        save_result = json.loads(session_tools.handle("save_session", {"name": session}))
-        if "saved" in save_result:
-            console.print(f"\n[dim]Session '{session}' saved.[/dim]")
+    # Save session on normal exit (atexit handles abnormal exit)
+    _save_and_exit()
 
     console.print("\n[dim]Goodbye![/dim]")
 

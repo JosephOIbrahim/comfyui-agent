@@ -19,6 +19,10 @@ from ..tools._util import to_json
 
 log = logging.getLogger(__name__)
 
+OUTCOME_SCHEMA_VERSION = 1
+OUTCOME_MAX_BYTES = 10_000_000   # 10 MB — rotate when exceeded
+OUTCOME_BACKUP_COUNT = 5
+
 TOOLS: list[dict] = [
     {
         "name": "record_outcome",
@@ -171,8 +175,18 @@ def _outcomes_path(session: str) -> Path:
     return SESSIONS_DIR / f"{session}_outcomes.jsonl"
 
 
+def _migrate_outcome(outcome: dict) -> dict:
+    """Upgrade an outcome record from older schema versions to current.
+
+    v0 -> v1: adds schema_version field.
+    """
+    if "schema_version" not in outcome:
+        outcome["schema_version"] = 1
+    return outcome
+
+
 def _load_outcomes(session: str) -> list[dict]:
-    """Load all outcomes for a session."""
+    """Load all outcomes for a session, migrating old records."""
     path = _outcomes_path(session)
     if not path.exists():
         return []
@@ -180,15 +194,39 @@ def _load_outcomes(session: str) -> list[dict]:
     for line in path.read_text(encoding="utf-8").strip().split("\n"):
         if line:
             try:
-                outcomes.append(json.loads(line))
+                outcomes.append(_migrate_outcome(json.loads(line)))
             except json.JSONDecodeError:
                 continue
     return outcomes
 
 
+def _rotate_outcomes(path: Path) -> None:
+    """Rotate outcome JSONL files: file.jsonl -> file.jsonl.1, etc."""
+    for i in range(OUTCOME_BACKUP_COUNT, 0, -1):
+        src = Path(f"{path}.{i}") if i > 0 else path
+        dst = Path(f"{path}.{i + 1}")
+        if i == OUTCOME_BACKUP_COUNT:
+            # Drop the oldest
+            if src.exists():
+                src.unlink()
+        elif src.exists():
+            src.rename(dst)
+    # Rename current -> .1
+    if path.exists():
+        path.rename(Path(f"{path}.1"))
+    log.info("Rotated outcome files for %s", path.stem)
+
+
 def _append_outcome(session: str, outcome: dict) -> None:
-    """Append an outcome to the JSONL file."""
+    """Append an outcome to the JSONL file, rotating if size exceeded."""
     path = _outcomes_path(session)
+    # Check if rotation needed before writing
+    if path.exists():
+        try:
+            if path.stat().st_size > OUTCOME_MAX_BYTES:
+                _rotate_outcomes(path)
+        except OSError:
+            pass
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(outcome, sort_keys=True) + "\n")
 
@@ -321,6 +359,7 @@ def _handle_record_outcome(tool_input: dict) -> str:
     session = tool_input.get("session", "default")
 
     outcome = {
+        "schema_version": OUTCOME_SCHEMA_VERSION,
         "timestamp": time.time(),
         "session": session,
         "workflow_summary": tool_input.get("workflow_summary", ""),

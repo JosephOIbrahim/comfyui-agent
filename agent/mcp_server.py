@@ -77,7 +77,19 @@ def create_mcp_server() -> "Server":
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict | None) -> list:
-        """Execute a tool call and return the result."""
+        """Execute a tool call and return the result.
+
+        Note: stdio transport provides process-level isolation but cannot
+        enforce token-based auth. For production deployments needing auth,
+        use HTTP/SSE transport with an auth proxy instead.
+        """
+        from .config import MCP_AUTH_TOKEN
+        if MCP_AUTH_TOKEN:
+            log.warning(
+                "MCP_AUTH_TOKEN is set but stdio transport cannot enforce auth. "
+                "For authenticated access, use HTTP/SSE transport with a reverse proxy."
+            )
+
         arguments = arguments or {}
 
         # Our tool handlers are synchronous — run in thread executor
@@ -124,10 +136,12 @@ def main():
         sys.exit(1)
 
     # Configure logging to stderr (stdio transport uses stdout for JSON-RPC)
-    logging.basicConfig(
+    from .logging_config import setup_logging
+    from .config import LOG_DIR
+    setup_logging(
         level=logging.INFO,
-        format="%(name)s: %(message)s",
-        stream=sys.stderr,
+        log_file=LOG_DIR / "mcp.log",
+        json_format=True,
     )
 
     asyncio.run(run_stdio())

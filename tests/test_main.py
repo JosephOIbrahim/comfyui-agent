@@ -13,6 +13,7 @@ from agent.main import (
     _summarize_dropped,
     _compact_messages,
     _mask_processed_results,
+    _shutdown,
     _stream_with_retry,
     run_agent_turn,
 )
@@ -372,3 +373,17 @@ class TestRunAgentTurn:
             on_tool_call=on_tool_call,
         )
         on_tool_call.assert_called_once_with("plan_goal", {"goal": "test"})
+
+    @patch("agent.main._stream_with_retry")
+    def test_shutdown_flag_stops_turn(self, mock_stream):
+        """When shutdown is requested, run_agent_turn returns done=True immediately."""
+        _shutdown.set()
+        try:
+            client = MagicMock()
+            messages = [{"role": "user", "content": "Hi"}]
+            msgs, done = run_agent_turn(client, messages, "system")
+            assert done is True
+            # Stream should NOT have been called
+            mock_stream.assert_not_called()
+        finally:
+            _shutdown.clear()

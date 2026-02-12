@@ -356,3 +356,51 @@ class TestImplicitFeedback:
         assert memory._params_similarity({}, {}) == 0.0
         assert memory._params_similarity({"a": 1}, {"a": 1}) == 1.0
         assert memory._params_similarity({"a": 1, "b": 2}, {"a": 1, "b": 3}) == 0.5
+
+
+class TestOutcomeSchemaVersioning:
+    def test_recorded_outcome_has_version(self):
+        """New outcomes should include schema_version."""
+        memory.handle("record_outcome", {
+            "session": "test_schema_ver",
+            "key_params": {"model": "test"},
+        })
+        outcomes = memory._load_outcomes("test_schema_ver")
+        assert len(outcomes) >= 1
+        assert outcomes[-1]["schema_version"] == memory.OUTCOME_SCHEMA_VERSION
+
+    def test_migrate_v0_outcome(self):
+        """Outcomes without schema_version get migrated on load."""
+        v0_outcome = {
+            "timestamp": 1700000000,
+            "session": "test_migrate_v0",
+            "key_params": {"model": "old"},
+        }
+        migrated = memory._migrate_outcome(v0_outcome)
+        assert migrated["schema_version"] == 1
+
+
+class TestOutcomeFileRotation:
+    def test_rotation_creates_backup(self):
+        """When file exceeds max size, it should be rotated."""
+        path = memory._outcomes_path("test_rotation")
+        # Write enough data to trigger rotation
+        with open(path, "w", encoding="utf-8") as f:
+            # Write a chunk bigger than OUTCOME_MAX_BYTES
+            line = json.dumps({"key_params": {}, "data": "x" * 1000}, sort_keys=True) + "\n"
+            for _ in range(memory.OUTCOME_MAX_BYTES // len(line) + 10):
+                f.write(line)
+
+        # Now append — this should trigger rotation
+        memory._append_outcome("test_rotation", {"key_params": {"test": True}})
+
+        # Original file should exist (new one after rotation)
+        assert path.exists()
+        # Backup should exist
+        from pathlib import Path
+        backup = Path(f"{path}.1")
+        assert backup.exists()
+
+        # Cleanup
+        path.unlink(missing_ok=True)
+        backup.unlink(missing_ok=True)

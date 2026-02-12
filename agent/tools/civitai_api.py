@@ -14,6 +14,7 @@ import re
 import httpx
 
 from ..config import MODELS_DIR
+from ..rate_limiter import CIVITAI_LIMITER
 from ._util import to_json
 
 log = logging.getLogger(__name__)
@@ -328,6 +329,9 @@ def _handle_search_civitai(tool_input: dict) -> str:
         bm = _BASE_MODEL_MAP.get(base_model.lower(), base_model)
         params["baseModels"] = bm
 
+    if not CIVITAI_LIMITER().acquire(timeout=5.0):
+        return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
+
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -363,6 +367,9 @@ def _handle_search_civitai(tool_input: dict) -> str:
 
 def _handle_get_civitai_model(tool_input: dict) -> str:
     model_id = tool_input["model_id"]
+
+    if not CIVITAI_LIMITER().acquire(timeout=5.0):
+        return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
 
     try:
         with httpx.Client() as client:
@@ -406,6 +413,9 @@ def _handle_get_trending_models(tool_input: dict) -> str:
     if base_model:
         bm = _BASE_MODEL_MAP.get(base_model.lower(), base_model)
         params["baseModels"] = bm
+
+    if not CIVITAI_LIMITER().acquire(timeout=5.0):
+        return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
 
     try:
         with httpx.Client() as client:

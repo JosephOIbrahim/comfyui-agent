@@ -10,10 +10,17 @@ for deterministic serialization (He2025 alignment).
 """
 
 import json
+import logging
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
 from ..config import SESSIONS_DIR
+
+log = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 1
 
 
 def _sessions_dir() -> Path:
@@ -38,6 +45,7 @@ def save_session(
     session_data = {
         "name": name,
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "schema_version": SCHEMA_VERSION,
         "workflow": _serialize_workflow_state(workflow_state),
         "notes": notes or [],
         "metadata": metadata or {},
@@ -45,7 +53,7 @@ def save_session(
 
     try:
         content = json.dumps(session_data, sort_keys=True, indent=2)
-        path.write_text(content, encoding="utf-8")
+        _atomic_write(path, content)
         return {"saved": str(path), "size_bytes": len(content)}
     except Exception as e:
         return {"error": f"Failed to save session: {e}"}
@@ -71,6 +79,7 @@ def load_session(name: str) -> dict:
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        data = _migrate_session(data)
         return data
     except json.JSONDecodeError as e:
         return {"error": f"Corrupt session file: {e}"}
@@ -138,10 +147,8 @@ def add_note(name: str, note: str) -> dict:
     data["saved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     try:
-        path.write_text(
-            json.dumps(data, sort_keys=True, indent=2),
-            encoding="utf-8",
-        )
+        content = json.dumps(data, sort_keys=True, indent=2)
+        _atomic_write(path, content)
         return {"added": True, "total_notes": len(data["notes"])}
     except Exception as e:
         return {"error": f"Failed to save note: {e}"}
@@ -161,6 +168,43 @@ def restore_workflow_state(session_data: dict) -> dict | None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _migrate_session(data: dict) -> dict:
+    """Upgrade session data from older schema versions to current.
+
+    v0 -> v1: adds schema_version field.
+    """
+    version = data.get("schema_version", 0)
+    if version < 1:
+        data["schema_version"] = 1
+        log.debug("Migrated session '%s' from v0 to v1", data.get("name", "?"))
+    return data
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write content to path atomically using temp-file-then-rename.
+
+    Prevents corrupt session files from interrupted writes.
+    """
+    fd = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        suffix=".tmp",
+        delete=False,
+    )
+    try:
+        fd.write(content)
+        fd.close()
+        shutil.move(fd.name, str(path))
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            Path(fd.name).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
 
 def _empty_session(name: str) -> dict:
     return {

@@ -231,6 +231,52 @@ class TestAddNote:
         assert "added_at" in loaded["notes"][0]
 
 
+class TestSchemaVersioning:
+    def test_save_includes_version(self, use_tmp_sessions):
+        """Saved sessions include schema_version field."""
+        session_tools.handle("save_session", {"name": "version-test"})
+        path = use_tmp_sessions / "version-test.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["schema_version"] == 1
+
+    def test_migrate_v0_to_v1(self, use_tmp_sessions):
+        """Loading a v0 session (no schema_version) should migrate it."""
+        # Write a v0 session (no schema_version field)
+        path = use_tmp_sessions
+        path.mkdir(parents=True, exist_ok=True)
+        v0_data = {
+            "name": "old-session",
+            "saved_at": "2024-01-01T00:00:00",
+            "workflow": {"loaded_path": None, "format": None},
+            "notes": [],
+            "metadata": {},
+        }
+        (path / "old-session.json").write_text(
+            json.dumps(v0_data, sort_keys=True, indent=2), encoding="utf-8"
+        )
+        # Use the internal load_session (not the tool handler which wraps the result)
+        result = session_mod.load_session("old-session")
+        assert "error" not in result
+        assert result.get("schema_version") == 1
+
+
+class TestAtomicWrites:
+    def test_session_file_exists_after_save(self, use_tmp_sessions):
+        """Atomic write creates the file successfully."""
+        session_tools.handle("save_session", {"name": "atomic-test"})
+        path = use_tmp_sessions / "atomic-test.json"
+        assert path.exists()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["name"] == "atomic-test"
+
+    def test_no_temp_files_left(self, use_tmp_sessions):
+        """Atomic write should not leave .tmp files."""
+        use_tmp_sessions.mkdir(parents=True, exist_ok=True)
+        session_tools.handle("save_session", {"name": "clean-test"})
+        tmp_files = list(use_tmp_sessions.glob("*.tmp"))
+        assert len(tmp_files) == 0
+
+
 class TestRegistration:
     def test_tools_registered(self):
         from agent.tools import ALL_TOOLS

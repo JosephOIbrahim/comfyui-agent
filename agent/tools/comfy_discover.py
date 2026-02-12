@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 
 from ..config import COMFYUI_URL, CUSTOM_NODES_DIR, MODELS_DIR
+from ..rate_limiter import HUGGINGFACE_LIMITER
 from ._util import to_json
 
 # ---------------------------------------------------------------------------
@@ -493,6 +494,9 @@ def _search_huggingface(query: str, model_type: str | None, max_results: int) ->
         tag = type_tags.get(model_type.lower())
         if tag:
             params["filter"] = tag
+
+    if not HUGGINGFACE_LIMITER().acquire(timeout=5.0):
+        return to_json({"error": "Rate limited — too many HuggingFace requests. Try again shortly."})
 
     try:
         with httpx.Client() as client:

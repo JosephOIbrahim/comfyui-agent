@@ -16,6 +16,7 @@ from pathlib import Path
 import anthropic
 
 from ..config import AGENT_MODEL
+from ..rate_limiter import VISION_LIMITER
 from ..tools._util import to_json
 
 log = logging.getLogger(__name__)
@@ -174,6 +175,9 @@ def _read_image_as_base64(path: str) -> tuple[str, str]:
 
 def _call_vision(system_prompt: str, user_content: list) -> str:
     """Make a separate Claude Vision API call. Returns the text response."""
+    if not VISION_LIMITER().acquire(timeout=10.0):
+        return to_json({"error": "Rate limited — too many Vision API calls. Try again shortly."})
+
     try:
         client = anthropic.Anthropic(timeout=_VISION_TIMEOUT)
         response = client.messages.create(

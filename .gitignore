@@ -25,6 +25,11 @@ htmlcov/
 
 # Sessions (user data, not code)
 sessions/*.json
+sessions/*.jsonl
+sessions/*.jsonl.*
+
+# Logs
+logs/
 
 # IDE
 .vscode/

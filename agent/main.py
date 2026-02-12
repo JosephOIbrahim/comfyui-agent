@@ -8,6 +8,7 @@ Includes streaming responses, context management, retry logic, and logging.
 
 import concurrent.futures
 import logging
+import threading
 import time
 
 import anthropic
@@ -16,10 +17,19 @@ from .config import (
     AGENT_MODEL, MAX_TOKENS, MAX_AGENT_TURNS,
     COMPACT_THRESHOLD, API_MAX_RETRIES, API_RETRY_DELAY,
 )
+from .logging_config import set_correlation_id
 from .system_prompt import build_system_prompt
 from .tools import ALL_TOOLS, handle as handle_tool
 
 log = logging.getLogger(__name__)
+
+# Graceful shutdown flag — checked at top of each agent turn
+_shutdown = threading.Event()
+
+
+def request_shutdown() -> None:
+    """Signal the agent loop to exit gracefully."""
+    _shutdown.set()
 
 
 def create_client() -> anthropic.Anthropic:
@@ -321,6 +331,11 @@ def run_agent_turn(
     Returns (updated_messages, done) where done=True means the agent
     produced a final text response with no tool calls.
     """
+    # Check for graceful shutdown request
+    if _shutdown.is_set():
+        log.info("Shutdown requested — exiting agent turn")
+        return messages, True
+
     # Mask processed tool results, then compact if still over budget
     messages = _mask_processed_results(messages)
     messages = _compact_messages(messages, COMPACT_THRESHOLD)
@@ -429,6 +444,7 @@ def run_interactive(
         on_stream_end()          — stream finished (for newline handling)
         on_user_input()          — should return user input string, or None to quit
     """
+    set_correlation_id()  # Unique ID for this session's log entries
     system = build_system_prompt(session_context=session_context)
     messages = []
 
