@@ -18,6 +18,7 @@ import anthropic
 from ..config import AGENT_MODEL
 from ..rate_limiter import VISION_LIMITER
 from ..tools._util import to_json
+from ._protocol import brain_message
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +195,10 @@ def _call_vision(system_prompt: str, user_content: list) -> str:
     except anthropic.APIError as e:
         log.error("Vision API error: %s", e)
         return to_json({"error": f"Vision API error: {e}"})
+    except Exception as e:
+        # Catch httpx.TimeoutException and other transport errors
+        log.error("Vision API transport error: %s", e)
+        return to_json({"error": f"Vision API timeout or transport error: {e}"})
 
 
 def _handle_analyze_image(tool_input: dict) -> str:
@@ -246,6 +251,21 @@ def _handle_analyze_image(tool_input: dict) -> str:
         result = {"raw_analysis": raw, "parse_error": "Vision response was not valid JSON"}
 
     result["image_path"] = image_path
+
+    # Emit BrainMessage so memory module can track vision assessments
+    msg = brain_message(
+        source="vision",
+        target="memory",
+        msg_type="result",
+        payload={
+            "action": "image_analyzed",
+            "image_path": image_path,
+            "quality_score": result.get("quality_score"),
+            "prompt_adherence": result.get("prompt_adherence"),
+        },
+    )
+    log.debug("BrainMessage: vision->memory: %s", msg["correlation_id"])
+
     return to_json(result)
 
 
@@ -301,6 +321,20 @@ def _handle_compare_outputs(tool_input: dict) -> str:
 
     result["image_a"] = image_a
     result["image_b"] = image_b
+
+    # Emit BrainMessage for A/B comparison tracking
+    msg = brain_message(
+        source="vision",
+        target="memory",
+        msg_type="result",
+        payload={
+            "action": "images_compared",
+            "improved": result.get("improved"),
+            "quality_delta": result.get("quality_delta"),
+        },
+    )
+    log.debug("BrainMessage: vision->memory comparison: %s", msg["correlation_id"])
+
     return to_json(result)
 
 

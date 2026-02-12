@@ -10,6 +10,7 @@ Storage: append-only JSONL in sessions/{name}_outcomes.jsonl.
 import hashlib
 import json
 import logging
+import math
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -22,6 +23,23 @@ log = logging.getLogger(__name__)
 OUTCOME_SCHEMA_VERSION = 1
 OUTCOME_MAX_BYTES = 10_000_000   # 10 MB — rotate when exceeded
 OUTCOME_BACKUP_COUNT = 5
+
+# Temporal decay: outcomes older than this half-life contribute less to aggregations.
+# Default: 7 days. Recent outcomes matter more than ancient ones.
+DECAY_HALF_LIFE_S = 7 * 24 * 3600  # 604800 seconds
+
+
+def _temporal_weight(timestamp: float, now: float | None = None) -> float:
+    """Exponential decay weight based on outcome age.
+
+    Returns 1.0 for brand-new outcomes, 0.5 at half-life age, asymptotically 0.
+    Minimum weight 0.01 to never fully discard data.
+    """
+    if now is None:
+        now = time.time()
+    age = max(0.0, now - timestamp)
+    weight = math.exp(-0.693147 * age / DECAY_HALF_LIFE_S)  # ln(2) = 0.693147
+    return max(weight, 0.01)
 
 TOOLS: list[dict] = [
     {
@@ -72,6 +90,13 @@ TOOLS: list[dict] = [
                     "enum": ["positive", "negative", "neutral"],
                     "description": "User's reaction to the output.",
                 },
+                "goal_id": {
+                    "type": "string",
+                    "description": (
+                        "Goal ID from planner (links outcome to the goal that "
+                        "triggered it). Optional — auto-populated when planner is active."
+                    ),
+                },
             },
             "required": ["key_params"],
         },
@@ -100,6 +125,15 @@ TOOLS: list[dict] = [
                 "model_filter": {
                     "type": "string",
                     "description": "Filter outcomes by model name (substring match).",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["session", "global"],
+                    "description": (
+                        "Scope of pattern query. 'session' (default) uses current "
+                        "session only. 'global' aggregates across all sessions for "
+                        "cross-session learning."
+                    ),
                 },
             },
             "required": [],
@@ -200,6 +234,26 @@ def _load_outcomes(session: str) -> list[dict]:
     return outcomes
 
 
+def _load_all_outcomes() -> list[dict]:
+    """Load outcomes from ALL sessions for cross-session learning.
+
+    Scans SESSIONS_DIR for all *_outcomes.jsonl files, loads and merges them,
+    then sorts by timestamp for temporal coherence.
+    """
+    if not SESSIONS_DIR.exists():
+        return []
+    all_outcomes = []
+    for path in sorted(SESSIONS_DIR.glob("*_outcomes.jsonl")):
+        for line in path.read_text(encoding="utf-8").strip().split("\n"):
+            if line:
+                try:
+                    all_outcomes.append(_migrate_outcome(json.loads(line)))
+                except json.JSONDecodeError:
+                    continue
+    all_outcomes.sort(key=lambda o: o.get("timestamp", 0))
+    return all_outcomes
+
+
 def _rotate_outcomes(path: Path) -> None:
     """Rotate outcome JSONL files: file.jsonl -> file.jsonl.1, etc."""
     for i in range(OUTCOME_BACKUP_COUNT, 0, -1):
@@ -242,23 +296,32 @@ def _workflow_hash(key_params: dict) -> str:
 
 
 def _best_model_combos(outcomes: list[dict]) -> list[dict]:
-    """Find model combos with highest average quality."""
-    combo_scores = defaultdict(list)
+    """Find model combos with highest time-weighted average quality.
+
+    Uses exponential temporal decay so recent outcomes count more than old ones.
+    """
+    now = time.time()
+    combo_data = defaultdict(list)  # combo -> [(score, weight)]
     for o in outcomes:
         combo = tuple(sorted(o.get("model_combo", [])))
         if not combo:
             continue
         score = o.get("quality_score")
         if score is not None:
-            combo_scores[combo].append(score)
+            w = _temporal_weight(o.get("timestamp", 0), now)
+            combo_data[combo].append((score, w))
 
     results = []
-    for combo, scores in sorted(combo_scores.items()):
+    for combo, entries in sorted(combo_data.items()):
+        total_w = sum(w for _, w in entries)
+        if total_w == 0:
+            continue
+        weighted_avg = sum(s * w for s, w in entries) / total_w
         results.append({
             "models": list(combo),
-            "avg_quality": round(sum(scores) / len(scores), 3),
-            "sample_count": len(scores),
-            "best_score": round(max(scores), 3),
+            "avg_quality": round(weighted_avg, 3),
+            "sample_count": len(entries),
+            "best_score": round(max(s for s, _ in entries), 3),
         })
 
     results.sort(key=lambda x: x["avg_quality"], reverse=True)
@@ -266,31 +329,41 @@ def _best_model_combos(outcomes: list[dict]) -> list[dict]:
 
 
 def _optimal_params(outcomes: list[dict]) -> dict:
-    """Find parameter values correlated with high quality."""
-    param_scores = defaultdict(lambda: defaultdict(list))
+    """Find parameter values correlated with high quality.
+
+    Uses exponential temporal decay so recent outcomes count more than old ones.
+    """
+    now = time.time()
+    param_data = defaultdict(lambda: defaultdict(list))  # param -> value -> [(score, weight)]
 
     for o in outcomes:
         score = o.get("quality_score")
         if score is None:
             continue
+        w = _temporal_weight(o.get("timestamp", 0), now)
         params = o.get("key_params", {})
         for key, value in params.items():
-            param_scores[key][str(value)].append(score)
+            param_data[key][str(value)].append((score, w))
 
     optimal = {}
-    for param, values in sorted(param_scores.items()):
+    for param, values in sorted(param_data.items()):
         best_value = None
-        best_avg = -1
-        for value, scores in values.items():
-            avg = sum(scores) / len(scores)
-            if avg > best_avg:
-                best_avg = avg
+        best_avg = -1.0
+        best_count = 0
+        for value, entries in values.items():
+            total_w = sum(w for _, w in entries)
+            if total_w == 0:
+                continue
+            weighted_avg = sum(s * w for s, w in entries) / total_w
+            if weighted_avg > best_avg:
+                best_avg = weighted_avg
                 best_value = value
+                best_count = len(entries)
         if best_value is not None:
             optimal[param] = {
                 "best_value": best_value,
                 "avg_quality": round(best_avg, 3),
-                "sample_count": len(values[best_value]),
+                "sample_count": best_count,
             }
 
     return optimal
@@ -370,6 +443,7 @@ def _handle_record_outcome(tool_input: dict) -> str:
         "quality_score": tool_input.get("quality_score"),
         "vision_notes": tool_input.get("vision_notes", []),
         "user_feedback": tool_input.get("user_feedback", "neutral"),
+        "goal_id": tool_input.get("goal_id"),
     }
 
     _append_outcome(session, outcome)
@@ -387,8 +461,9 @@ def _handle_get_learned_patterns(tool_input: dict) -> str:
     session = tool_input.get("session", "default")
     query = tool_input.get("query", "all")
     model_filter = tool_input.get("model_filter")
+    scope = tool_input.get("scope", "session")
 
-    outcomes = _load_outcomes(session)
+    outcomes = _load_all_outcomes() if scope == "global" else _load_outcomes(session)
 
     if model_filter:
         outcomes = [

@@ -168,3 +168,47 @@ class TestReplan:
             "session": "test_replan_none",
         }))
         assert "error" in result
+
+
+class TestGoalId:
+    def test_plan_goal_returns_goal_id(self):
+        """plan_goal should generate and return a unique goal_id."""
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Build a test workflow",
+            "session": "test_goal_id",
+        }))
+        assert "goal_id" in result
+        assert isinstance(result["goal_id"], str)
+        assert len(result["goal_id"]) == 12  # make_id() returns 12-char hex
+
+    def test_goal_id_persisted_to_disk(self):
+        """goal_id should be saved in the plan file on disk."""
+        planner.handle("plan_goal", {
+            "goal": "Build a test workflow",
+            "session": "test_goal_persist",
+        })
+        plan = planner._load_plan("test_goal_persist")
+        assert "goal_id" in plan
+        assert len(plan["goal_id"]) == 12
+
+    def test_goal_id_in_get_plan_response(self):
+        """get_plan should include the goal_id."""
+        planner.handle("plan_goal", {
+            "goal": "Debug a broken workflow",
+            "session": "test_goal_get",
+        })
+        result = json.loads(planner.handle("get_plan", {"session": "test_goal_get"}))
+        assert "goal_id" in result
+        assert result["goal_id"] is not None
+
+    def test_unique_goal_ids(self):
+        """Each plan should get a unique goal_id."""
+        r1 = json.loads(planner.handle("plan_goal", {
+            "goal": "Goal one",
+            "session": "test_goal_unique1",
+        }))
+        r2 = json.loads(planner.handle("plan_goal", {
+            "goal": "Goal two",
+            "session": "test_goal_unique2",
+        }))
+        assert r1["goal_id"] != r2["goal_id"]

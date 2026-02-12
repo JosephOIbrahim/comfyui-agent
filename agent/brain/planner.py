@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..config import SESSIONS_DIR
 from ..tools._util import to_json
+from ._protocol import make_id
 
 log = logging.getLogger(__name__)
 
@@ -301,7 +302,10 @@ def _handle_plan_goal(tool_input: dict) -> str:
     if steps:
         steps[0]["status"] = "active"
 
+    goal_id = make_id()
+
     plan = {
+        "goal_id": goal_id,
         "goal": goal,
         "pattern": pattern_name,
         "session": session,
@@ -316,6 +320,7 @@ def _handle_plan_goal(tool_input: dict) -> str:
 
     return to_json({
         "planned": True,
+        "goal_id": goal_id,
         "goal": goal,
         "pattern": pattern_name,
         "total_steps": len(steps),
@@ -337,6 +342,7 @@ def _handle_get_plan(tool_input: dict) -> str:
     active = next((s for s in plan["steps"] if s["status"] == "active"), None)
 
     return to_json({
+        "goal_id": plan.get("goal_id"),
         "goal": plan["goal"],
         "pattern": plan["pattern"],
         "status": plan["status"],

@@ -7,6 +7,7 @@ queue status, and execution history.
 
 import httpx
 
+from ..circuit_breaker import COMFYUI_BREAKER
 from ..config import COMFYUI_URL
 from ._util import to_json
 
@@ -140,11 +141,26 @@ _TIMEOUT = 15.0
 
 
 def _get(path: str, timeout: float = _TIMEOUT) -> dict:
-    """GET request to ComfyUI, returns parsed JSON."""
-    with httpx.Client() as client:
-        resp = client.get(f"{COMFYUI_URL}{path}", timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    """GET request to ComfyUI, returns parsed JSON.
+
+    Raises httpx.ConnectError or httpx.HTTPStatusError on failure.
+    Circuit breaker tracks failures and fast-fails when ComfyUI is down.
+    """
+    breaker = COMFYUI_BREAKER()
+    if not breaker.allow_request():
+        raise httpx.ConnectError(
+            f"Circuit breaker open — ComfyUI at {COMFYUI_URL} has been unreachable. "
+            f"Will retry in {breaker.recovery_timeout:.0f}s."
+        )
+    try:
+        with httpx.Client() as client:
+            resp = client.get(f"{COMFYUI_URL}{path}", timeout=timeout)
+            resp.raise_for_status()
+            breaker.record_success()
+            return resp.json()
+    except (httpx.ConnectError, httpx.TimeoutException) as e:
+        breaker.record_failure()
+        raise httpx.ConnectError(str(e)) from e
 
 
 # ---------------------------------------------------------------------------

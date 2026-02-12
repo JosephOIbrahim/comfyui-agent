@@ -1,6 +1,7 @@
 """Configuration and environment handling."""
 
 import os
+import platform
 import re
 import sys
 from pathlib import Path
@@ -37,8 +38,19 @@ COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1")
 COMFYUI_PORT = int(os.getenv("COMFYUI_PORT", "8188"))
 COMFYUI_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
 
-# Paths — note: Custom_Nodes has capital C and N on this installation
-COMFYUI_DATABASE = Path(os.getenv("COMFYUI_DATABASE", "G:/COMFYUI_Database"))
+# Paths — cross-platform defaults for ComfyUI database location
+def _default_comfyui_database() -> str:
+    """Sensible default ComfyUI database path per platform."""
+    _sys = platform.system()
+    if _sys == "Windows":
+        return "G:/COMFYUI_Database"
+    elif _sys == "Darwin":
+        return str(Path.home() / "ComfyUI")
+    else:
+        return str(Path.home() / "ComfyUI")
+
+
+COMFYUI_DATABASE = Path(os.getenv("COMFYUI_DATABASE", _default_comfyui_database()))
 CUSTOM_NODES_DIR = COMFYUI_DATABASE / "Custom_Nodes"
 MODELS_DIR = COMFYUI_DATABASE / "models"
 WORKFLOWS_DIR = COMFYUI_DATABASE / "Workflows"

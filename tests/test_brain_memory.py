@@ -14,6 +14,9 @@ def clean_session_outcomes():
     yield
     for f in SESSIONS_DIR.glob("test_*_outcomes.jsonl"):
         f.unlink(missing_ok=True)
+    # Also clean up backup files from rotation tests
+    for f in SESSIONS_DIR.glob("test_*_outcomes.jsonl.*"):
+        f.unlink(missing_ok=True)
 
 
 class TestRecordOutcome:
@@ -404,3 +407,188 @@ class TestOutcomeFileRotation:
         # Cleanup
         path.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)
+
+
+class TestTemporalDecay:
+    def test_weight_of_brand_new_outcome(self):
+        """Brand new outcomes should have weight ~1.0."""
+        now = 1700000000
+        w = memory._temporal_weight(now, now=now)
+        assert abs(w - 1.0) < 0.01
+
+    def test_weight_decays_at_half_life(self):
+        """At exactly one half-life, weight should be ~0.5."""
+        now = 1700000000
+        old_time = now - memory.DECAY_HALF_LIFE_S
+        w = memory._temporal_weight(old_time, now=now)
+        assert abs(w - 0.5) < 0.02
+
+    def test_weight_never_below_minimum(self):
+        """Even ancient outcomes should have minimum weight 0.01."""
+        now = 1700000000
+        ancient = now - 365 * 24 * 3600 * 10  # 10 years ago
+        w = memory._temporal_weight(ancient, now=now)
+        assert w >= 0.01
+
+    def test_recent_outcomes_weighted_higher(self):
+        """Recent outcomes should dominate aggregation over old ones."""
+        # Record old outcomes with LOW quality
+        for i in range(3):
+            memory._append_outcome("test_decay", {
+                "schema_version": 1,
+                "timestamp": 1600000000 + i,  # very old
+                "session": "test_decay",
+                "key_params": {"model": "sdxl"},
+                "model_combo": ["sdxl"],
+                "quality_score": 0.3,
+            })
+        # Record recent outcomes with HIGH quality
+        import time
+        now = time.time()
+        for i in range(3):
+            memory._append_outcome("test_decay", {
+                "schema_version": 1,
+                "timestamp": now - i,
+                "session": "test_decay",
+                "key_params": {"model": "sdxl"},
+                "model_combo": ["sdxl"],
+                "quality_score": 0.95,
+            })
+        outcomes = memory._load_outcomes("test_decay")
+        combos = memory._best_model_combos(outcomes)
+        # Weighted average should be closer to 0.95 than to 0.3
+        assert combos[0]["avg_quality"] > 0.7
+
+    def test_temporal_decay_in_optimal_params(self):
+        """Temporal decay should discount old bad runs when recent runs are good.
+
+        steps=10: all recent at 0.75 -> weighted avg ~0.75
+        steps=30: one old bad run (0.2) + recent good runs (0.85)
+          Without decay: simple avg = (0.2+0.85+0.85)/3 = 0.633 -> steps=10 wins
+          With decay: weighted avg ≈ 0.85 (old 0.2 nearly zeroed) -> steps=30 wins
+        """
+        import time
+        now = time.time()
+        # steps=10: recent, consistent 0.75
+        for i in range(3):
+            memory._append_outcome("test_decay_params", {
+                "schema_version": 1,
+                "timestamp": now - i,
+                "session": "test_decay_params",
+                "key_params": {"steps": 10},
+                "quality_score": 0.75,
+            })
+        # steps=30: one OLD bad run, then recent good runs
+        memory._append_outcome("test_decay_params", {
+            "schema_version": 1,
+            "timestamp": 1600000000,  # very old bad result
+            "session": "test_decay_params",
+            "key_params": {"steps": 30},
+            "quality_score": 0.2,
+        })
+        for i in range(2):
+            memory._append_outcome("test_decay_params", {
+                "schema_version": 1,
+                "timestamp": now - i,
+                "session": "test_decay_params",
+                "key_params": {"steps": 30},
+                "quality_score": 0.85,
+            })
+        outcomes = memory._load_outcomes("test_decay_params")
+        optimal = memory._optimal_params(outcomes)
+        # With decay, steps=30 (weighted avg ~0.85) beats steps=10 (0.75)
+        assert optimal["steps"]["best_value"] == "30"
+        assert optimal["steps"]["avg_quality"] > 0.8
+
+
+class TestGoalIdInOutcome:
+    def test_record_with_goal_id(self):
+        """Outcomes can include a goal_id from the planner."""
+        result = json.loads(memory.handle("record_outcome", {
+            "session": "test_goal_id",
+            "key_params": {"model": "sdxl"},
+            "goal_id": "abc123def456",
+        }))
+        assert result["recorded"] is True
+        outcomes = memory._load_outcomes("test_goal_id")
+        assert outcomes[-1]["goal_id"] == "abc123def456"
+
+    def test_record_without_goal_id(self):
+        """goal_id should be None when not provided."""
+        memory.handle("record_outcome", {
+            "session": "test_no_goal_id",
+            "key_params": {"model": "test"},
+        })
+        outcomes = memory._load_outcomes("test_no_goal_id")
+        assert outcomes[-1]["goal_id"] is None
+
+
+class TestCrossSessionLearning:
+    def test_load_all_outcomes_merges_sessions(self):
+        """Global scope should aggregate across all test sessions."""
+        # Write to two different sessions
+        memory._append_outcome("test_global_a", {
+            "schema_version": 1,
+            "timestamp": 1700000001,
+            "session": "test_global_a",
+            "key_params": {"model": "sdxl"},
+            "model_combo": ["sdxl"],
+            "quality_score": 0.9,
+        })
+        memory._append_outcome("test_global_b", {
+            "schema_version": 1,
+            "timestamp": 1700000002,
+            "session": "test_global_b",
+            "key_params": {"model": "flux"},
+            "model_combo": ["flux"],
+            "quality_score": 0.85,
+        })
+        all_outcomes = memory._load_all_outcomes()
+        sessions = {o["session"] for o in all_outcomes}
+        assert "test_global_a" in sessions
+        assert "test_global_b" in sessions
+
+    def test_global_scope_via_get_learned_patterns(self):
+        """scope=global in get_learned_patterns should use all sessions."""
+        memory._append_outcome("test_scope_x", {
+            "schema_version": 1,
+            "timestamp": 1700000001,
+            "session": "test_scope_x",
+            "key_params": {"model": "sdxl"},
+            "model_combo": ["sdxl"],
+            "quality_score": 0.9,
+        })
+        memory._append_outcome("test_scope_y", {
+            "schema_version": 1,
+            "timestamp": 1700000002,
+            "session": "test_scope_y",
+            "key_params": {"model": "flux"},
+            "model_combo": ["flux"],
+            "quality_score": 0.8,
+        })
+        result = json.loads(memory.handle("get_learned_patterns", {
+            "scope": "global",
+            "query": "best_models",
+        }))
+        # Global scope should find outcomes from both sessions
+        assert result["outcomes_count"] >= 2
+
+    def test_load_all_outcomes_sorted_by_timestamp(self):
+        """Merged outcomes should be sorted by timestamp."""
+        memory._append_outcome("test_sorted_a", {
+            "schema_version": 1,
+            "timestamp": 1700000010,
+            "session": "test_sorted_a",
+            "key_params": {"model": "later"},
+        })
+        memory._append_outcome("test_sorted_b", {
+            "schema_version": 1,
+            "timestamp": 1700000001,
+            "session": "test_sorted_b",
+            "key_params": {"model": "earlier"},
+        })
+        all_outcomes = memory._load_all_outcomes()
+        # Filter to our test sessions
+        ours = [o for o in all_outcomes if o.get("session", "").startswith("test_sorted_")]
+        if len(ours) >= 2:
+            assert ours[0]["timestamp"] <= ours[-1]["timestamp"]

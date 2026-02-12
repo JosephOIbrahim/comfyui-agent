@@ -220,3 +220,67 @@ class TestHashCompare:
         assert vision._hamming_distance(0, 0) == 0
         assert vision._hamming_distance(0b1111, 0b0000) == 4
         assert vision._hamming_distance(0b1010, 0b0101) == 4
+
+
+class TestBrainMessageActivation:
+    """Verify that vision module emits BrainMessages for inter-module communication."""
+
+    def test_analyze_image_emits_brain_message(self, fake_image):
+        """analyze_image should create a brain_message with analysis results."""
+        mock_response = MagicMock()
+        mock_block = MagicMock()
+        mock_block.text = json.dumps({
+            "quality_score": 0.85,
+            "artifacts": [],
+            "composition": "Good",
+            "prompt_adherence": 0.9,
+            "strengths": [],
+            "suggestions": [],
+        })
+        mock_response.content = [mock_block]
+
+        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls, \
+             patch("agent.brain.vision.brain_message") as mock_brain_msg:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = mock_response
+            mock_client_cls.return_value = mock_client
+
+            vision.handle("analyze_image", {
+                "image_path": fake_image,
+                "prompt_used": "test prompt",
+            })
+
+        # brain_message should have been called
+        mock_brain_msg.assert_called_once()
+        call_kwargs = mock_brain_msg.call_args
+        assert call_kwargs[1]["source"] == "vision"
+        assert call_kwargs[1]["target"] == "memory"
+        assert call_kwargs[1]["msg_type"] == "result"
+        assert call_kwargs[1]["payload"]["action"] == "image_analyzed"
+
+    def test_compare_outputs_emits_brain_message(self, fake_image):
+        """compare_outputs should create a brain_message with comparison results."""
+        mock_response = MagicMock()
+        mock_block = MagicMock()
+        mock_block.text = json.dumps({
+            "improved": True,
+            "differences": ["better details"],
+            "quality_delta": 0.1,
+            "recommendation": "Keep the change.",
+        })
+        mock_response.content = [mock_block]
+
+        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls, \
+             patch("agent.brain.vision.brain_message") as mock_brain_msg:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = mock_response
+            mock_client_cls.return_value = mock_client
+
+            vision.handle("compare_outputs", {
+                "image_a": fake_image,
+                "image_b": fake_image,
+            })
+
+        mock_brain_msg.assert_called_once()
+        call_kwargs = mock_brain_msg.call_args
+        assert call_kwargs[1]["payload"]["action"] == "images_compared"
