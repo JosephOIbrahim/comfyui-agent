@@ -43,7 +43,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (347 tests, all mocked, <20s)
+# Tests (429 tests, all mocked, <35s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -137,7 +137,15 @@ BUILT (v0.3.0 — working today):
   ✅ Model compatibility tracking (SD1.5/SDXL/Flux/SD3 family detection)
   ✅ Freshness tracking (registry staleness, cache management)
   ✅ Path sanitization and thread safety
-  ✅ 347 tests, all mocked, <20s, 0 lint warnings
+  ✅ Circuit breaker (CLOSED/OPEN/HALF_OPEN) for ComfyUI HTTP resilience
+  ✅ Rate limiter (token bucket: CivitAI, HuggingFace, Vision)
+  ✅ Structured logging (JSON + human formatters, correlation IDs, rotation)
+  ✅ Temporal decay in memory aggregations (7-day half-life)
+  ✅ Goal tracking (planner goal_id -> memory outcome linking)
+  ✅ Cross-session learning (scope=global aggregates all sessions)
+  ✅ BrainMessage protocol activated (vision -> memory)
+  ✅ He2025 determinism audit (sorted float aggregation, stable iteration)
+  ✅ 429 tests, all mocked, <35s, 0 lint warnings
 
 NEXT:
   🔲 Agent SDK extraction (brain modules -> standalone agents)
@@ -380,7 +388,13 @@ implicit feedback detection, perceptual hash comparison, WebSocket monitoring, M
 ### Phase 3: Hardening -- COMPLETE
 Error handling (graceful JSON errors), path sanitization, thread safety (locks on mutable
 state), orchestrator TTL eviction, vision API timeout, agent loop tests (27 tests for
-main.py).
+main.py). Rate limiting, structured logging, graceful shutdown, schema versioning,
+atomic writes, Docker, CI. 397 tests.
+
+### Phase 3.5: Intelligence Upgrade -- COMPLETE
+Circuit breaker for HTTP resilience, temporal decay in memory aggregations,
+goal tracking (planner->memory linking), cross-session learning, BrainMessage
+protocol activation, He2025 determinism audit and fixes. 429 tests.
 
 ### Phase 4: Next
 **Goal:** Agent SDK extraction and rich CLI experience.

@@ -10,8 +10,10 @@ Instead of manually editing JSON, hunting for node packs, or debugging broken wo
 - **"Load this workflow and change the seed to 42"** — reads, modifies, and saves with undo support
 - **"What node pack do I need for IPAdapter?"** — searches 31,000+ node types to find the right pack
 - **"Run this with 30 steps instead of 20"** — patches the workflow and queues it to ComfyUI
-- **"Find me a good anime LoRA"** — searches ComfyUI Manager's registry and HuggingFace
-- **"Remember that I prefer SDXL for landscapes"** — saves notes for next time
+- **"Find me a good anime LoRA"** — searches ComfyUI Manager's registry, HuggingFace, and CivitAI
+- **"Is this model compatible with my workflow?"** — checks SD1.5/SDXL/Flux/SD3 family compatibility
+- **"Analyze this output — why does it look wrong?"** — uses Claude Vision to diagnose image issues
+- **"Remember that I prefer SDXL for landscapes"** — saves notes and learns from your outcomes over time
 
 The agent talks to ComfyUI's API directly. It reads your actual installation, sees what's really installed, and works with your real workflows.
 
@@ -100,16 +102,27 @@ agent search "anime" --models --type lora   # Filter by model type
 
 ## How It Works
 
-The agent uses Claude (Anthropic's AI) with 28 specialized tools:
+The agent uses Claude (Anthropic's AI) with 61 specialized tools across two tiers:
 
-| Category | Tools | What they do |
-|----------|-------|-------------|
-| **Inspection** | 6 | Talk to ComfyUI's API — check status, list nodes, GPU stats |
-| **Filesystem** | 4 | Scan your models folder and custom nodes directory |
-| **Workflow Analysis** | 3 | Read workflows, detect format, trace connections, find editable fields |
-| **Workflow Editing** | 8 | Modify workflows with undo support, save, execute |
-| **Discovery** | 3 | Search ComfyUI Manager registry and HuggingFace |
-| **Session Memory** | 4 | Save your progress and preferences between conversations |
+**Intelligence Layer (41 tools)**
+
+| Layer | Tools | What they do |
+|-------|-------|-------------|
+| **UNDERSTAND** | 13 | Parse workflows, scan models/nodes, query ComfyUI API, detect format |
+| **DISCOVER** | 8 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility |
+| **PILOT** | 13 | RFC6902 patch engine with undo, semantic node ops, session persistence |
+| **VERIFY** | 7 | Validate, execute, WebSocket progress monitoring, execution status |
+
+**Brain Layer (20 tools)**
+
+| Module | Tools | What they do |
+|--------|-------|-------------|
+| **Vision** | 4 | Analyze generated images, A/B comparison, perceptual hashing |
+| **Planner** | 4 | Goal decomposition, step tracking, replanning |
+| **Memory** | 4 | Outcome learning with temporal decay, cross-session patterns |
+| **Orchestrator** | 2 | Parallel sub-tasks with filtered tool access |
+| **Optimizer** | 4 | GPU profiling, TensorRT detection, auto-apply optimizations |
+| **Demo** | 2 | Guided walkthroughs for streams and podcasts |
 
 When you ask a question, Claude decides which tools to use, calls them, reads the results, and responds. It streams text as it thinks, so you're never staring at a blank screen.
 
@@ -148,6 +161,15 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 - **UI format with API data** — the default "Save" export. Contains visual layout plus embedded API data. Agent extracts what it needs.
 - **UI-only format** — older exports with only visual layout. The agent can read the structure but can't modify or execute these.
 
+## MCP Server (Optional)
+
+All 61 tools are also available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Desktop, Claude Code, or other MCP clients:
+
+```bash
+pip install -e ".[mcp]"
+agent mcp
+```
+
 ## Troubleshooting
 
 **"ANTHROPIC_API_KEY not set"** — Make sure your `.env` file exists and has the key. Run from the `comfyui-agent` directory.
@@ -162,7 +184,7 @@ Tests run without ComfyUI — everything is mocked:
 
 ```bash
 python -m pytest tests/ -v
-# 134 tests, under 1 second
+# 429 tests, all mocked, under 20 seconds
 ```
 
 ## License
