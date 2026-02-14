@@ -208,8 +208,9 @@ def _check_compatibility(models: list[str]) -> dict:
     family_list = sorted(families)
     for i, f1 in enumerate(family_list):
         for f2 in family_list[i + 1:]:
-            f1_models = [m for m, f in identified.items() if f == f1]
-            f2_models = [m for m, f in identified.items() if f == f2]
+            # He2025: sorted iteration for deterministic model lists
+            f1_models = [m for m, f in sorted(identified.items()) if f == f1]
+            f2_models = [m for m, f in sorted(identified.items()) if f == f2]
             conflicts.append({
                 "family_a": f1,
                 "family_b": f2,

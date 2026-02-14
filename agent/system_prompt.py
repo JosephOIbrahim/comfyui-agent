@@ -85,11 +85,12 @@ def _detect_relevant_knowledge(session_context: dict | None) -> set[str]:
     wf = session_context.get("workflow", {})
     workflow_text = ""
     if wf.get("current_workflow") and isinstance(wf["current_workflow"], dict):
-        class_types = [
+        # He2025: sort to ensure deterministic keyword detection
+        class_types = sorted([
             n.get("class_type", "")
             for n in wf["current_workflow"].values()
             if isinstance(n, dict)
-        ]
+        ])
         workflow_text = " ".join(class_types)
 
     # Check notes
