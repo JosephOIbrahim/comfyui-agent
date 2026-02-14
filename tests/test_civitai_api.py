@@ -62,12 +62,14 @@ SAMPLE_MODEL = {
 
 
 class TestSearchCivitai:
+    """Tests for the internal _handle_search_civitai function."""
+
     @patch("agent.tools.civitai_api.httpx.Client")
     def test_basic_search(self, mock_client_cls):
         mock_client_cls.return_value = _mock_client(
             _mock_response({"items": [SAMPLE_MODEL], "metadata": {"totalItems": 1}})
         )
-        result = json.loads(civitai_api.handle("search_civitai", {"query": "realistic"}))
+        result = json.loads(civitai_api._handle_search_civitai({"query": "realistic"}))
         assert result["source"] == "civitai"
         assert result["showing"] == 1
         assert result["results"][0]["name"] == "Realistic Vision V6.0"
@@ -78,7 +80,7 @@ class TestSearchCivitai:
     def test_type_filter(self, mock_client_cls):
         client = _mock_client(_mock_response({"items": [], "metadata": {"totalItems": 0}}))
         mock_client_cls.return_value = client
-        civitai_api.handle("search_civitai", {
+        civitai_api._handle_search_civitai({
             "query": "portrait",
             "model_type": "lora",
         })
@@ -90,7 +92,7 @@ class TestSearchCivitai:
     def test_base_model_filter(self, mock_client_cls):
         client = _mock_client(_mock_response({"items": [], "metadata": {"totalItems": 0}}))
         mock_client_cls.return_value = client
-        civitai_api.handle("search_civitai", {
+        civitai_api._handle_search_civitai({
             "query": "anime",
             "base_model": "sdxl",
         })
@@ -101,7 +103,7 @@ class TestSearchCivitai:
     def test_sort_and_period(self, mock_client_cls):
         client = _mock_client(_mock_response({"items": [], "metadata": {"totalItems": 0}}))
         mock_client_cls.return_value = client
-        civitai_api.handle("search_civitai", {
+        civitai_api._handle_search_civitai({
             "query": "landscape",
             "sort": "highest_rated",
             "period": "month",
@@ -115,7 +117,7 @@ class TestSearchCivitai:
         client = _mock_client(None)
         client.get.side_effect = civitai_api.httpx.ConnectError("Connection refused")
         mock_client_cls.return_value = client
-        result = json.loads(civitai_api.handle("search_civitai", {"query": "test"}))
+        result = json.loads(civitai_api._handle_search_civitai({"query": "test"}))
         assert "error" in result
         assert "CivitAI" in result["error"]
 
@@ -123,7 +125,7 @@ class TestSearchCivitai:
     def test_max_results_capped(self, mock_client_cls):
         client = _mock_client(_mock_response({"items": [], "metadata": {"totalItems": 0}}))
         mock_client_cls.return_value = client
-        civitai_api.handle("search_civitai", {
+        civitai_api._handle_search_civitai({
             "query": "test",
             "max_results": 100,
         })
@@ -136,7 +138,7 @@ class TestSearchCivitai:
             _mock_response({"items": [SAMPLE_MODEL], "metadata": {"totalItems": 1}})
         )
         # Model not installed by default (MODELS_DIR doesn't exist in test)
-        result = json.loads(civitai_api.handle("search_civitai", {"query": "realistic"}))
+        result = json.loads(civitai_api._handle_search_civitai({"query": "realistic"}))
         assert result["results"][0]["installed"] is False
 
 
@@ -233,7 +235,7 @@ class TestHelpers:
 class TestRegistration:
     def test_tools_registered(self):
         names = [t["name"] for t in civitai_api.TOOLS]
-        assert "search_civitai" in names
+        assert "search_civitai" not in names  # moved to unified discover
         assert "get_civitai_model" in names
         assert "get_trending_models" in names
 

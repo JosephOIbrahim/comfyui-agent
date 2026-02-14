@@ -43,8 +43,7 @@ Execution:
   validate_before_execute, execute_workflow, get_execution_status
 
 Discovery:
-  search_custom_nodes (by name or node_type, ComfyUI Manager registry),
-  search_models (local registry or HuggingFace Hub),
+  discover (unified search across registry, CivitAI, HuggingFace for nodes and models),
   find_missing_nodes (dependency analysis with install suggestions)
 
 Templates:

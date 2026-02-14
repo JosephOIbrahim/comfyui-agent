@@ -32,7 +32,7 @@ _TOOL_PROFILES = {
             "is_comfyui_running", "get_all_nodes", "get_node_info",
             "get_system_stats", "get_queue_status",
             "list_custom_nodes", "list_models", "get_models_summary", "read_node_source",
-            "search_custom_nodes", "search_models", "find_missing_nodes",
+            "discover", "find_missing_nodes",
             "load_workflow", "validate_workflow", "get_editable_fields",
             "list_workflow_templates",
             "get_learned_patterns", "get_recommendations",

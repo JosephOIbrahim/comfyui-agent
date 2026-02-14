@@ -312,75 +312,54 @@ def search(
     ),
 ):
     """Search for custom nodes or models."""
+    # Build discover params
+    params: dict = {"query": query}
+
     if node_type or nodes:
-        by = "node_type" if node_type else "name"
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
-            "query": query, "by": by,
-        }))
-        if "error" in result:
-            console.print(f"[red]{result['error']}[/red]")
-            return
+        params["category"] = "nodes"
+    elif models:
+        params["category"] = "models"
 
-        if result.get("match") == "exact":
-            pack = result["pack"]
-            status = "[green]installed[/green]" if pack["installed"] else "[yellow]not installed[/yellow]"
-            console.print(f"[bold]{result['node_type']}[/bold] -> {pack['title']} ({status})")
-            console.print(f"  {pack['url']}")
-            console.print(f"  {pack['node_count']} node types in this pack")
-        elif result.get("results"):
-            console.print(f"[bold]{result.get('total_matches', len(result['results']))} matches[/bold]\n")
-            for r in result["results"]:
-                title = r.get("pack_title") or r.get("title", "?")
-                url = r.get("pack_url") or r.get("url", "")
-                installed = r.get("installed", False)
-                status = "[green]installed[/green]" if installed else ""
-                desc = r.get("description", "")
-                console.print(f"  [bold]{title}[/bold] {status}")
-                if desc:
-                    console.print(f"    {desc[:100]}")
-                if url:
-                    console.print(f"    [dim]{url}[/dim]")
-        else:
-            console.print(f"[yellow]No results for '{query}'[/yellow]")
+    if huggingface:
+        params["sources"] = ["huggingface"]
+
+    if model_type:
+        params["model_type"] = model_type
+
+    result = json.loads(comfy_discover.handle("discover", params))
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]")
+        return
+
+    if result.get("results"):
+        console.print(
+            f"[bold]{result['total']} results[/bold] "
+            f"(sources: {', '.join(result.get('sources_searched', []))})\n"
+        )
+        for r in result["results"]:
+            name = r.get("name", "?")
+            rtype = r.get("type", "")
+            source = r.get("source", "")
+            installed = r.get("installed", False)
+            status = " [green]installed[/green]" if installed else ""
+
+            console.print(f"  [bold]{name}[/bold]{status}")
+            parts = [p for p in [rtype, source, r.get("model_type", ""), r.get("base_model", "")] if p]
+            if parts:
+                console.print(f"    {' | '.join(parts)}")
+            desc = r.get("description", "")
+            if desc:
+                console.print(f"    {desc[:100]}")
+            url = r.get("url", "")
+            if url:
+                console.print(f"    [dim]{url}[/dim]")
     else:
-        # Default: search models
-        source = "huggingface" if huggingface else "registry"
-        params = {"query": query, "source": source}
-        if model_type:
-            params["model_type"] = model_type
-
-        result = json.loads(comfy_discover.handle("search_models", params))
-        if "error" in result:
-            console.print(f"[red]{result['error']}[/red]")
-            return
-
-        if result.get("results"):
-            console.print(
-                f"[bold]{result.get('total_matches', len(result['results']))} matches[/bold] "
-                f"(source: {result['source']})\n"
-            )
-            for r in result["results"]:
-                name = r.get("name", "?")
-                mtype = r.get("type", "")
-                base = r.get("base", "")
-                size = r.get("size", "")
-                installed = r.get("installed", False)
-                status = " [green]installed[/green]" if installed else ""
-
-                console.print(f"  [bold]{name}[/bold]{status}")
-                parts = [p for p in [mtype, base, size] if p]
-                if parts:
-                    console.print(f"    {' | '.join(parts)}")
-                url = r.get("url", "")
-                if url:
-                    console.print(f"    [dim]{url}[/dim]")
-        else:
-            console.print(f"[yellow]No results for '{query}'[/yellow]")
+        console.print(f"[yellow]No results for '{query}'[/yellow]")
 
 
 @app.command()
 def mcp():
-    """Primary integration -- exposes all 61 tools via MCP for Claude Code.
+    """Primary integration -- exposes all 60 tools via MCP for Claude Code.
 
     Starts the MCP server using stdio transport. Configure in your
     Claude Code settings (.claude/settings.json) to use these tools

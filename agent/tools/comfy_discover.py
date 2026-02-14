@@ -25,12 +25,12 @@ from ._util import to_json
 
 TOOLS: list[dict] = [
     {
-        "name": "search_custom_nodes",
+        "name": "discover",
         "description": (
-            "Search for custom node packs by name/description, or find which "
-            "pack provides a specific node type. Uses ComfyUI Manager's "
-            "registry (4,000+ packs, 31,000+ mapped node types). "
-            "Shows whether each result is already installed locally."
+            "Unified search across ComfyUI Manager registry, CivitAI, and "
+            "HuggingFace for custom node packs and models. Returns results "
+            "ranked by relevance with installed status. Use this for any "
+            "'find me X' or 'what's available for Y' question."
         ),
         "input_schema": {
             "type": "object",
@@ -38,66 +38,56 @@ TOOLS: list[dict] = [
                 "query": {
                     "type": "string",
                     "description": (
-                        "Search term — either a pack name/keyword "
-                        "(e.g. 'IPAdapter', 'upscaler', 'video') or a specific "
-                        "node class_type (e.g. 'IPAdapterUnifiedLoader')."
+                        "What to search for — model name, node pack, keyword, "
+                        "or specific node class_type "
+                        "(e.g. 'IPAdapter', 'anime LoRA for SDXL', 'depth controlnet')."
                     ),
                 },
-                "by": {
+                "category": {
                     "type": "string",
-                    "enum": ["name", "node_type"],
+                    "enum": ["nodes", "models", "all"],
                     "description": (
-                        "Search mode: 'name' searches pack titles and descriptions, "
-                        "'node_type' finds which pack provides a specific node class. "
-                        "Default: 'name'."
+                        "What to search: 'nodes' for custom node packs, "
+                        "'models' for checkpoints/LoRAs/etc, 'all' for both. "
+                        "Default: 'all'."
                     ),
                 },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max results to return (default 10).",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "search_models",
-        "description": (
-            "Search for models by name, type, or base model. Searches the "
-            "ComfyUI Manager model registry (500+ curated entries with direct "
-            "download URLs) or HuggingFace Hub for broader results. "
-            "Cross-references with locally installed model files."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["registry", "civitai", "huggingface"],
+                    },
                     "description": (
-                        "Search term — model name, type, or keyword "
-                        "(e.g. 'FLUX', 'anime lora', 'controlnet depth')."
+                        "Which sources to search. Default: all applicable "
+                        "(registry for nodes, registry+civitai+huggingface for models)."
                     ),
                 },
                 "model_type": {
                     "type": "string",
                     "description": (
-                        "Filter by model type: checkpoint, lora, vae, controlnet, "
-                        "clip, upscale, embedding, etc. Matches against the "
-                        "'type' field in the registry."
+                        "Filter models by type: checkpoint, lora, vae, controlnet, "
+                        "embedding, upscaler. Ignored for node searches."
                     ),
                 },
-                "source": {
+                "base_model": {
                     "type": "string",
-                    "enum": ["registry", "huggingface"],
                     "description": (
-                        "Where to search: 'registry' uses ComfyUI Manager's "
-                        "curated list (fast, offline), 'huggingface' searches "
-                        "HuggingFace Hub (broader, needs internet). Default: 'registry'."
+                        "Filter by base model: 'sd15', 'sdxl', 'flux', 'sd3', 'pony'. "
+                        "Applied to CivitAI; ignored for registry/HuggingFace."
+                    ),
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": ["most_downloaded", "highest_rated", "newest"],
+                    "description": (
+                        "CivitAI sort order. Default: 'most_downloaded'. "
+                        "Ignored for non-CivitAI sources."
                     ),
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Max results to return (default 10).",
+                    "description": "Max results per source (default 5).",
                 },
             },
             "required": ["query"],
@@ -305,7 +295,301 @@ def _is_model_installed(filename: str, save_path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Handlers
+# Unified discover — helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_result(
+    name: str,
+    result_type: str,
+    source: str,
+    relevance_score: float,
+    installed: bool,
+    url: str,
+    **extra,
+) -> dict:
+    """Common result schema for unified discovery."""
+    result = {
+        "installed": installed,
+        "name": name,
+        "relevance_score": round(relevance_score, 3),
+        "source": source,
+        "type": result_type,
+        "url": url,
+    }
+    # He2025: sorted keys via sorted extra insertion
+    for k in sorted(extra):
+        if extra[k] is not None:
+            result[k] = extra[k]
+    return result
+
+
+def _search_nodes_unified(query: str, max_results: int) -> list[dict]:
+    """Search custom node packs, return normalized results."""
+    packs = _load_custom_nodes()
+    if not packs:
+        return []
+
+    query_lower = query.lower()
+    query_words = query_lower.split()
+    scored = []
+
+    for pack in packs:
+        title = pack.get("title", "")
+        desc = pack.get("description", "")
+        author = pack.get("author", "")
+        searchable = f"{title} {desc} {author}".lower()
+
+        word_hits = sum(1 for w in query_words if w in searchable)
+        if word_hits == 0:
+            continue
+
+        score = word_hits / max(len(query_words), 1)
+        if query_lower in title.lower():
+            score = min(score + 0.5, 1.0)
+
+        ref = pack.get("reference", "")
+        scored.append((score, _normalize_result(
+            name=title,
+            result_type="node_pack",
+            source="registry",
+            relevance_score=score,
+            installed=_is_pack_installed(ref) if ref else False,
+            url=ref,
+            author=author,
+            description=desc[:200] if desc else None,
+        )))
+
+    scored.sort(key=lambda x: (-x[0], x[1]["name"]))
+    return [r for _, r in scored[:max_results]]
+
+
+def _search_models_unified(
+    query: str, model_type: str | None, max_results: int,
+) -> list[dict]:
+    """Search model registry, return normalized results."""
+    models = _load_model_list()
+    if not models:
+        return []
+
+    query_lower = query.lower()
+    query_words = query_lower.split()
+    scored = []
+
+    for model in models:
+        name = model.get("name", "")
+        mtype = model.get("type", "")
+        base = model.get("base", "")
+        desc = model.get("description", "")
+        searchable = f"{name} {mtype} {base} {desc}".lower()
+
+        if model_type and model_type.lower() not in mtype.lower():
+            continue
+
+        word_hits = sum(1 for w in query_words if w in searchable)
+        if word_hits == 0:
+            continue
+
+        score = word_hits / max(len(query_words), 1)
+        if query_lower in name.lower():
+            score = min(score + 0.5, 1.0)
+
+        filename = model.get("filename", "")
+        save_path = model.get("save_path", "")
+
+        scored.append((score, _normalize_result(
+            name=name,
+            result_type="model",
+            source="registry",
+            relevance_score=score,
+            installed=_is_model_installed(filename, save_path) if filename and save_path else False,
+            url=model.get("url", ""),
+            base_model=base or None,
+            description=desc[:200] if desc else None,
+            model_type=mtype or None,
+        )))
+
+    scored.sort(key=lambda x: (-x[0], x[1]["name"]))
+    return [r for _, r in scored[:max_results]]
+
+
+def _search_civitai_unified(
+    query: str,
+    model_type: str | None,
+    base_model: str | None,
+    sort: str,
+    max_results: int,
+) -> tuple[list[dict], str | None]:
+    """Search CivitAI, return (normalized_results, error_or_None)."""
+    from .civitai_api import _handle_search_civitai
+
+    raw = json.loads(_handle_search_civitai({
+        "query": query,
+        "model_type": model_type,
+        "base_model": base_model,
+        "sort": sort,
+        "max_results": max_results,
+    }))
+    if "error" in raw:
+        return [], raw["error"]
+
+    results = []
+    for item in raw.get("results", []):
+        # Normalize relevance from downloads (log scale)
+        downloads = item.get("downloads", 0)
+        rel = min(1.0, (downloads / 1_000_000) ** 0.3) if downloads > 0 else 0.1
+        results.append(_normalize_result(
+            name=item.get("name", ""),
+            result_type="model",
+            source="civitai",
+            relevance_score=rel,
+            installed=item.get("installed", False),
+            url=item.get("url", ""),
+            base_model=item.get("base_model") or None,
+            downloads=downloads or None,
+            model_type=item.get("type") or None,
+            rating=item.get("rating") or None,
+        ))
+    return results, None
+
+
+def _search_hf_unified(
+    query: str, model_type: str | None, max_results: int,
+) -> tuple[list[dict], str | None]:
+    """Search HuggingFace, return (normalized_results, error_or_None)."""
+    raw = json.loads(_search_huggingface(query, model_type, max_results))
+    if "error" in raw:
+        return [], raw["error"]
+
+    results = []
+    for item in raw.get("results", []):
+        downloads = item.get("downloads", 0)
+        rel = min(1.0, (downloads / 1_000_000) ** 0.3) if downloads > 0 else 0.1
+        results.append(_normalize_result(
+            name=item.get("name", ""),
+            result_type="model",
+            source="huggingface",
+            relevance_score=rel,
+            installed=False,
+            url=item.get("url", ""),
+            author=item.get("author") or None,
+            downloads=downloads or None,
+        ))
+    return results, None
+
+
+def _deduplicate(results: list[dict]) -> list[dict]:
+    """Deduplicate by lowercased name. Keep highest-scored, note also_found_on."""
+    seen: dict[str, dict] = {}  # lowercase name -> result dict
+    for r in results:
+        key = r["name"].lower().strip()
+        if key in seen:
+            existing = seen[key]
+            # Track sources
+            if r["source"] not in existing.get("also_found_on", []):
+                existing.setdefault("also_found_on", []).append(r["source"])
+                existing["also_found_on"] = sorted(existing["also_found_on"])
+            # Keep higher score
+            if r["relevance_score"] > existing["relevance_score"]:
+                also = existing.get("also_found_on", [])
+                also_with_old = sorted(set(also) | {existing["source"]})
+                r["also_found_on"] = [s for s in also_with_old if s != r["source"]]
+                if r["also_found_on"]:
+                    r["also_found_on"] = sorted(r["also_found_on"])
+                else:
+                    r.pop("also_found_on", None)
+                seen[key] = r
+        else:
+            seen[key] = r
+    return list(seen.values())
+
+
+def _rank_results(results: list[dict]) -> list[dict]:
+    """Rank: installed first, then relevance score, then name (He2025 tiebreaker)."""
+    return sorted(
+        results,
+        key=lambda r: (
+            not r.get("installed", False),   # installed first (False < True, so negate)
+            -r.get("relevance_score", 0),     # higher score first
+            r.get("name", ""),                # alphabetical tiebreaker
+        ),
+    )
+
+
+def _handle_discover(tool_input: dict) -> str:
+    """Unified discovery across registry, CivitAI, and HuggingFace."""
+    query = tool_input["query"]
+    category = tool_input.get("category", "all")
+    sources = tool_input.get("sources")
+    model_type = tool_input.get("model_type")
+    base_model = tool_input.get("base_model")
+    sort = tool_input.get("sort", "most_downloaded")
+    max_results = tool_input.get("max_results", 5)
+
+    all_results: list[dict] = []
+    sources_searched: list[str] = []
+    errors: list[dict] = []
+
+    # Determine which sources to search
+    if sources is None:
+        search_registry = True
+        search_civitai = category in ("models", "all")
+        search_hf = category in ("models", "all")
+    else:
+        search_registry = "registry" in sources
+        search_civitai = "civitai" in sources
+        search_hf = "huggingface" in sources
+
+    # 1. Registry nodes (if applicable)
+    if search_registry and category in ("nodes", "all"):
+        node_results = _search_nodes_unified(query, max_results)
+        all_results.extend(node_results)
+        if "registry_nodes" not in sources_searched:
+            sources_searched.append("registry_nodes")
+
+    # 2. Registry models (if applicable)
+    if search_registry and category in ("models", "all"):
+        model_results = _search_models_unified(query, model_type, max_results)
+        all_results.extend(model_results)
+        if "registry_models" not in sources_searched:
+            sources_searched.append("registry_models")
+
+    # 3. CivitAI (models only)
+    if search_civitai and category in ("models", "all"):
+        civitai_results, civitai_err = _search_civitai_unified(
+            query, model_type, base_model, sort, max_results,
+        )
+        all_results.extend(civitai_results)
+        sources_searched.append("civitai")
+        if civitai_err:
+            errors.append({"source": "civitai", "error": civitai_err})
+
+    # 4. HuggingFace (models only)
+    if search_hf and category in ("models", "all"):
+        hf_results, hf_err = _search_hf_unified(query, model_type, max_results)
+        all_results.extend(hf_results)
+        sources_searched.append("huggingface")
+        if hf_err:
+            errors.append({"source": "huggingface", "error": hf_err})
+
+    # Deduplicate and rank
+    deduped = _deduplicate(all_results)
+    ranked = _rank_results(deduped)
+
+    response: dict = {
+        "query": query,
+        "category": category,
+        "results": ranked,
+        "sources_searched": sorted(sources_searched),
+        "total": len(ranked),
+    }
+    if errors:
+        response["errors"] = errors
+
+    return to_json(response)
+
+
+# ---------------------------------------------------------------------------
+# Internal handlers (kept for backward compat with internal callers)
 # ---------------------------------------------------------------------------
 
 def _handle_search_custom_nodes(tool_input: dict) -> str:
@@ -707,12 +991,12 @@ def _handle_get_install_instructions(tool_input: dict) -> str:
             "query": query,
             "instructions": (
                 f"To install a CivitAI model, use the CivitAI tools to find the "
-                f"model first (search_civitai), then download the file to the "
+                f"model first (discover), then download the file to the "
                 f"appropriate directory under {MODELS_DIR}. "
                 f"CivitAI models are typically .safetensors files."
             ),
             "steps": [
-                f"1. Use search_civitai to find '{query}' and get the download URL",
+                f"1. Use discover to find '{query}' and get the download URL",
                 "2. Note the model type (checkpoint, lora, controlnet, etc.)",
                 f"3. Download to {MODELS_DIR}/<type>/ directory",
                 "4. Restart ComfyUI or refresh the model list",
@@ -728,7 +1012,7 @@ def _handle_get_install_instructions(tool_input: dict) -> str:
                 f"to the appropriate directory under {MODELS_DIR}."
             ),
             "steps": [
-                f"1. Use search_models with source='huggingface' to find '{query}'",
+                f"1. Use discover to find '{query}'",
                 "2. Note the model type and download the .safetensors file",
                 f"3. Place in {MODELS_DIR}/<type>/ directory",
                 "4. Restart ComfyUI or refresh the model list",
@@ -814,7 +1098,7 @@ def _handle_get_install_instructions(tool_input: dict) -> str:
     return to_json({
         "source": "registry",
         "query": query,
-        "error": f"Could not find '{query}' in the registry. Try search_custom_nodes or search_models first.",
+        "error": f"Could not find '{query}' in the registry. Try discover first.",
     })
 
 
@@ -947,10 +1231,8 @@ def _handle_check_freshness(tool_input: dict) -> str:
 def handle(name: str, tool_input: dict) -> str:
     """Execute a comfy_discover tool call."""
     try:
-        if name == "search_custom_nodes":
-            return _handle_search_custom_nodes(tool_input)
-        elif name == "search_models":
-            return _handle_search_models(tool_input)
+        if name == "discover":
+            return _handle_discover(tool_input)
         elif name == "find_missing_nodes":
             return _handle_find_missing_nodes(tool_input)
         elif name == "get_install_instructions":

@@ -56,8 +56,7 @@ class TestToolRegistry:
             "execute_workflow",
             "get_execution_status",
             # Discovery
-            "search_custom_nodes",
-            "search_models",
+            "discover",
             "find_missing_nodes",
             # Templates
             "list_workflow_templates",
@@ -92,7 +91,6 @@ class TestToolRegistry:
             "start_demo",
             "demo_checkpoint",
             # CivitAI discovery
-            "search_civitai",
             "get_civitai_model",
             "get_trending_models",
             # Model compatibility
@@ -110,4 +108,4 @@ class TestToolRegistry:
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 62, f"Expected 62 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 60, f"Expected 60 tools, got {len(ALL_TOOLS)}"

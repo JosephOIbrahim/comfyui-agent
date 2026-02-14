@@ -46,7 +46,7 @@ DEMO_SCENARIOS: dict[str, dict] = {
                     "that are compatible with this workflow but offer better "
                     "quality, speed, or both."
                 ),
-                "suggested_tools": ["list_models", "search_models", "get_recommendations"],
+                "suggested_tools": ["list_models", "discover", "get_recommendations"],
             },
             {
                 "id": "apply_swap",
@@ -148,7 +148,7 @@ DEMO_SCENARIOS: dict[str, dict] = {
                     "and a ControlNet apply node (to use it during generation). "
                     "Let me check what's installed."
                 ),
-                "suggested_tools": ["search_custom_nodes", "find_missing_nodes"],
+                "suggested_tools": ["discover", "find_missing_nodes"],
             },
             {
                 "id": "wire_up",

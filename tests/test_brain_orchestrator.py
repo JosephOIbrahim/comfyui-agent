@@ -112,7 +112,7 @@ class TestToolProfiles:
     def test_researcher_has_read_tools(self):
         allowed = orchestrator._TOOL_PROFILES["researcher"]["allowed_tools"]
         assert "list_models" in allowed
-        assert "search_custom_nodes" in allowed
+        assert "discover" in allowed
         assert "get_all_nodes" in allowed
         # Should NOT have write tools
         assert "apply_workflow_patch" not in allowed

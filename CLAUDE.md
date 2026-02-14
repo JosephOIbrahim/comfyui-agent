@@ -22,12 +22,12 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-62 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+60 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
 OPTIMIZER, DEMO). Natural conversation drives workflow inspection, discovery, modification,
 execution, optimization, and learning. Built with the Anthropic SDK, httpx, and jsonpatch.
 
-The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 62 tools
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 60 tools
 available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
 serves as a standalone fallback. Our value lives in the intelligence and brain layers above
 the transport.
@@ -86,7 +86,7 @@ pip install -e "."
 When using the ComfyUI agent tools via MCP, follow these rules:
 
 1. **NEVER claim to know about specific models from memory. ALWAYS use tools.** Model ecosystems change daily.
-2. When asked "what model should I use for X?" -- search first (`search_models`, `search_custom_nodes`), recommend after.
+2. When asked "what model should I use for X?" -- search first (`discover`), recommend after.
 3. When modifying workflows, ALWAYS show the proposed patch and get confirmation before applying.
 4. When something fails, read the error, check node compatibility, suggest fixes.
 5. If ComfyUI is not running, say so immediately. Most tools require it.
@@ -111,8 +111,8 @@ When using the ComfyUI agent tools via MCP, follow these rules:
 | **Workflow Editing** | `apply_workflow_patch`, `preview_workflow_patch`, `undo_workflow_patch`, `get_workflow_diff`, `save_workflow`, `reset_workflow` |
 | **Semantic Building** | `add_node`, `connect_nodes`, `set_input` |
 | **Execution** | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` |
-| **Discovery** | `search_custom_nodes`, `search_models`, `find_missing_nodes`, `check_registry_freshness`, `get_install_instructions` |
-| **CivitAI** | `search_civitai`, `get_civitai_model`, `get_civitai_trending` |
+| **Discovery** | `discover`, `find_missing_nodes`, `check_registry_freshness`, `get_install_instructions` |
+| **CivitAI** | `get_civitai_model`, `get_trending_models` |
 | **Model Compat** | `identify_model_family`, `check_model_compatibility` |
 | **Templates** | `list_workflow_templates`, `get_workflow_template` |
 | **Session** | `save_session`, `load_session`, `list_sessions`, `add_note` |
@@ -182,8 +182,7 @@ ComfyUI API format is a flat dict of nodes keyed by string IDs:
 Some tools overlap with Claude Code's native capabilities. All are kept for domain-specific value:
 
 - **Filesystem tools** (`list_models`, `list_custom_nodes`, `read_node_source`): Overlap with Glob/Read, but provide ComfyUI-aware parsing (model type detection, node registration scanning). Keep.
-- **Search tools** (`search_models`, `search_custom_nodes`): Domain registries (ComfyUI Manager 31k+ nodes, model-list.json). No native equivalent. Core value.
-- **Discovery tools** (`search_civitai`, HuggingFace search): External API integration. Claude Code has WebSearch but these are structured/filtered. Keep.
+- **Discovery tools** (`discover`): Unified cross-source search (ComfyUI Manager 31k+ nodes, CivitAI, HuggingFace). Deduplication, ranking, installed-status. No native equivalent. Core value.
 - **Workflow tools** (entire PILOT layer): RFC6902 patch engine with undo. No native equivalent. Core value.
 - **Session tools**: Could potentially be replaced by Claude Code's own memory, but workflow state serialization is domain-specific. Keep for now.
 - **Brain tools**: Higher-order capabilities (vision analysis, planning, optimization). Core value, no native equivalent.
@@ -194,7 +193,7 @@ Some tools overlap with Claude Code's native capabilities. All are kept for doma
 
 ### Four Intelligence Layers
 
-The agent's 41 intelligence + 20 brain tools are organized into four layers, each solving
+The agent's 40 intelligence + 20 brain tools are organized into four layers, each solving
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
@@ -209,10 +208,10 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 │                   _protocol.py (BrainMessage)                     │
 │      ┌──────────────┬──┴───────┬──────────────┐                   │
 │                                                                    │
-│  INTELLIGENCE LAYERS (41 tools)                                    │
+│  INTELLIGENCE LAYERS (40 tools)                                    │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │ UNDERSTAND│  │ DISCOVER  │  │  PILOT   │  │   VERIFY     │    │
-│  │ 13 tools  │  │  8 tools  │  │ 13 tools │  │   7 tools    │    │
+│  │ 13 tools  │  │  6 tools  │  │ 13 tools │  │   7 tools    │    │
 │  └─────┬─────┘  └─────┬─────┘  └────┬─────┘  └──────┬───────┘    │
 │        └──────────────┴──────┬───────┴───────────────┘            │
 │                    ┌─────────▼─────────┐                          │
@@ -233,9 +232,9 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **UNDERSTAND** | `tools/workflow_parse.py` | 3 | loads, detects format, traces connections, extracts editable fields |
 | **UNDERSTAND** | `tools/comfy_inspect.py` | 4 | filesystem scanning, `list_models` with progressive disclosure |
 | **UNDERSTAND** | `tools/comfy_api.py` | 6 | live HTTP queries, `format` param for progressive disclosure |
-| **DISCOVER** | `tools/comfy_discover.py` | 5 | ComfyUI Manager registries (31k+ node types) + HuggingFace + freshness tracking + install instructions |
+| **DISCOVER** | `tools/comfy_discover.py` | 4 | unified `discover` + ComfyUI Manager registries + HuggingFace + freshness tracking + install instructions |
 | **DISCOVER** | `tools/workflow_templates.py` | 2 | starter workflows in `agent/templates/` |
-| **DISCOVER** | `tools/civitai_api.py` | 3 | CivitAI search, model details, trending models + local cross-ref |
+| **DISCOVER** | `tools/civitai_api.py` | 2 | CivitAI model details, trending models + local cross-ref |
 | **DISCOVER** | `tools/model_compat.py` | 2 | model family identification (SD1.5/SDXL/Flux/SD3), compatibility checking |
 | **PILOT** | `tools/workflow_patch.py` | 9 | RFC6902 patching (6) + semantic: `add_node`, `connect_nodes`, `set_input` (3) |
 | **PILOT** | `tools/session_tools.py` | 4 | save/load/list sessions via `memory/session.py` |
@@ -246,13 +245,13 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
 | **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
 | **BRAIN:DEMO** | `brain/demo.py` | 2 | `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
-| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 62 tools via Model Context Protocol (primary interface) |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 60 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
 BUILT (v0.3.1 — working today):
-  ✅ 62 tools: 42 intelligence layer + 20 brain layer
+  ✅ 60 tools: 40 intelligence layer + 20 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
   ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
@@ -285,7 +284,7 @@ BUILT (v0.3.1 — working today):
   ✅ 459 tests, all mocked, <35s, 0 lint warnings
 
 NEXT:
-  🔲 Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
+  ✅ Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
   🔲 Agent SDK extraction (brain modules -> standalone agents)
   🔲 Rich CLI formatting (panels, tables, syntax highlighting)
   🔲 GitHub API release tracking for key custom node repos
@@ -497,7 +496,7 @@ Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 62 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+All 60 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
 core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
 Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
 handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation
@@ -538,7 +537,7 @@ protocol activation, He2025 determinism audit and fixes. 429 tests.
 MCP as core dependency (not optional), CLAUDE.md knowledge layer (tool rules,
 artistic intent translation, model family reference), WorkflowSession for
 per-session state isolation, `get_install_instructions` tool, He2025 deep
-audit (3 passes, 21 violations fixed). 459 tests. 62 tools.
+audit (3 passes, 21 violations fixed). 459 tests. 60 tools.
 
 ### Phase 4: Next
 **Goal:** Unified discovery and agent SDK extraction.

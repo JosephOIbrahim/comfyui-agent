@@ -166,34 +166,36 @@ def mock_models_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 class TestSearchCustomNodes:
+    """Tests for the internal _handle_search_custom_nodes function."""
+
     def test_search_by_name(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "IPAdapter",
         }))
         assert result["total_matches"] >= 1
         assert any("IPAdapter" in r["title"] for r in result["results"])
 
     def test_search_by_description(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "video matting",
         }))
         assert result["total_matches"] >= 1
 
     def test_search_by_author(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "cubiq",
         }))
         assert result["total_matches"] >= 1
         assert result["results"][0]["author"] == "cubiq"
 
     def test_search_no_results(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "zzzznonexistent",
         }))
         assert result["total_matches"] == 0
 
     def test_search_by_node_type_exact(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "IPAdapterUnifiedLoader",
             "by": "node_type",
         }))
@@ -201,7 +203,7 @@ class TestSearchCustomNodes:
         assert "IPAdapter" in result["pack"]["title"]
 
     def test_search_by_node_type_fuzzy(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "IPAdapter",
             "by": "node_type",
         }))
@@ -209,21 +211,21 @@ class TestSearchCustomNodes:
         assert len(result["results"]) >= 1
 
     def test_search_by_node_type_not_found(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "ZZZNonexistentNode",
             "by": "node_type",
         }))
         assert result["match"] == "none"
 
     def test_install_status(self, mock_registries, mock_custom_nodes_dir):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "IPAdapterUnifiedLoader",
             "by": "node_type",
         }))
         assert result["pack"]["installed"] is True
 
     def test_max_results(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_custom_nodes", {
+        result = json.loads(comfy_discover._handle_search_custom_nodes({
             "query": "ComfyUI",
             "max_results": 2,
         }))
@@ -232,7 +234,7 @@ class TestSearchCustomNodes:
     def test_no_manager(self, tmp_path):
         """No ComfyUI Manager installed."""
         with patch.object(comfy_discover, "_MANAGER_DIR", tmp_path / "nonexistent"):
-            result = json.loads(comfy_discover.handle("search_custom_nodes", {
+            result = json.loads(comfy_discover._handle_search_custom_nodes({
                 "query": "test",
             }))
             assert "error" in result
@@ -243,8 +245,10 @@ class TestSearchCustomNodes:
 # ---------------------------------------------------------------------------
 
 class TestSearchModels:
+    """Tests for the internal _handle_search_models function."""
+
     def test_search_registry_by_name(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_models", {
+        result = json.loads(comfy_discover._handle_search_models({
             "query": "FLUX",
         }))
         assert result["source"] == "registry"
@@ -252,27 +256,27 @@ class TestSearchModels:
         assert "FLUX" in result["results"][0]["name"]
 
     def test_search_registry_by_type(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_models", {
+        result = json.loads(comfy_discover._handle_search_models({
             "query": "SDXL",
             "model_type": "controlnet",
         }))
         assert all(r["type"] == "controlnet" for r in result["results"])
 
     def test_search_registry_no_match(self, mock_registries):
-        result = json.loads(comfy_discover.handle("search_models", {
+        result = json.loads(comfy_discover._handle_search_models({
             "query": "zzzznonexistent",
         }))
         assert result["total_matches"] == 0
 
     def test_model_install_status(self, mock_registries, mock_models_dir):
-        result = json.loads(comfy_discover.handle("search_models", {
+        result = json.loads(comfy_discover._handle_search_models({
             "query": "SDXL Base",
         }))
         sdxl = result["results"][0]
         assert sdxl["installed"] is True
 
     def test_model_not_installed(self, mock_registries, mock_models_dir):
-        result = json.loads(comfy_discover.handle("search_models", {
+        result = json.loads(comfy_discover._handle_search_models({
             "query": "FLUX",
         }))
         flux = result["results"][0]
@@ -296,7 +300,7 @@ class TestSearchModels:
             mock_client = mock_cls.return_value.__enter__.return_value
             mock_client.get.return_value = mock_resp
 
-            result = json.loads(comfy_discover.handle("search_models", {
+            result = json.loads(comfy_discover._handle_search_models({
                 "query": "stable diffusion xl",
                 "source": "huggingface",
             }))
@@ -310,7 +314,7 @@ class TestSearchModels:
             mock_client = mock_cls.return_value.__enter__.return_value
             mock_client.get.side_effect = _httpx.ConnectError("no internet")
 
-            result = json.loads(comfy_discover.handle("search_models", {
+            result = json.loads(comfy_discover._handle_search_models({
                 "query": "flux",
                 "source": "huggingface",
             }))
@@ -318,7 +322,7 @@ class TestSearchModels:
 
     def test_no_manager_for_registry(self, tmp_path):
         with patch.object(comfy_discover, "_MANAGER_DIR", tmp_path / "nonexistent"):
-            result = json.loads(comfy_discover.handle("search_models", {
+            result = json.loads(comfy_discover._handle_search_models({
                 "query": "test",
             }))
             assert "error" in result
@@ -683,8 +687,208 @@ class TestRegistration:
     def test_tools_registered(self):
         from agent.tools import ALL_TOOLS
         names = {t["name"] for t in ALL_TOOLS}
-        assert "search_custom_nodes" in names
-        assert "search_models" in names
+        assert "discover" in names
         assert "find_missing_nodes" in names
         assert "check_registry_freshness" in names
         assert "get_install_instructions" in names
+        # Old tools should be gone
+        assert "search_custom_nodes" not in names
+        assert "search_models" not in names
+
+
+# ---------------------------------------------------------------------------
+# Tests: unified discover tool
+# ---------------------------------------------------------------------------
+
+class TestDiscover:
+    """Tests for the unified discover tool."""
+
+    def test_nodes_only(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "IPAdapter",
+            "category": "nodes",
+        }))
+        assert result["total"] >= 1
+        assert result["category"] == "nodes"
+        assert all(r["type"] == "node_pack" for r in result["results"])
+        assert "registry_nodes" in result["sources_searched"]
+
+    def test_models_only(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "SDXL",
+            "category": "models",
+            "sources": ["registry"],
+        }))
+        assert result["total"] >= 1
+        assert result["category"] == "models"
+        assert all(r["type"] == "model" for r in result["results"])
+
+    def test_all_category(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "ComfyUI",
+            "category": "all",
+            "sources": ["registry"],
+        }))
+        assert result["total"] >= 1
+        # May contain both nodes and models
+
+    def test_per_source_registry(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "FLUX",
+            "sources": ["registry"],
+        }))
+        assert "registry_models" in result["sources_searched"]
+        assert "civitai" not in result["sources_searched"]
+        assert "huggingface" not in result["sources_searched"]
+
+    def test_per_source_civitai(self, mock_registries):
+        """CivitAI source with mock."""
+        with patch("agent.tools.comfy_discover._search_civitai_unified", return_value=(
+            [comfy_discover._normalize_result(
+                name="Test LoRA", result_type="model", source="civitai",
+                relevance_score=0.8, installed=False, url="https://civitai.com/models/1",
+            )],
+            None,
+        )):
+            result = json.loads(comfy_discover.handle("discover", {
+                "query": "test",
+                "sources": ["civitai"],
+                "category": "models",
+            }))
+            assert result["total"] >= 1
+            assert any(r["source"] == "civitai" for r in result["results"])
+
+    def test_per_source_huggingface(self):
+        """HuggingFace source with mock."""
+        with patch("agent.tools.comfy_discover._search_hf_unified", return_value=(
+            [comfy_discover._normalize_result(
+                name="test/model", result_type="model", source="huggingface",
+                relevance_score=0.5, installed=False, url="https://huggingface.co/test/model",
+            )],
+            None,
+        )):
+            result = json.loads(comfy_discover.handle("discover", {
+                "query": "test",
+                "sources": ["huggingface"],
+                "category": "models",
+            }))
+            assert result["total"] >= 1
+            assert any(r["source"] == "huggingface" for r in result["results"])
+
+    def test_dedup_same_name(self, mock_registries):
+        """Same model from multiple sources should be deduped."""
+        results = [
+            comfy_discover._normalize_result(
+                name="Test Model", result_type="model", source="registry",
+                relevance_score=0.5, installed=False, url="https://a.com",
+            ),
+            comfy_discover._normalize_result(
+                name="Test Model", result_type="model", source="civitai",
+                relevance_score=0.9, installed=False, url="https://b.com",
+            ),
+        ]
+        deduped = comfy_discover._deduplicate(results)
+        assert len(deduped) == 1
+        # Higher score wins
+        assert deduped[0]["source"] == "civitai"
+        assert "registry" in deduped[0].get("also_found_on", [])
+
+    def test_installed_boost(self, mock_registries):
+        """Installed items should rank first."""
+        results = [
+            comfy_discover._normalize_result(
+                name="B Not Installed", result_type="model", source="registry",
+                relevance_score=1.0, installed=False, url="",
+            ),
+            comfy_discover._normalize_result(
+                name="A Installed", result_type="model", source="registry",
+                relevance_score=0.1, installed=True, url="",
+            ),
+        ]
+        ranked = comfy_discover._rank_results(results)
+        assert ranked[0]["name"] == "A Installed"
+
+    def test_model_type_filter(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "SDXL",
+            "category": "models",
+            "sources": ["registry"],
+            "model_type": "controlnet",
+        }))
+        for r in result["results"]:
+            assert r.get("model_type", "").lower() == "controlnet"
+
+    def test_common_schema(self, mock_registries):
+        """Every result should have the common fields."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "IPAdapter",
+            "category": "nodes",
+        }))
+        required_fields = {"name", "type", "source", "relevance_score", "installed", "url"}
+        for r in result["results"]:
+            assert required_fields.issubset(set(r.keys())), f"Missing fields in {r}"
+
+    def test_he2025_ordering(self, mock_registries):
+        """Results with same installed status and score should be alphabetical."""
+        results = [
+            comfy_discover._normalize_result(
+                name="Zebra", result_type="model", source="registry",
+                relevance_score=0.5, installed=False, url="",
+            ),
+            comfy_discover._normalize_result(
+                name="Alpha", result_type="model", source="registry",
+                relevance_score=0.5, installed=False, url="",
+            ),
+        ]
+        ranked = comfy_discover._rank_results(results)
+        assert ranked[0]["name"] == "Alpha"
+        assert ranked[1]["name"] == "Zebra"
+
+    def test_old_tools_removed(self):
+        """Old tool names should not be dispatchable."""
+        result = json.loads(comfy_discover.handle("search_custom_nodes", {}))
+        assert "error" in result
+        result = json.loads(comfy_discover.handle("search_models", {}))
+        assert "error" in result
+
+    def test_error_handling_partial_source_failure(self, mock_registries):
+        """If one source fails, others should still return results."""
+        with patch("agent.tools.comfy_discover._search_civitai_unified", return_value=(
+            [], "CivitAI is down",
+        )):
+            result = json.loads(comfy_discover.handle("discover", {
+                "query": "SDXL",
+                "category": "models",
+                "sources": ["registry", "civitai"],
+            }))
+            # Registry results should still be present
+            assert result["total"] >= 1
+            assert any(e["source"] == "civitai" for e in result.get("errors", []))
+
+    def test_max_results_per_source(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "ComfyUI",
+            "category": "nodes",
+            "max_results": 1,
+        }))
+        # Should respect max_results (may be fewer if dedup)
+        assert result["total"] <= 3  # 1 per source max, 3 sources max
+
+    def test_empty_results(self, mock_registries):
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "zzzzzznonexistent",
+            "sources": ["registry"],
+        }))
+        assert result["total"] == 0
+        assert result["results"] == []
+
+    def test_normalize_result_sorted_keys(self):
+        """_normalize_result should produce sorted keys (He2025)."""
+        r = comfy_discover._normalize_result(
+            name="Test", result_type="model", source="registry",
+            relevance_score=0.5, installed=False, url="http://x",
+            zebra="z", alpha="a",
+        )
+        # Extra keys are included in the result
+        assert "alpha" in r
+        assert "zebra" in r

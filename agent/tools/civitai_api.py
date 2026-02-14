@@ -80,59 +80,11 @@ _PERIOD_MAP = {
 
 TOOLS: list[dict] = [
     {
-        "name": "search_civitai",
-        "description": (
-            "Search CivitAI for models, LoRAs, ControlNets, and embeddings. "
-            "Returns community ratings, download counts, and compatibility info. "
-            "CivitAI is the largest community hub — use this to discover what's "
-            "popular and trending in the Stable Diffusion ecosystem."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search term — model name, style, or keyword.",
-                },
-                "model_type": {
-                    "type": "string",
-                    "enum": ["checkpoint", "lora", "controlnet", "embedding", "vae", "upscaler"],
-                    "description": "Filter by model type.",
-                },
-                "base_model": {
-                    "type": "string",
-                    "description": (
-                        "Filter by base model: 'sd15', 'sdxl', 'flux', 'sd3', 'pony'."
-                    ),
-                },
-                "sort": {
-                    "type": "string",
-                    "enum": ["most_downloaded", "highest_rated", "newest"],
-                    "description": "Sort order. Default: 'most_downloaded'.",
-                },
-                "period": {
-                    "type": "string",
-                    "enum": ["day", "week", "month", "year", "all_time"],
-                    "description": "Time period for sorting. Default: 'all_time'.",
-                },
-                "nsfw": {
-                    "type": "boolean",
-                    "description": "Include NSFW results. Default: false.",
-                },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Max results (1-20). Default: 10.",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
         "name": "get_civitai_model",
         "description": (
             "Get detailed info for a specific CivitAI model by ID. Returns "
             "all versions, files, example images, description, and stats. "
-            "Use after search_civitai to get full details before recommending."
+            "Use after discover to get full details before recommending."
         ),
         "input_schema": {
             "type": "object",
@@ -454,9 +406,7 @@ def _handle_get_trending_models(tool_input: dict) -> str:
 def handle(name: str, tool_input: dict) -> str:
     """Execute a CivitAI tool call."""
     try:
-        if name == "search_civitai":
-            return _handle_search_civitai(tool_input)
-        elif name == "get_civitai_model":
+        if name == "get_civitai_model":
             return _handle_get_civitai_model(tool_input)
         elif name == "get_trending_models":
             return _handle_get_trending_models(tool_input)
