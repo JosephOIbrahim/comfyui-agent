@@ -126,6 +126,38 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "get_install_instructions",
+        "description": (
+            "Get installation instructions for a custom node pack or model. "
+            "Given a query and source, returns the specific commands needed to "
+            "install (git clone for node packs, download path for models). "
+            "Bridges the gap between discovery and actual installation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Name or identifier of the item to install — a node pack "
+                        "name/URL, a model name, or a node class_type."
+                    ),
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["registry", "civitai", "huggingface"],
+                    "description": (
+                        "Where to look up install info: 'registry' for ComfyUI "
+                        "Manager node packs and models, 'civitai' for CivitAI "
+                        "models, 'huggingface' for HuggingFace models. "
+                        "Default: 'registry'."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "check_registry_freshness",
         "description": (
             "Check how fresh the local discovery data is. Reports the age of "
@@ -219,7 +251,7 @@ def _build_node_to_pack() -> dict[str, dict]:
 
     ext_map = _load_extension_map()
     index = {}
-    for url, entry in ext_map.items():
+    for url, entry in sorted(ext_map.items()):  # He2025: sorted iteration for deterministic collision resolution
         if not isinstance(entry, list) or len(entry) < 2:
             continue
         node_types = entry[0] if isinstance(entry[0], list) else []
@@ -664,6 +696,128 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
     })
 
 
+def _handle_get_install_instructions(tool_input: dict) -> str:
+    """Get install instructions for a node pack or model."""
+    query = tool_input["query"]
+    source = tool_input.get("source", "registry")
+
+    if source == "civitai":
+        return to_json({
+            "source": "civitai",
+            "query": query,
+            "instructions": (
+                f"To install a CivitAI model, use the CivitAI tools to find the "
+                f"model first (search_civitai), then download the file to the "
+                f"appropriate directory under {MODELS_DIR}. "
+                f"CivitAI models are typically .safetensors files."
+            ),
+            "steps": [
+                f"1. Use search_civitai to find '{query}' and get the download URL",
+                "2. Note the model type (checkpoint, lora, controlnet, etc.)",
+                f"3. Download to {MODELS_DIR}/<type>/ directory",
+                "4. Restart ComfyUI or refresh the model list",
+            ],
+        })
+
+    if source == "huggingface":
+        return to_json({
+            "source": "huggingface",
+            "query": query,
+            "instructions": (
+                f"To install a HuggingFace model, download the .safetensors file "
+                f"to the appropriate directory under {MODELS_DIR}."
+            ),
+            "steps": [
+                f"1. Use search_models with source='huggingface' to find '{query}'",
+                "2. Note the model type and download the .safetensors file",
+                f"3. Place in {MODELS_DIR}/<type>/ directory",
+                "4. Restart ComfyUI or refresh the model list",
+            ],
+        })
+
+    # Registry source — look up node packs and models
+    # Try node pack first (by node_type)
+    index = _build_node_to_pack()
+    if query in index:
+        pack = index[query]
+        url = pack["url"]
+        installed = _is_pack_installed(url)
+        folder = url.rstrip("/").split("/")[-1]
+        if folder.endswith(".git"):
+            folder = folder[:-4]
+        return to_json({
+            "source": "registry",
+            "type": "node_pack",
+            "query": query,
+            "pack_title": pack["title"],
+            "installed": installed,
+            "install_commands": [
+                f"cd {CUSTOM_NODES_DIR}",
+                f"git clone {url}",
+                f"pip install -r {CUSTOM_NODES_DIR / folder / 'requirements.txt'} "
+                f"(if exists)",
+                "Restart ComfyUI",
+            ] if not installed else [],
+            "message": "Already installed." if installed else f"Clone {url} into Custom_Nodes.",
+        })
+
+    # Try node pack by name search
+    packs = _load_custom_nodes()
+    query_lower = query.lower()
+    for pack in packs:
+        title = pack.get("title", "")
+        ref = pack.get("reference", "")
+        if query_lower in title.lower() or query_lower in ref.lower():
+            installed = _is_pack_installed(ref) if ref else False
+            folder = ref.rstrip("/").split("/")[-1] if ref else ""
+            if folder.endswith(".git"):
+                folder = folder[:-4]
+            return to_json({
+                "source": "registry",
+                "type": "node_pack",
+                "query": query,
+                "pack_title": title,
+                "installed": installed,
+                "install_commands": [
+                    f"cd {CUSTOM_NODES_DIR}",
+                    f"git clone {ref}",
+                    f"pip install -r {CUSTOM_NODES_DIR / folder / 'requirements.txt'} "
+                    f"(if exists)",
+                    "Restart ComfyUI",
+                ] if not installed and ref else [],
+                "message": "Already installed." if installed else f"Clone {ref} into Custom_Nodes.",
+            })
+
+    # Try model registry
+    models = _load_model_list()
+    for model in models:
+        name = model.get("name", "")
+        if query_lower in name.lower():
+            filename = model.get("filename", "")
+            save_path = model.get("save_path", "")
+            url = model.get("url", "")
+            installed = _is_model_installed(filename, save_path) if filename and save_path else False
+            return to_json({
+                "source": "registry",
+                "type": "model",
+                "query": query,
+                "model_name": name,
+                "installed": installed,
+                "install_commands": [
+                    f"Download: {url}",
+                    f"Save to: {MODELS_DIR / save_path / filename}",
+                    "Restart ComfyUI or refresh model list",
+                ] if not installed and url else [],
+                "message": "Already installed." if installed else f"Download {filename} to {save_path}/.",
+            })
+
+    return to_json({
+        "source": "registry",
+        "query": query,
+        "error": f"Could not find '{query}' in the registry. Try search_custom_nodes or search_models first.",
+    })
+
+
 def _clear_cache():
     """Clear all in-memory caches, forcing reload from disk on next access."""
     _cache["custom_nodes"] = None
@@ -799,6 +953,8 @@ def handle(name: str, tool_input: dict) -> str:
             return _handle_search_models(tool_input)
         elif name == "find_missing_nodes":
             return _handle_find_missing_nodes(tool_input)
+        elif name == "get_install_instructions":
+            return _handle_get_install_instructions(tool_input)
         elif name == "check_registry_freshness":
             return _handle_check_freshness(tool_input)
         else:

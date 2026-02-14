@@ -110,4 +110,4 @@ class TestToolRegistry:
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 61, f"Expected 61 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 62, f"Expected 62 tools, got {len(ALL_TOOLS)}"

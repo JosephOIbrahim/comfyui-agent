@@ -10,7 +10,6 @@ undo as needed, then save or execute.
 
 import copy
 import json
-import threading
 from pathlib import Path
 
 import jsonpatch
@@ -20,15 +19,14 @@ from ._util import to_json
 # ---------------------------------------------------------------------------
 # Module-level state (one active workflow at a time)
 # ---------------------------------------------------------------------------
+# WorkflowSession is dict-like: _state["key"] and _state.get("key") work.
+# The lock is per-session, so the existing `with _state_lock:` pattern
+# continues to work for the default session.
 
-_state = {
-    "loaded_path": None,       # str: path to the original file
-    "base_workflow": None,     # dict: original workflow (immutable)
-    "current_workflow": None,  # dict: current working copy
-    "history": [],             # list[dict]: previous states for undo
-    "format": None,            # str: "api" | "ui_with_api" | "ui_only"
-}
-_state_lock = threading.Lock()
+from ..workflow_session import get_session
+
+_state = get_session("default")
+_state_lock = _state._lock
 
 
 def _ensure_loaded() -> str | None:

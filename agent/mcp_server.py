@@ -16,18 +16,12 @@ Usage:
 
 import asyncio
 import logging
-import sys
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+import mcp.types as types
 
 log = logging.getLogger(__name__)
-
-# Optional import — mcp is not a required dependency
-try:
-    from mcp.server import Server
-    from mcp.server.stdio import stdio_server
-    import mcp.types as types
-    _HAS_MCP = True
-except ImportError:
-    _HAS_MCP = False
 
 
 def _convert_schema(tool_def: dict) -> dict:
@@ -53,12 +47,6 @@ def create_mcp_server() -> "Server":
     Returns a configured mcp.server.Server instance ready to connect
     to a transport.
     """
-    if not _HAS_MCP:
-        raise ImportError(
-            "MCP SDK not installed. Install with: pip install 'comfyui-agent[mcp]' "
-            "or pip install mcp"
-        )
-
     from .tools import ALL_TOOLS, handle as handle_tool
 
     server = Server("comfyui-agent")
@@ -92,13 +80,18 @@ def create_mcp_server() -> "Server":
 
         arguments = arguments or {}
 
+        # Extract optional session_id for future multi-session support
+        session_id = arguments.pop("_session_id", None)
+
         # Our tool handlers are synchronous — run in thread executor
         # to avoid blocking the async event loop
         loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(
-                None, handle_tool, name, arguments
+            import functools
+            handler = functools.partial(
+                handle_tool, name, arguments, session_id=session_id
             )
+            result = await loop.run_in_executor(None, handler)
         except Exception as e:
             log.error("Tool %s failed: %s", name, e, exc_info=True)
             return [types.TextContent(
@@ -126,15 +119,6 @@ async def run_stdio():
 
 def main():
     """Entry point for running the MCP server."""
-    if not _HAS_MCP:
-        print(
-            "Error: MCP SDK not installed.\n"
-            "Install with: pip install mcp\n"
-            "Or: pip install 'comfyui-agent[mcp]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     # Configure logging to stderr (stdio transport uses stdout for JSON-RPC)
     from .logging_config import setup_logging
     from .config import LOG_DIR

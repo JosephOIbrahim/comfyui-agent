@@ -613,6 +613,72 @@ class TestRegistryFreshness:
         assert result["models"]["total_files"] >= 1
 
 
+# ---------------------------------------------------------------------------
+# Tests: get_install_instructions
+# ---------------------------------------------------------------------------
+
+class TestGetInstallInstructions:
+    def test_node_pack_by_node_type(self, mock_registries, mock_custom_nodes_dir):
+        """Find install instructions for a known node type."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "IPAdapterUnifiedLoader",
+        }))
+        assert result["type"] == "node_pack"
+        assert result["installed"] is True
+        assert result["pack_title"] == "ComfyUI_IPAdapter_plus"
+
+    def test_node_pack_not_installed(self, mock_registries):
+        """Node pack not installed — should return install commands."""
+        # No mock_custom_nodes_dir so _is_pack_installed returns False
+        with patch.object(comfy_discover, "CUSTOM_NODES_DIR", MagicMock(exists=MagicMock(return_value=False))):
+            result = json.loads(comfy_discover.handle("get_install_instructions", {
+                "query": "IPAdapterUnifiedLoader",
+            }))
+            assert result["installed"] is False
+            assert len(result["install_commands"]) > 0
+
+    def test_node_pack_by_name(self, mock_registries, mock_custom_nodes_dir):
+        """Find install instructions by pack name search."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "IPAdapter",
+        }))
+        assert result["type"] == "node_pack"
+        assert "IPAdapter" in result["pack_title"]
+
+    def test_model_from_registry(self, mock_registries, mock_models_dir):
+        """Find install instructions for a model."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "SDXL Base",
+        }))
+        assert result["type"] == "model"
+        assert result["installed"] is True
+
+    def test_civitai_source(self):
+        """CivitAI source returns general instructions."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "some model",
+            "source": "civitai",
+        }))
+        assert result["source"] == "civitai"
+        assert len(result["steps"]) > 0
+
+    def test_huggingface_source(self):
+        """HuggingFace source returns general instructions."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "some model",
+            "source": "huggingface",
+        }))
+        assert result["source"] == "huggingface"
+        assert len(result["steps"]) > 0
+
+    def test_not_found(self, mock_registries):
+        """Unknown query returns error with suggestion."""
+        result = json.loads(comfy_discover.handle("get_install_instructions", {
+            "query": "zzzznonexistent",
+        }))
+        assert "error" in result
+
+
 class TestRegistration:
     def test_tools_registered(self):
         from agent.tools import ALL_TOOLS
@@ -621,3 +687,4 @@ class TestRegistration:
         assert "search_models" in names
         assert "find_missing_nodes" in names
         assert "check_registry_freshness" in names
+        assert "get_install_instructions" in names

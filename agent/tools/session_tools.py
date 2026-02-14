@@ -104,9 +104,10 @@ TOOLS: list[dict] = [
 def _handle_save_session(tool_input: dict) -> str:
     name = tool_input["name"]
 
-    # Capture current workflow state from workflow_patch
-    from .workflow_patch import _state as wf_state
-    workflow_state = copy.deepcopy(wf_state) if wf_state.get("current_workflow") else None
+    # Capture current workflow state from session
+    from ..workflow_session import get_session
+    wf_state = get_session("default")
+    workflow_state = copy.deepcopy(dict(wf_state.items())) if wf_state.get("current_workflow") else None
 
     # Preserve existing notes from prior add_note calls
     existing = load_session(name)
@@ -128,7 +129,8 @@ def _handle_load_session(tool_input: dict) -> str:
     restored_workflow = False
 
     if wf and wf.get("base_workflow") and wf.get("current_workflow"):
-        from .workflow_patch import _state as wf_state
+        from ..workflow_session import get_session
+        wf_state = get_session("default")
         wf_state["loaded_path"] = wf.get("loaded_path")
         wf_state["base_workflow"] = copy.deepcopy(wf["base_workflow"])
         wf_state["current_workflow"] = copy.deepcopy(wf["current_workflow"])

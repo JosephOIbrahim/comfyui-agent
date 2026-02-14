@@ -380,10 +380,11 @@ def search(
 
 @app.command()
 def mcp():
-    """Start the MCP server (stdio transport).
+    """Primary integration -- exposes all 61 tools via MCP for Claude Code.
 
-    Exposes all agent tools via the Model Context Protocol.
-    Configure in Claude Desktop or Claude Code settings.
+    Starts the MCP server using stdio transport. Configure in your
+    Claude Code settings (.claude/settings.json) to use these tools
+    directly from Claude Code conversations.
     """
     from .mcp_server import main as mcp_main
     mcp_main()

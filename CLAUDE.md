@@ -56,6 +56,139 @@ ruff format agent/ tests/
 
 ---
 
+## Claude Code MCP Setup
+
+This project is MCP-first: Claude Code **is** the agent runtime; these tools are its domain expertise for ComfyUI.
+
+**Install:**
+```bash
+pip install -e "."
+```
+
+**Configure** `.claude/settings.json` (or project-level):
+```json
+{
+  "mcpServers": {
+    "comfyui-agent": {
+      "command": "agent",
+      "args": ["mcp"],
+      "cwd": "C:/Users/User/comfyui-agent"
+    }
+  }
+}
+```
+
+---
+
+## Tool Usage Rules
+
+When using the ComfyUI agent tools via MCP, follow these rules:
+
+1. **NEVER claim to know about specific models from memory. ALWAYS use tools.** Model ecosystems change daily.
+2. When asked "what model should I use for X?" -- search first (`search_models`, `search_custom_nodes`), recommend after.
+3. When modifying workflows, ALWAYS show the proposed patch and get confirmation before applying.
+4. When something fails, read the error, check node compatibility, suggest fixes.
+5. If ComfyUI is not running, say so immediately. Most tools require it.
+6. Prefer `get_node_info` over memory for node interfaces. It's always current.
+7. When suggesting new nodes/models, check if they're already installed first (`list_models`, `list_custom_nodes`).
+8. Log key decisions and preferences to session notes (`add_note`) for continuity.
+9. At conversation end, save the session so the user can resume later.
+10. Use `format='names_only'` or `format='summary'` for large tool queries; drill down with specific tools.
+11. For workflow creation, prefer loading a template (`list_workflow_templates`) and patching it.
+12. Before executing, use `validate_before_execute` to catch errors early.
+13. Use `add_node`/`connect_nodes`/`set_input` for building workflows instead of raw JSON patches when possible.
+14. Never generate entire workflows from scratch. Make surgical, validated modifications.
+15. Every patch is validated before application. No exceptions.
+
+### Tool Overview
+
+| Category | Tools |
+|----------|-------|
+| **Live API** | `is_comfyui_running`, `get_all_nodes`, `get_node_info`, `get_system_stats`, `get_queue_status`, `get_history` |
+| **Filesystem** | `list_custom_nodes`, `list_models`, `get_models_summary`, `read_node_source` |
+| **Workflow Understanding** | `load_workflow`, `validate_workflow`, `get_editable_fields` |
+| **Workflow Editing** | `apply_workflow_patch`, `preview_workflow_patch`, `undo_workflow_patch`, `get_workflow_diff`, `save_workflow`, `reset_workflow` |
+| **Semantic Building** | `add_node`, `connect_nodes`, `set_input` |
+| **Execution** | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` |
+| **Discovery** | `search_custom_nodes`, `search_models`, `find_missing_nodes`, `check_registry_freshness`, `get_install_instructions` |
+| **CivitAI** | `search_civitai`, `get_civitai_model`, `get_civitai_trending` |
+| **Model Compat** | `identify_model_family`, `check_model_compatibility` |
+| **Templates** | `list_workflow_templates`, `get_workflow_template` |
+| **Session** | `save_session`, `load_session`, `list_sessions`, `add_note` |
+| **Brain: Vision** | `analyze_image`, `compare_outputs`, `suggest_improvements`, `hash_compare_images` |
+| **Brain: Planner** | `plan_goal`, `get_plan`, `complete_step`, `replan` |
+| **Brain: Memory** | `record_outcome`, `get_learned_patterns`, `get_recommendations`, `detect_implicit_feedback` |
+| **Brain: Orchestrator** | `spawn_subtask`, `check_subtasks` |
+| **Brain: Optimizer** | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
+| **Brain: Demo** | `start_demo`, `demo_checkpoint` |
+
+---
+
+## Artistic Intent to Parameter Translation
+
+When the artist describes what they want in natural language, translate to ComfyUI parameters:
+
+| Artist Says | Parameter Direction |
+|------------|-------------------|
+| "dreamier" / "softer" | Lower CFG (5-7), increase steps, use DPM++ 2M Karras |
+| "sharper" / "crisper" | Higher CFG (8-12), use Euler or DPM++ SDE |
+| "more photorealistic" | Higher CFG (7-10), use realistic checkpoint, negative: "cartoon, anime, illustration" |
+| "more stylized" / "painterly" | Lower CFG (4-6), use artistic checkpoint or LoRA |
+| "faster" | Fewer steps (15-20), use LCM/Lightning/Turbo sampler, smaller resolution |
+| "higher quality" | More steps (30-50), enable hires fix, use upscaler |
+| "consistent lighting" | Add ControlNet depth/normal, reference image via IP-Adapter |
+| "similar to this image" | IP-Adapter with reference, or img2img with moderate denoise (0.4-0.6) |
+| "more variation" | Higher denoise, different seed, lower CFG |
+| "less variation" | Lower denoise, same seed, higher CFG |
+
+---
+
+## Model Family Quick Reference
+
+| Family | Resolution | CFG Range | Negative Prompt | Key Notes |
+|--------|-----------|-----------|----------------|-----------|
+| **SD 1.5** | 512x512 | 7-12 | Yes, important | Massive LoRA ecosystem, fast |
+| **SDXL** | 1024x1024 | 5-9 | Yes, but less critical | Base + refiner pipeline, better hands |
+| **Flux** | 512-1024 | 1.0 (guidance_scale) | No negative prompt | Uses FluxGuidance node, T5 text encoder |
+| **SD3** | 1024x1024 | 5-7 | Optional | Triple text encoder (CLIP-G, CLIP-L, T5) |
+
+**Compatibility rules:** Models within the same family are generally compatible. Never mix SD1.5 LoRAs with SDXL checkpoints. Flux has its own LoRA format. ControlNets must match the base model family.
+
+---
+
+## Workflow JSON Schema (API Format)
+
+ComfyUI API format is a flat dict of nodes keyed by string IDs:
+```json
+{
+  "node_id": {
+    "class_type": "NodeClassName",
+    "inputs": {
+      "literal_field": "value",
+      "connection_field": ["source_node_id", output_index]
+    }
+  }
+}
+```
+- Literal inputs: strings, numbers, booleans
+- Connection inputs: `[node_id_str, output_index_int]` tuples
+- The patch engine operates on this format exclusively
+
+---
+
+## Tool Redundancy Notes
+
+Some tools overlap with Claude Code's native capabilities. All are kept for domain-specific value:
+
+- **Filesystem tools** (`list_models`, `list_custom_nodes`, `read_node_source`): Overlap with Glob/Read, but provide ComfyUI-aware parsing (model type detection, node registration scanning). Keep.
+- **Search tools** (`search_models`, `search_custom_nodes`): Domain registries (ComfyUI Manager 31k+ nodes, model-list.json). No native equivalent. Core value.
+- **Discovery tools** (`search_civitai`, HuggingFace search): External API integration. Claude Code has WebSearch but these are structured/filtered. Keep.
+- **Workflow tools** (entire PILOT layer): RFC6902 patch engine with undo. No native equivalent. Core value.
+- **Session tools**: Could potentially be replaced by Claude Code's own memory, but workflow state serialization is domain-specific. Keep for now.
+- **Brain tools**: Higher-order capabilities (vision analysis, planning, optimization). Core value, no native equivalent.
+
+---
+
 ## Architecture
 
 ### Four Intelligence Layers

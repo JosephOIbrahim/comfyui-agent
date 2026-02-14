@@ -566,7 +566,10 @@ def _workflow_context_recommendations(
                 if s:
                     sampler_scores[s].append(o.get("quality_score", 0))
             if sampler_scores:
-                best_sampler = max(sampler_scores, key=lambda s: sum(sampler_scores[s]) / len(sampler_scores[s]))
+                best_sampler = max(
+                    sorted(sampler_scores),  # He2025: sort keys for deterministic tiebreaker
+                    key=lambda s: sum(sampler_scores[s]) / len(sampler_scores[s]),
+                )
                 if best_sampler != current_sampler and len(sampler_scores[best_sampler]) >= 2:
                     avg = sum(sampler_scores[best_sampler]) / len(sampler_scores[best_sampler])
                     recs.append({
@@ -663,7 +666,10 @@ def _handle_get_recommendations(tool_input: dict) -> str:
         if "quality" in goal_lower or "detail" in goal_lower:
             high_q = [o for o in outcomes if (o.get("quality_score") or 0) > 0.8]
             if high_q:
-                best = max(high_q, key=lambda o: o.get("quality_score", 0))
+                best = max(
+                    high_q,
+                    key=lambda o: (o.get("quality_score", 0), o.get("timestamp", 0)),
+                )  # He2025: timestamp tiebreaker for deterministic selection
                 recommendations.append({
                     "type": "goal",
                     "suggestion": "Use highest quality config",

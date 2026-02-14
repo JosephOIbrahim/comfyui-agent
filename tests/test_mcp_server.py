@@ -5,9 +5,6 @@ the actual mcp SDK (mocked where needed).
 """
 
 import json
-from unittest.mock import patch
-
-import pytest
 
 
 class TestSchemaConversion:
@@ -63,30 +60,13 @@ class TestSchemaConversion:
 class TestServerCreation:
     """Test MCP server creation and tool bridging."""
 
-    def test_create_server_without_mcp_raises(self):
-        """Should raise ImportError when mcp is not available."""
+    def test_create_server(self):
+        """Should create a server — mcp is now a core dependency."""
         from agent import mcp_server
-        with patch.object(mcp_server, "_HAS_MCP", False):
-            with pytest.raises(ImportError, match="MCP SDK not installed"):
-                mcp_server.create_mcp_server()
-
-    def test_create_server_with_mcp_mock(self):
-        """Should create a server when mcp is available."""
-        from agent import mcp_server
-
-        if not mcp_server._HAS_MCP:
-            pytest.skip("mcp SDK not installed")
 
         server = mcp_server.create_mcp_server()
         assert server is not None
         assert server.name == "comfyui-agent"
-
-    def test_main_without_mcp_exits(self):
-        """main() should exit cleanly when mcp is not installed."""
-        from agent import mcp_server
-        with patch.object(mcp_server, "_HAS_MCP", False):
-            with pytest.raises(SystemExit):
-                mcp_server.main()
 
 
 class TestToolBridging:
@@ -118,7 +98,7 @@ class TestToolBridging:
         from agent.tools import ALL_TOOLS
 
         converted = [_convert_schema(t) for t in ALL_TOOLS]
-        assert len(converted) == 61
+        assert len(converted) == 62
 
 
 class TestToolExecution:

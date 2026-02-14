@@ -81,8 +81,16 @@ class _ToolList(list):
 ALL_TOOLS = _ToolList()
 
 
-def handle(name: str, tool_input: dict) -> str:
-    """Dispatch a tool call to the right handler."""
+def handle(name: str, tool_input: dict, *, session_id: str | None = None) -> str:
+    """Dispatch a tool call to the right handler.
+
+    Args:
+        name: Tool name to dispatch.
+        tool_input: Tool arguments dict.
+        session_id: Optional session ID for workflow state isolation.
+                    Currently unused (default session), but enables future
+                    multi-session MCP usage.
+    """
     # Check brain tools (lazy loaded)
     _ensure_brain()
     if name in _BRAIN_TOOL_NAMES:
