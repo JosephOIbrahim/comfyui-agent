@@ -8,7 +8,7 @@ Tomorrow: serialized JSON between Agent SDK agents.
 import time
 import uuid
 
-from ..tools._util import to_json
+from ._sdk import _default_to_json as to_json
 
 
 def make_id() -> str:

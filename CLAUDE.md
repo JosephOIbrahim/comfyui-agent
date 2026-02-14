@@ -44,7 +44,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (459 tests, all mocked, <35s)
+# Tests (497 tests, all mocked, <35s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -281,11 +281,11 @@ BUILT (v0.3.1 — working today):
   ✅ Cross-session learning (scope=global aggregates all sessions)
   ✅ BrainMessage protocol activated (vision -> memory)
   ✅ He2025 determinism (3-pass audit, 21 violations fixed, full compliance)
-  ✅ 459 tests, all mocked, <35s, 0 lint warnings
+  ✅ 497 tests, all mocked, <35s, 0 lint warnings
 
 NEXT:
   ✅ Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
-  🔲 Agent SDK extraction (brain modules -> standalone agents)
+  ✅ Agent SDK extraction (BrainConfig + BrainAgent base class, 6 standalone agent classes)
   🔲 Rich CLI formatting (panels, tables, syntax highlighting)
   🔲 GitHub API release tracking for key custom node repos
   🔲 Proactive surfacing: recommend when relevant, not firehose
@@ -416,8 +416,12 @@ intelligence layers (`TOOLS` list + `handle()` function). Modules communicate vi
 `_protocol.py:brain_message()`. Brain tools are lazily loaded to avoid circular imports
 with `tools/_util.py`.
 
-**Design:** Hybrid B+C — modules today, agent-ready seams for Agent SDK extraction
-tomorrow. Each module is stateless per-call but state-aware via persistence.
+**Design:** SDK-ready agents with dependency injection. Each module defines a
+`BrainAgent` subclass with `BrainConfig` for DI. `_sdk.py` provides the foundation:
+`BrainConfig` (dataclass with `to_json`, `validate_path`, `sessions_dir`, etc.) and
+`BrainAgent` (base class with `TOOLS`, `handle()`, `self.cfg`). Modules can be
+instantiated standalone with custom config or integrated via `get_integrated_config()`.
+Module-level `TOOLS` and `handle()` are preserved via lazy singleton for backward compat.
 
 ### Brain: Vision (`brain/vision.py`)
 Uses separate Claude Vision API calls with 120s timeout (keeps images out of main context window).
@@ -537,14 +541,14 @@ protocol activation, He2025 determinism audit and fixes. 429 tests.
 MCP as core dependency (not optional), CLAUDE.md knowledge layer (tool rules,
 artistic intent translation, model family reference), WorkflowSession for
 per-session state isolation, `get_install_instructions` tool, He2025 deep
-audit (3 passes, 21 violations fixed). 459 tests. 60 tools.
+audit (3 passes, 21 violations fixed). 497 tests. 60 tools.
 
 ### Phase 4: Next
 **Goal:** Unified discovery and agent SDK extraction.
 
 **Tasks:**
-1. 🔲 Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
-2. 🔲 Agent SDK extraction (brain modules -> standalone agents)
+1. ✅ Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
+2. ✅ Agent SDK extraction (BrainConfig + BrainAgent, 6 standalone agent classes)
 3. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
 3. 🔲 GitHub API release tracking for key custom node repos
 4. 🔲 Proactive surfacing (recommend when relevant, not firehose)

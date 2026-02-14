@@ -11,11 +11,23 @@ Adds higher-order capabilities on top of the intelligence layers:
 Each module exports:
   TOOLS: list[dict]    -- Anthropic tool schemas
   handle(name, input)  -- Execute a tool call, return result string
+
+SDK classes (for standalone/testing use):
+  BrainConfig  — dependency injection container
+  BrainAgent   — base class for all brain agents
+  VisionAgent, PlannerAgent, MemoryAgent, OrchestratorAgent, OptimizerAgent, DemoAgent
 """
 
 import logging
 
 from . import vision, planner, memory, orchestrator, optimizer, demo
+from ._sdk import BrainAgent as BrainAgent, BrainConfig as BrainConfig
+from .demo import DemoAgent as DemoAgent
+from .memory import MemoryAgent as MemoryAgent
+from .optimizer import OptimizerAgent as OptimizerAgent
+from .orchestrator import OrchestratorAgent as OrchestratorAgent
+from .planner import PlannerAgent as PlannerAgent
+from .vision import VisionAgent as VisionAgent
 
 log = logging.getLogger(__name__)
 

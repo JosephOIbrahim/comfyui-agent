@@ -10,9 +10,8 @@ import logging
 import time
 from pathlib import Path
 
-from ..config import SESSIONS_DIR
-from ..tools._util import to_json
 from ._protocol import make_id
+from ._sdk import BrainAgent
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ log = logging.getLogger(__name__)
 # Goal decomposition templates
 # ---------------------------------------------------------------------------
 
-GOAL_PATTERNS: dict[str, dict] = {
+_GOAL_PATTERNS: dict[str, dict] = {
     "build_workflow": {
         "triggers": ["build", "create", "make", "set up", "new workflow", "from scratch"],
         "steps": [
@@ -129,358 +128,380 @@ _GENERIC_STEPS = [
 
 
 # ---------------------------------------------------------------------------
-# Tool schemas
+# PlannerAgent class
 # ---------------------------------------------------------------------------
 
-TOOLS: list[dict] = [
-    {
-        "name": "plan_goal",
-        "description": (
-            "Decompose a high-level goal into a tracked sequence of sub-tasks. "
-            "Uses pattern matching to select the right plan template. "
-            "Persists the plan for cross-session continuity."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "goal": {
-                    "type": "string",
-                    "description": "The high-level goal to decompose (e.g., 'Build a Flux portrait pipeline with ControlNet depth').",
-                },
-                "session": {
-                    "type": "string",
-                    "description": "Session name for persistence. Defaults to 'default'.",
-                },
-            },
-            "required": ["goal"],
-        },
-    },
-    {
-        "name": "get_plan",
-        "description": (
-            "Get the current plan with status of each step. "
-            "Shows which steps are pending, active, done, or failed."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "complete_step",
-        "description": (
-            "Mark a plan step as completed and record what was accomplished. "
-            "Automatically advances to the next step."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step_id": {
-                    "type": "string",
-                    "description": "The ID of the step to mark complete.",
-                },
-                "result": {
-                    "type": "string",
-                    "description": "What was accomplished in this step.",
-                },
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-            },
-            "required": ["step_id", "result"],
-        },
-    },
-    {
-        "name": "replan",
-        "description": (
-            "Revise the remaining steps of a plan without losing completed progress. "
-            "Use when context changes or a step fails and needs a different approach."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "description": "Why we're replanning (e.g., 'ControlNet node not available, switching to IP-Adapter').",
-                },
-                "new_remaining_steps": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string"},
-                            "action": {"type": "string"},
-                        },
-                        "required": ["id", "action"],
+class PlannerAgent(BrainAgent):
+    """Goal decomposition and progress tracking."""
+
+    GOAL_PATTERNS = _GOAL_PATTERNS
+    GENERIC_STEPS = _GENERIC_STEPS
+
+    TOOLS: list[dict] = [
+        {
+            "name": "plan_goal",
+            "description": (
+                "Decompose a high-level goal into a tracked sequence of sub-tasks. "
+                "Uses pattern matching to select the right plan template. "
+                "Persists the plan for cross-session continuity."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "The high-level goal to decompose (e.g., 'Build a Flux portrait pipeline with ControlNet depth').",
                     },
-                    "description": "New steps to replace remaining incomplete steps.",
+                    "session": {
+                        "type": "string",
+                        "description": "Session name for persistence. Defaults to 'default'.",
+                    },
                 },
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
+                "required": ["goal"],
             },
-            "required": ["reason"],
         },
-    },
-]
+        {
+            "name": "get_plan",
+            "description": (
+                "Get the current plan with status of each step. "
+                "Shows which steps are pending, active, done, or failed."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "complete_step",
+            "description": (
+                "Mark a plan step as completed and record what was accomplished. "
+                "Automatically advances to the next step."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "step_id": {
+                        "type": "string",
+                        "description": "The ID of the step to mark complete.",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "What was accomplished in this step.",
+                    },
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                },
+                "required": ["step_id", "result"],
+            },
+        },
+        {
+            "name": "replan",
+            "description": (
+                "Revise the remaining steps of a plan without losing completed progress. "
+                "Use when context changes or a step fails and needs a different approach."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why we're replanning (e.g., 'ControlNet node not available, switching to IP-Adapter').",
+                    },
+                    "new_remaining_steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "action": {"type": "string"},
+                            },
+                            "required": ["id", "action"],
+                        },
+                        "description": "New steps to replace remaining incomplete steps.",
+                    },
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                },
+                "required": ["reason"],
+            },
+        },
+    ]
 
+    # --- State management ---
 
-# ---------------------------------------------------------------------------
-# State management
-# ---------------------------------------------------------------------------
+    def _goals_path(self, session: str) -> Path:
+        """Path to the goals file for a session."""
+        self.cfg.sessions_dir.mkdir(parents=True, exist_ok=True)
+        return self.cfg.sessions_dir / f"{session}_goals.json"
 
-def _goals_path(session: str) -> Path:
-    """Path to the goals file for a session."""
-    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    return SESSIONS_DIR / f"{session}_goals.json"
+    def _load_plan(self, session: str) -> dict | None:
+        """Load a plan from disk."""
+        path = self._goals_path(session)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.error("Failed to load plan for session %s: %s", session, e)
+            return None
 
+    def _save_plan(self, session: str, plan: dict) -> None:
+        """Save a plan to disk."""
+        path = self._goals_path(session)
+        path.write_text(
+            json.dumps(plan, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
-def _load_plan(session: str) -> dict | None:
-    """Load a plan from disk."""
-    path = _goals_path(session)
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:
-        log.error("Failed to load plan for session %s: %s", session, e)
-        return None
+    # --- Decomposition ---
 
+    def _match_pattern(self, goal: str) -> tuple[str, dict]:
+        """Match a goal string to a plan pattern."""
+        goal_lower = goal.lower()
+        for name, pattern in sorted(self.GOAL_PATTERNS.items()):
+            for trigger in pattern["triggers"]:
+                if trigger in goal_lower:
+                    return name, pattern
+        return "generic", {"triggers": [], "steps": self.GENERIC_STEPS}
 
-def _save_plan(session: str, plan: dict) -> None:
-    """Save a plan to disk."""
-    path = _goals_path(session)
-    path.write_text(
-        json.dumps(plan, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    # --- Handlers ---
 
+    def handle(self, name: str, tool_input: dict) -> str:
+        """Execute a planner tool call."""
+        if name == "plan_goal":
+            return self._handle_plan_goal(tool_input)
+        elif name == "get_plan":
+            return self._handle_get_plan(tool_input)
+        elif name == "complete_step":
+            return self._handle_complete_step(tool_input)
+        elif name == "replan":
+            return self._handle_replan(tool_input)
+        else:
+            return self.to_json({"error": f"Unknown planner tool: {name}"})
 
-# ---------------------------------------------------------------------------
-# Decomposition
-# ---------------------------------------------------------------------------
+    def _handle_plan_goal(self, tool_input: dict) -> str:
+        goal = tool_input["goal"]
+        session = tool_input.get("session", "default")
 
-def _match_pattern(goal: str) -> tuple[str, dict]:
-    """Match a goal string to a plan pattern. Returns (pattern_name, pattern)."""
-    goal_lower = goal.lower()
-    for name, pattern in sorted(GOAL_PATTERNS.items()):
-        for trigger in pattern["triggers"]:
-            if trigger in goal_lower:
-                return name, pattern
-    return "generic", {"triggers": [], "steps": _GENERIC_STEPS}
+        pattern_name, pattern = self._match_pattern(goal)
 
-
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
-
-def _handle_plan_goal(tool_input: dict) -> str:
-    goal = tool_input["goal"]
-    session = tool_input.get("session", "default")
-
-    pattern_name, pattern = _match_pattern(goal)
-
-    steps = []
-    for step_def in pattern["steps"]:
-        steps.append({
-            "id": step_def["id"],
-            "action": step_def["action"],
-            "tools": step_def.get("tools", []),
-            "status": "pending",
-            "result": None,
-        })
-
-    # Mark first step as active
-    if steps:
-        steps[0]["status"] = "active"
-
-    goal_id = make_id()
-
-    plan = {
-        "goal_id": goal_id,
-        "goal": goal,
-        "pattern": pattern_name,
-        "session": session,
-        "created_at": time.time(),
-        "updated_at": time.time(),
-        "status": "in_progress",
-        "steps": steps,
-        "replan_history": [],
-    }
-
-    _save_plan(session, plan)
-
-    return to_json({
-        "planned": True,
-        "goal_id": goal_id,
-        "goal": goal,
-        "pattern": pattern_name,
-        "total_steps": len(steps),
-        "current_step": steps[0]["id"] if steps else None,
-        "steps": [{"id": s["id"], "action": s["action"], "status": s["status"]} for s in steps],
-        "message": f"Plan created with {len(steps)} steps using '{pattern_name}' pattern. First step: {steps[0]['action'] if steps else 'none'}",
-    })
-
-
-def _handle_get_plan(tool_input: dict) -> str:
-    session = tool_input.get("session", "default")
-    plan = _load_plan(session)
-
-    if plan is None:
-        return to_json({"error": "No active plan.", "hint": "Use plan_goal to create one."})
-
-    completed = sum(1 for s in plan["steps"] if s["status"] == "done")
-    total = len(plan["steps"])
-    active = next((s for s in plan["steps"] if s["status"] == "active"), None)
-
-    return to_json({
-        "goal_id": plan.get("goal_id"),
-        "goal": plan["goal"],
-        "pattern": plan["pattern"],
-        "status": plan["status"],
-        "progress": f"{completed}/{total}",
-        "current_step": active["id"] if active else None,
-        "current_action": active["action"] if active else None,
-        "steps": [
-            {
-                "id": s["id"],
-                "action": s["action"],
-                "status": s["status"],
-                "result": s["result"],
-            }
-            for s in plan["steps"]
-        ],
-    })
-
-
-def _handle_complete_step(tool_input: dict) -> str:
-    step_id = tool_input["step_id"]
-    result = tool_input["result"]
-    session = tool_input.get("session", "default")
-
-    plan = _load_plan(session)
-    if plan is None:
-        return to_json({"error": "No active plan."})
-
-    # Find and complete the step
-    step = next((s for s in plan["steps"] if s["id"] == step_id), None)
-    if step is None:
-        return to_json({"error": f"Step '{step_id}' not found in plan."})
-
-    step["status"] = "done"
-    step["result"] = result
-
-    # Advance to next pending step
-    next_step = next((s for s in plan["steps"] if s["status"] == "pending"), None)
-    if next_step:
-        next_step["status"] = "active"
-
-    # Check if plan is complete
-    all_done = all(s["status"] == "done" for s in plan["steps"])
-    if all_done:
-        plan["status"] = "completed"
-
-    plan["updated_at"] = time.time()
-    _save_plan(session, plan)
-
-    completed = sum(1 for s in plan["steps"] if s["status"] == "done")
-    total = len(plan["steps"])
-
-    response = {
-        "completed": step_id,
-        "progress": f"{completed}/{total}",
-        "plan_status": plan["status"],
-    }
-
-    if next_step and not all_done:
-        response["next_step"] = next_step["id"]
-        response["next_action"] = next_step["action"]
-        response["next_tools"] = next_step.get("tools", [])
-        response["message"] = f"Step '{step_id}' done. Next: {next_step['action']}"
-    elif all_done:
-        response["message"] = f"All {total} steps completed! Goal achieved: {plan['goal']}"
-    else:
-        response["message"] = f"Step '{step_id}' done."
-
-    return to_json(response)
-
-
-def _handle_replan(tool_input: dict) -> str:
-    reason = tool_input["reason"]
-    new_steps_raw = tool_input.get("new_remaining_steps", [])
-    session = tool_input.get("session", "default")
-
-    plan = _load_plan(session)
-    if plan is None:
-        return to_json({"error": "No active plan."})
-
-    # Save replan history
-    plan["replan_history"].append({
-        "reason": reason,
-        "timestamp": time.time(),
-        "old_remaining": [
-            s for s in plan["steps"] if s["status"] in ("pending", "active")
-        ],
-    })
-
-    # Keep completed steps, replace remaining
-    completed_steps = [s for s in plan["steps"] if s["status"] == "done"]
-
-    if new_steps_raw:
-        new_steps = []
-        for i, step_def in enumerate(new_steps_raw):
-            new_steps.append({
+        steps = []
+        for step_def in pattern["steps"]:
+            steps.append({
                 "id": step_def["id"],
                 "action": step_def["action"],
                 "tools": step_def.get("tools", []),
-                "status": "active" if i == 0 else "pending",
+                "status": "pending",
                 "result": None,
             })
-        plan["steps"] = completed_steps + new_steps
-    else:
-        # If no new steps provided, just mark remaining as cancelled
-        for s in plan["steps"]:
-            if s["status"] in ("pending", "active"):
-                s["status"] = "cancelled"
-        plan["status"] = "replanned"
 
-    plan["updated_at"] = time.time()
-    _save_plan(session, plan)
+        # Mark first step as active
+        if steps:
+            steps[0]["status"] = "active"
 
-    active = next((s for s in plan["steps"] if s["status"] == "active"), None)
+        goal_id = make_id()
 
-    return to_json({
-        "replanned": True,
-        "reason": reason,
-        "completed_preserved": len(completed_steps),
-        "new_steps": len(plan["steps"]) - len(completed_steps),
-        "current_step": active["id"] if active else None,
-        "current_action": active["action"] if active else None,
-        "message": f"Plan revised: {reason}. {len(completed_steps)} completed steps preserved.",
-    })
+        plan = {
+            "goal_id": goal_id,
+            "goal": goal,
+            "pattern": pattern_name,
+            "session": session,
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "status": "in_progress",
+            "steps": steps,
+            "replan_history": [],
+        }
+
+        self._save_plan(session, plan)
+
+        return self.to_json({
+            "planned": True,
+            "goal_id": goal_id,
+            "goal": goal,
+            "pattern": pattern_name,
+            "total_steps": len(steps),
+            "current_step": steps[0]["id"] if steps else None,
+            "steps": [{"id": s["id"], "action": s["action"], "status": s["status"]} for s in steps],
+            "message": f"Plan created with {len(steps)} steps using '{pattern_name}' pattern. First step: {steps[0]['action'] if steps else 'none'}",
+        })
+
+    def _handle_get_plan(self, tool_input: dict) -> str:
+        session = tool_input.get("session", "default")
+        plan = self._load_plan(session)
+
+        if plan is None:
+            return self.to_json({"error": "No active plan.", "hint": "Use plan_goal to create one."})
+
+        completed = sum(1 for s in plan["steps"] if s["status"] == "done")
+        total = len(plan["steps"])
+        active = next((s for s in plan["steps"] if s["status"] == "active"), None)
+
+        return self.to_json({
+            "goal_id": plan.get("goal_id"),
+            "goal": plan["goal"],
+            "pattern": plan["pattern"],
+            "status": plan["status"],
+            "progress": f"{completed}/{total}",
+            "current_step": active["id"] if active else None,
+            "current_action": active["action"] if active else None,
+            "steps": [
+                {
+                    "id": s["id"],
+                    "action": s["action"],
+                    "status": s["status"],
+                    "result": s["result"],
+                }
+                for s in plan["steps"]
+            ],
+        })
+
+    def _handle_complete_step(self, tool_input: dict) -> str:
+        step_id = tool_input["step_id"]
+        result = tool_input["result"]
+        session = tool_input.get("session", "default")
+
+        plan = self._load_plan(session)
+        if plan is None:
+            return self.to_json({"error": "No active plan."})
+
+        # Find and complete the step
+        step = next((s for s in plan["steps"] if s["id"] == step_id), None)
+        if step is None:
+            return self.to_json({"error": f"Step '{step_id}' not found in plan."})
+
+        step["status"] = "done"
+        step["result"] = result
+
+        # Advance to next pending step
+        next_step = next((s for s in plan["steps"] if s["status"] == "pending"), None)
+        if next_step:
+            next_step["status"] = "active"
+
+        # Check if plan is complete
+        all_done = all(s["status"] == "done" for s in plan["steps"])
+        if all_done:
+            plan["status"] = "completed"
+
+        plan["updated_at"] = time.time()
+        self._save_plan(session, plan)
+
+        completed = sum(1 for s in plan["steps"] if s["status"] == "done")
+        total = len(plan["steps"])
+
+        response = {
+            "completed": step_id,
+            "progress": f"{completed}/{total}",
+            "plan_status": plan["status"],
+        }
+
+        if next_step and not all_done:
+            response["next_step"] = next_step["id"]
+            response["next_action"] = next_step["action"]
+            response["next_tools"] = next_step.get("tools", [])
+            response["message"] = f"Step '{step_id}' done. Next: {next_step['action']}"
+        elif all_done:
+            response["message"] = f"All {total} steps completed! Goal achieved: {plan['goal']}"
+        else:
+            response["message"] = f"Step '{step_id}' done."
+
+        return self.to_json(response)
+
+    def _handle_replan(self, tool_input: dict) -> str:
+        reason = tool_input["reason"]
+        new_steps_raw = tool_input.get("new_remaining_steps", [])
+        session = tool_input.get("session", "default")
+
+        plan = self._load_plan(session)
+        if plan is None:
+            return self.to_json({"error": "No active plan."})
+
+        # Save replan history
+        plan["replan_history"].append({
+            "reason": reason,
+            "timestamp": time.time(),
+            "old_remaining": [
+                s for s in plan["steps"] if s["status"] in ("pending", "active")
+            ],
+        })
+
+        # Keep completed steps, replace remaining
+        completed_steps = [s for s in plan["steps"] if s["status"] == "done"]
+
+        if new_steps_raw:
+            new_steps = []
+            for i, step_def in enumerate(new_steps_raw):
+                new_steps.append({
+                    "id": step_def["id"],
+                    "action": step_def["action"],
+                    "tools": step_def.get("tools", []),
+                    "status": "active" if i == 0 else "pending",
+                    "result": None,
+                })
+            plan["steps"] = completed_steps + new_steps
+        else:
+            # If no new steps provided, just mark remaining as cancelled
+            for s in plan["steps"]:
+                if s["status"] in ("pending", "active"):
+                    s["status"] = "cancelled"
+            plan["status"] = "replanned"
+
+        plan["updated_at"] = time.time()
+        self._save_plan(session, plan)
+
+        active = next((s for s in plan["steps"] if s["status"] == "active"), None)
+
+        return self.to_json({
+            "replanned": True,
+            "reason": reason,
+            "completed_preserved": len(completed_steps),
+            "new_steps": len(plan["steps"]) - len(completed_steps),
+            "current_step": active["id"] if active else None,
+            "current_action": active["action"] if active else None,
+            "message": f"Plan revised: {reason}. {len(completed_steps)} completed steps preserved.",
+        })
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# Backward compatibility — lazy singleton
 # ---------------------------------------------------------------------------
+
+_instance: PlannerAgent | None = None
+
+
+def _get_instance() -> PlannerAgent:
+    global _instance
+    if _instance is None:
+        _instance = PlannerAgent()
+    return _instance
+
+
+TOOLS = PlannerAgent.TOOLS
+GOAL_PATTERNS = _GOAL_PATTERNS
+
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a planner tool call."""
-    if name == "plan_goal":
-        return _handle_plan_goal(tool_input)
-    elif name == "get_plan":
-        return _handle_get_plan(tool_input)
-    elif name == "complete_step":
-        return _handle_complete_step(tool_input)
-    elif name == "replan":
-        return _handle_replan(tool_input)
-    else:
-        return to_json({"error": f"Unknown planner tool: {name}"})
+    return _get_instance().handle(name, tool_input)
+
+
+def _load_plan(session: str) -> dict | None:
+    """Module-level proxy for backward compatibility."""
+    return _get_instance()._load_plan(session)
+
+
+def __getattr__(name: str):
+    """Proxy module-level state access to singleton instance."""
+    if name == "_GENERIC_STEPS":
+        return _GENERIC_STEPS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

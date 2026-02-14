@@ -8,7 +8,7 @@ impact/effort, and can apply them with same-seed validation.
 import logging
 
 from ..config import COMFYUI_URL, CUSTOM_NODES_DIR, MODELS_DIR
-from ..tools._util import to_json
+from ._sdk import BrainAgent, BrainConfig
 
 log = logging.getLogger(__name__)
 
@@ -224,94 +224,7 @@ def _has_controlnet(wf: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Tool schemas
-# ---------------------------------------------------------------------------
-
-TOOLS: list[dict] = [
-    {
-        "name": "profile_workflow",
-        "description": (
-            "Analyze a workflow's execution characteristics: estimated VRAM peak, "
-            "GPU-heavy nodes, model count, resolution analysis. Uses GPU profile "
-            "matching for hardware-specific insights."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "workflow": {
-                    "type": "object",
-                    "description": "The workflow to profile (API format). If not provided, uses the currently loaded workflow.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "suggest_optimizations",
-        "description": (
-            "Given a workflow and GPU profile, return ranked optimization opportunities: "
-            "TensorRT, CUDA graphs, batch size, precision, tiling, sampler efficiency. "
-            "Ranked by impact/effort ratio."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "workflow": {
-                    "type": "object",
-                    "description": "The workflow to optimize. If not provided, uses currently loaded workflow.",
-                },
-                "gpu_name": {
-                    "type": "string",
-                    "description": "GPU name override. If not provided, auto-detected via get_system_stats.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "check_tensorrt_status",
-        "description": (
-            "Check TensorRT readiness: are TRT node packs installed? "
-            "Are there cached engines for the current model? "
-            "What's needed to enable TRT acceleration?"
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
-    {
-        "name": "apply_optimization",
-        "description": (
-            "Apply a specific optimization to the currently loaded workflow. "
-            "Supports: vae_tiling (swap VAEDecode for VAEDecodeTiled), "
-            "batch_size (adjust to GPU sweet spot), step_optimization "
-            "(reduce steps with quality check)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "optimization_id": {
-                    "type": "string",
-                    "description": (
-                        "ID of the optimization to apply. "
-                        "Get IDs from suggest_optimizations."
-                    ),
-                },
-                "params": {
-                    "type": "object",
-                    "description": "Optimization-specific parameters (e.g., batch_size value).",
-                },
-            },
-            "required": ["optimization_id"],
-        },
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Handlers
+# Module-level helpers (kept here so tests can patch them)
 # ---------------------------------------------------------------------------
 
 def _get_workflow() -> dict | None:
@@ -352,291 +265,433 @@ def _detect_gpu() -> dict:
     }
 
 
-def _handle_profile_workflow(tool_input: dict) -> str:
-    wf = tool_input.get("workflow") or _get_workflow()
-    if not wf:
-        return to_json({"error": "No workflow loaded. Load a workflow first."})
+def _get_patch_handle():
+    """Get the workflow patch handle function (lazy import)."""
+    from ..tools.workflow_patch import handle as patch_handle
+    return patch_handle
 
-    gpu = _detect_gpu()
 
-    # Analyze nodes
-    gpu_heavy = []
-    all_nodes = []
-    loaders = []
-    resolutions = []
+# ---------------------------------------------------------------------------
+# OptimizerAgent class
+# ---------------------------------------------------------------------------
 
-    for nid, node in sorted(wf.items()):
-        if not isinstance(node, dict):
-            continue
-        ct = node.get("class_type", "unknown")
-        all_nodes.append({"id": nid, "class_type": ct})
+class OptimizerAgent(BrainAgent):
+    """GPU-aware performance engineering."""
 
-        if ct in _GPU_HEAVY_NODES:
-            gpu_heavy.append({"id": nid, "class_type": ct})
+    GPU_PROFILES = GPU_PROFILES
+    OPTIMIZATIONS = _OPTIMIZATIONS
 
-        if "Loader" in ct or "loader" in ct:
-            loaders.append({"id": nid, "class_type": ct})
-
-        inputs = node.get("inputs", {})
-        w = inputs.get("width")
-        h = inputs.get("height")
-        if isinstance(w, (int, float)) and isinstance(h, (int, float)):
-            resolutions.append({"node": nid, "width": int(w), "height": int(h)})
-
-    # Estimate VRAM usage (rough heuristic)
-    max_res = max(
-        (r["width"] * r["height"] for r in resolutions),
-        default=512 * 512,
-    )
-    # SD model ~4GB, each loader ~2-4GB, resolution scaling
-    estimated_vram_gb = 4.0 + len(loaders) * 2.0 + (max_res / (1024 * 1024)) * 0.5
-
-    return to_json({
-        "gpu": {
-            "name": gpu.get("detected_name", "unknown"),
-            "vram_gb": gpu.get("vram_gb", 0),
-            "trt_supported": gpu.get("trt_supported", False),
+    TOOLS: list[dict] = [
+        {
+            "name": "profile_workflow",
+            "description": (
+                "Analyze a workflow's execution characteristics: estimated VRAM peak, "
+                "GPU-heavy nodes, model count, resolution analysis. Uses GPU profile "
+                "matching for hardware-specific insights."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "workflow": {
+                        "type": "object",
+                        "description": "The workflow to profile (API format). If not provided, uses the currently loaded workflow.",
+                    },
+                },
+                "required": [],
+            },
         },
-        "workflow": {
-            "total_nodes": len(all_nodes),
-            "gpu_heavy_nodes": gpu_heavy,
-            "model_loaders": loaders,
-            "resolutions": resolutions,
+        {
+            "name": "suggest_optimizations",
+            "description": (
+                "Given a workflow and GPU profile, return ranked optimization opportunities: "
+                "TensorRT, CUDA graphs, batch size, precision, tiling, sampler efficiency. "
+                "Ranked by impact/effort ratio."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "workflow": {
+                        "type": "object",
+                        "description": "The workflow to optimize. If not provided, uses currently loaded workflow.",
+                    },
+                    "gpu_name": {
+                        "type": "string",
+                        "description": "GPU name override. If not provided, auto-detected via get_system_stats.",
+                    },
+                },
+                "required": [],
+            },
         },
-        "estimates": {
-            "vram_peak_gb": round(estimated_vram_gb, 1),
-            "fits_in_vram": estimated_vram_gb < gpu.get("vram_gb", 24),
-            "tiling_recommended": _has_large_resolution(wf, gpu),
-            "offloading_recommended": len(loaders) > 2,
+        {
+            "name": "check_tensorrt_status",
+            "description": (
+                "Check TensorRT readiness: are TRT node packs installed? "
+                "Are there cached engines for the current model? "
+                "What's needed to enable TRT acceleration?"
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
         },
-    })
+        {
+            "name": "apply_optimization",
+            "description": (
+                "Apply a specific optimization to the currently loaded workflow. "
+                "Supports: vae_tiling (swap VAEDecode for VAEDecodeTiled), "
+                "batch_size (adjust to GPU sweet spot), step_optimization "
+                "(reduce steps with quality check)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "optimization_id": {
+                        "type": "string",
+                        "description": (
+                            "ID of the optimization to apply. "
+                            "Get IDs from suggest_optimizations."
+                        ),
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Optimization-specific parameters (e.g., batch_size value).",
+                    },
+                },
+                "required": ["optimization_id"],
+            },
+        },
+    ]
 
+    def __init__(self, config: BrainConfig | None = None):
+        super().__init__(config)
 
-def _handle_suggest_optimizations(tool_input: dict) -> str:
-    wf = tool_input.get("workflow") or _get_workflow()
-    if not wf:
-        return to_json({"error": "No workflow loaded. Load a workflow first."})
+    def handle(self, name: str, tool_input: dict) -> str:
+        """Execute an optimizer tool call."""
+        if name == "profile_workflow":
+            return self._handle_profile_workflow(tool_input)
+        elif name == "suggest_optimizations":
+            return self._handle_suggest_optimizations(tool_input)
+        elif name == "check_tensorrt_status":
+            return self._handle_check_tensorrt(tool_input)
+        elif name == "apply_optimization":
+            return self._handle_apply_optimization(tool_input)
+        else:
+            return self.to_json({"error": f"Unknown optimizer tool: {name}"})
 
-    gpu_name = tool_input.get("gpu_name")
-    if gpu_name and gpu_name in GPU_PROFILES:
-        gpu = GPU_PROFILES[gpu_name]
-    else:
+    def _resolve_workflow(self, tool_input: dict) -> dict | None:
+        """Get workflow from input or current state."""
+        wf = tool_input.get("workflow")
+        if wf:
+            return wf
+        if self.cfg.get_workflow_state is not None:
+            state = self.cfg.get_workflow_state()
+            if hasattr(state, "get"):
+                return state.get("current_workflow")
+        return _get_workflow()
+
+    def _resolve_patch_handle(self):
+        """Get the patch handle function."""
+        if self.cfg.patch_handle is not None:
+            return self.cfg.patch_handle
+        return _get_patch_handle()
+
+    def _handle_profile_workflow(self, tool_input: dict) -> str:
+        wf = self._resolve_workflow(tool_input)
+        if not wf:
+            return self.to_json({"error": "No workflow loaded. Load a workflow first."})
+
         gpu = _detect_gpu()
 
-    applicable = []
-    for opt in _OPTIMIZATIONS:
-        try:
-            if opt["applies_when"](wf, gpu):
-                applicable.append({
-                    "id": opt["id"],
-                    "name": opt["name"],
-                    "category": opt["category"],
-                    "impact": opt["impact"],
-                    "effort": opt["effort"],
-                    "description": opt["description"],
+        # Analyze nodes
+        gpu_heavy = []
+        all_nodes = []
+        loaders = []
+        resolutions = []
+
+        for nid, node in sorted(wf.items()):
+            if not isinstance(node, dict):
+                continue
+            ct = node.get("class_type", "unknown")
+            all_nodes.append({"id": nid, "class_type": ct})
+
+            if ct in _GPU_HEAVY_NODES:
+                gpu_heavy.append({"id": nid, "class_type": ct})
+
+            if "Loader" in ct or "loader" in ct:
+                loaders.append({"id": nid, "class_type": ct})
+
+            inputs = node.get("inputs", {})
+            w = inputs.get("width")
+            h = inputs.get("height")
+            if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+                resolutions.append({"node": nid, "width": int(w), "height": int(h)})
+
+        # Estimate VRAM usage (rough heuristic)
+        max_res = max(
+            (r["width"] * r["height"] for r in resolutions),
+            default=512 * 512,
+        )
+        # SD model ~4GB, each loader ~2-4GB, resolution scaling
+        estimated_vram_gb = 4.0 + len(loaders) * 2.0 + (max_res / (1024 * 1024)) * 0.5
+
+        return self.to_json({
+            "gpu": {
+                "name": gpu.get("detected_name", "unknown"),
+                "vram_gb": gpu.get("vram_gb", 0),
+                "trt_supported": gpu.get("trt_supported", False),
+            },
+            "workflow": {
+                "total_nodes": len(all_nodes),
+                "gpu_heavy_nodes": gpu_heavy,
+                "model_loaders": loaders,
+                "resolutions": resolutions,
+            },
+            "estimates": {
+                "vram_peak_gb": round(estimated_vram_gb, 1),
+                "fits_in_vram": estimated_vram_gb < gpu.get("vram_gb", 24),
+                "tiling_recommended": _has_large_resolution(wf, gpu),
+                "offloading_recommended": len(loaders) > 2,
+            },
+        })
+
+    def _handle_suggest_optimizations(self, tool_input: dict) -> str:
+        wf = self._resolve_workflow(tool_input)
+        if not wf:
+            return self.to_json({"error": "No workflow loaded. Load a workflow first."})
+
+        gpu_name = tool_input.get("gpu_name")
+        if gpu_name and gpu_name in GPU_PROFILES:
+            gpu = GPU_PROFILES[gpu_name]
+        else:
+            gpu = _detect_gpu()
+
+        applicable = []
+        for opt in _OPTIMIZATIONS:
+            try:
+                if opt["applies_when"](wf, gpu):
+                    applicable.append({
+                        "id": opt["id"],
+                        "name": opt["name"],
+                        "category": opt["category"],
+                        "impact": opt["impact"],
+                        "effort": opt["effort"],
+                        "description": opt["description"],
+                    })
+            except Exception:
+                continue
+
+        # Group by category
+        categorized = {}
+        for opt in applicable:
+            cat = opt["category"]
+            if cat not in categorized:
+                categorized[cat] = []
+            categorized[cat].append(opt)
+
+        return self.to_json({
+            "gpu": gpu.get("detected_name", gpu_name or "unknown"),
+            "optimization_count": len(applicable),
+            "optimizations": applicable,
+            "by_category": categorized,
+            "priority_order": [opt["id"] for opt in applicable],
+            "message": f"{len(applicable)} optimizations available. Start with 'high_impact_low_effort' category.",
+        })
+
+    def _handle_check_tensorrt(self, tool_input: dict) -> str:
+        # Check for TRT node packs — uses module-level CUSTOM_NODES_DIR (tests patch this)
+        trt_installed = {}
+        if CUSTOM_NODES_DIR.exists():
+            for pack_name, pack_info in _TRT_PACKS.items():
+                pack_path = CUSTOM_NODES_DIR / pack_name
+                trt_installed[pack_name] = {
+                    "installed": pack_path.exists(),
+                    "nodes": pack_info["nodes"],
+                    "url": pack_info["url"],
+                }
+
+        # Check for cached TRT engines — uses module-level MODELS_DIR (tests patch this)
+        engine_cache = MODELS_DIR / "tensorrt" if MODELS_DIR.exists() else None
+        cached_engines = []
+        if engine_cache and engine_cache.exists():
+            # He2025: sort for deterministic engine list order
+            for f in sorted(engine_cache.glob("*.engine")):
+                cached_engines.append({
+                    "name": f.name,
+                    "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
                 })
-        except Exception:
-            continue
 
-    # Group by category
-    categorized = {}
-    for opt in applicable:
-        cat = opt["category"]
-        if cat not in categorized:
-            categorized[cat] = []
-        categorized[cat].append(opt)
+        any_installed = any(v["installed"] for v in trt_installed.values())
 
-    return to_json({
-        "gpu": gpu.get("detected_name", gpu_name or "unknown"),
-        "optimization_count": len(applicable),
-        "optimizations": applicable,
-        "by_category": categorized,
-        "priority_order": [opt["id"] for opt in applicable],
-        "message": f"{len(applicable)} optimizations available. Start with 'high_impact_low_effort' category.",
-    })
+        gpu = _detect_gpu()
 
+        return self.to_json({
+            "trt_supported": gpu.get("trt_supported", False),
+            "gpu": gpu.get("detected_name", "unknown"),
+            "node_packs": trt_installed,
+            "any_pack_installed": any_installed,
+            "cached_engines": cached_engines,
+            "engine_count": len(cached_engines),
+            "ready": any_installed and gpu.get("trt_supported", False),
+            "next_steps": (
+                "TensorRT is ready! Use apply_optimization with id='tensorrt' to swap in TRT nodes."
+                if any_installed
+                else "Install a TensorRT node pack first. Recommended: ComfyUI_TensorRT from NVIDIA."
+            ),
+        })
 
-def _handle_check_tensorrt(tool_input: dict) -> str:
-    # Check for TRT node packs
-    trt_installed = {}
-    if CUSTOM_NODES_DIR.exists():
-        for pack_name, pack_info in _TRT_PACKS.items():
-            pack_path = CUSTOM_NODES_DIR / pack_name
-            trt_installed[pack_name] = {
-                "installed": pack_path.exists(),
-                "nodes": pack_info["nodes"],
-                "url": pack_info["url"],
-            }
+    def _handle_apply_optimization(self, tool_input: dict) -> str:
+        opt_id = tool_input["optimization_id"]
+        params = tool_input.get("params", {})
 
-    # Check for cached TRT engines
-    engine_cache = MODELS_DIR / "tensorrt" if MODELS_DIR.exists() else None
-    cached_engines = []
-    if engine_cache and engine_cache.exists():
-        # He2025: sort for deterministic engine list order
-        for f in sorted(engine_cache.glob("*.engine")):
-            cached_engines.append({
-                "name": f.name,
-                "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
+        wf = self._resolve_workflow(tool_input)
+        if not wf:
+            return self.to_json({"error": "No workflow loaded. Load a workflow first."})
+
+        patch_handle = self._resolve_patch_handle()
+        gpu = _detect_gpu()
+
+        if opt_id == "vae_tiling":
+            # Swap VAEDecode -> VAEDecodeTiled
+            swapped = []
+            for nid, node in wf.items():
+                if not isinstance(node, dict):
+                    continue
+                if node.get("class_type") == "VAEDecode":
+                    patch_handle("apply_workflow_patch", {
+                        "patches": [
+                            {"op": "replace", "path": f"/{nid}/class_type", "value": "VAEDecodeTiled"},
+                            {"op": "add", "path": f"/{nid}/inputs/tile_size", "value": 512},
+                        ],
+                    })
+                    swapped.append(nid)
+            return self.to_json({
+                "applied": "vae_tiling",
+                "nodes_swapped": swapped,
+                "message": f"Swapped {len(swapped)} VAEDecode nodes to VAEDecodeTiled (tile_size=512).",
             })
 
-    any_installed = any(v["installed"] for v in trt_installed.values())
+        elif opt_id == "batch_size":
+            target_batch = params.get("batch_size")
+            if not target_batch:
+                # Auto-detect from GPU profile
+                spots = gpu.get("sweet_spots", {})
+                # Try to detect model type from workflow
+                has_sdxl = any(
+                    "sdxl" in str(n.get("inputs", {}).get("ckpt_name", "")).lower()
+                    for n in wf.values() if isinstance(n, dict)
+                )
+                target_batch = spots.get("sdxl_batch", 1) if has_sdxl else spots.get("sd15_batch", 2)
 
-    gpu = _detect_gpu()
+            updated = []
+            for nid, node in wf.items():
+                if not isinstance(node, dict):
+                    continue
+                if node.get("class_type") == "EmptyLatentImage":
+                    patch_handle("set_input", {
+                        "node_id": nid,
+                        "input_name": "batch_size",
+                        "value": target_batch,
+                    })
+                    updated.append(nid)
 
-    return to_json({
-        "trt_supported": gpu.get("trt_supported", False),
-        "gpu": gpu.get("detected_name", "unknown"),
-        "node_packs": trt_installed,
-        "any_pack_installed": any_installed,
-        "cached_engines": cached_engines,
-        "engine_count": len(cached_engines),
-        "ready": any_installed and gpu.get("trt_supported", False),
-        "next_steps": (
-            "TensorRT is ready! Use apply_optimization with id='tensorrt' to swap in TRT nodes."
-            if any_installed
-            else "Install a TensorRT node pack first. Recommended: ComfyUI_TensorRT from NVIDIA."
-        ),
-    })
+            return self.to_json({
+                "applied": "batch_size",
+                "batch_size": target_batch,
+                "nodes_updated": updated,
+                "message": f"Set batch_size={target_batch} on {len(updated)} latent image nodes.",
+            })
 
+        elif opt_id == "step_optimization":
+            target_steps = params.get("steps", 20)
+            updated = []
+            for nid, node in wf.items():
+                if not isinstance(node, dict):
+                    continue
+                if node.get("class_type") in ("KSampler", "KSamplerAdvanced"):
+                    patch_handle("set_input", {
+                        "node_id": nid,
+                        "input_name": "steps",
+                        "value": target_steps,
+                    })
+                    updated.append(nid)
 
-def _handle_apply_optimization(tool_input: dict) -> str:
-    opt_id = tool_input["optimization_id"]
-    params = tool_input.get("params", {})
+            return self.to_json({
+                "applied": "step_optimization",
+                "steps": target_steps,
+                "nodes_updated": updated,
+                "message": (
+                    f"Set steps={target_steps} on {len(updated)} sampler nodes. "
+                    "Run a same-seed comparison to verify quality is maintained."
+                ),
+            })
 
-    from ..tools.workflow_patch import _state, handle as patch_handle
+        elif opt_id == "sampler_efficiency":
+            sampler = params.get("sampler", "dpmpp_2m")
+            scheduler = params.get("scheduler", "karras")
+            updated = []
+            for nid, node in wf.items():
+                if not isinstance(node, dict):
+                    continue
+                if node.get("class_type") in ("KSampler", "KSamplerAdvanced"):
+                    patch_handle("set_input", {
+                        "node_id": nid,
+                        "input_name": "sampler_name",
+                        "value": sampler,
+                    })
+                    patch_handle("set_input", {
+                        "node_id": nid,
+                        "input_name": "scheduler",
+                        "value": scheduler,
+                    })
+                    updated.append(nid)
 
-    wf = _state.get("current_workflow")
-    if not wf:
-        return to_json({"error": "No workflow loaded. Load a workflow first."})
+            return self.to_json({
+                "applied": "sampler_efficiency",
+                "sampler": sampler,
+                "scheduler": scheduler,
+                "nodes_updated": updated,
+                "message": (
+                    f"Set sampler={sampler}, scheduler={scheduler} on {len(updated)} nodes. "
+                    "Run a same-seed comparison to verify quality."
+                ),
+            })
 
-    gpu = _detect_gpu()
-
-    if opt_id == "vae_tiling":
-        # Swap VAEDecode -> VAEDecodeTiled
-        swapped = []
-        for nid, node in wf.items():
-            if not isinstance(node, dict):
-                continue
-            if node.get("class_type") == "VAEDecode":
-                patch_handle("apply_workflow_patch", {
-                    "patches": [
-                        {"op": "replace", "path": f"/{nid}/class_type", "value": "VAEDecodeTiled"},
-                        {"op": "add", "path": f"/{nid}/inputs/tile_size", "value": 512},
-                    ],
-                })
-                swapped.append(nid)
-        return to_json({
-            "applied": "vae_tiling",
-            "nodes_swapped": swapped,
-            "message": f"Swapped {len(swapped)} VAEDecode nodes to VAEDecodeTiled (tile_size=512).",
-        })
-
-    elif opt_id == "batch_size":
-        target_batch = params.get("batch_size")
-        if not target_batch:
-            # Auto-detect from GPU profile
-            spots = gpu.get("sweet_spots", {})
-            # Try to detect model type from workflow
-            has_sdxl = any(
-                "sdxl" in str(n.get("inputs", {}).get("ckpt_name", "")).lower()
-                for n in wf.values() if isinstance(n, dict)
-            )
-            target_batch = spots.get("sdxl_batch", 1) if has_sdxl else spots.get("sd15_batch", 2)
-
-        updated = []
-        for nid, node in wf.items():
-            if not isinstance(node, dict):
-                continue
-            if node.get("class_type") == "EmptyLatentImage":
-                patch_handle("set_input", {
-                    "node_id": nid,
-                    "input_name": "batch_size",
-                    "value": target_batch,
-                })
-                updated.append(nid)
-
-        return to_json({
-            "applied": "batch_size",
-            "batch_size": target_batch,
-            "nodes_updated": updated,
-            "message": f"Set batch_size={target_batch} on {len(updated)} latent image nodes.",
-        })
-
-    elif opt_id == "step_optimization":
-        target_steps = params.get("steps", 20)
-        updated = []
-        for nid, node in wf.items():
-            if not isinstance(node, dict):
-                continue
-            if node.get("class_type") in ("KSampler", "KSamplerAdvanced"):
-                patch_handle("set_input", {
-                    "node_id": nid,
-                    "input_name": "steps",
-                    "value": target_steps,
-                })
-                updated.append(nid)
-
-        return to_json({
-            "applied": "step_optimization",
-            "steps": target_steps,
-            "nodes_updated": updated,
-            "message": (
-                f"Set steps={target_steps} on {len(updated)} sampler nodes. "
-                "Run a same-seed comparison to verify quality is maintained."
-            ),
-        })
-
-    elif opt_id == "sampler_efficiency":
-        sampler = params.get("sampler", "dpmpp_2m")
-        scheduler = params.get("scheduler", "karras")
-        updated = []
-        for nid, node in wf.items():
-            if not isinstance(node, dict):
-                continue
-            if node.get("class_type") in ("KSampler", "KSamplerAdvanced"):
-                patch_handle("set_input", {
-                    "node_id": nid,
-                    "input_name": "sampler_name",
-                    "value": sampler,
-                })
-                patch_handle("set_input", {
-                    "node_id": nid,
-                    "input_name": "scheduler",
-                    "value": scheduler,
-                })
-                updated.append(nid)
-
-        return to_json({
-            "applied": "sampler_efficiency",
-            "sampler": sampler,
-            "scheduler": scheduler,
-            "nodes_updated": updated,
-            "message": (
-                f"Set sampler={sampler}, scheduler={scheduler} on {len(updated)} nodes. "
-                "Run a same-seed comparison to verify quality."
-            ),
-        })
-
-    else:
-        return to_json({
-            "error": f"Optimization '{opt_id}' not yet implemented as auto-apply.",
-            "hint": "Use apply_workflow_patch to manually apply this optimization.",
-        })
+        else:
+            return self.to_json({
+                "error": f"Optimization '{opt_id}' not yet implemented as auto-apply.",
+                "hint": "Use apply_workflow_patch to manually apply this optimization.",
+            })
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# Backward compatibility — lazy singleton
 # ---------------------------------------------------------------------------
+
+_instance: OptimizerAgent | None = None
+
+
+def _get_instance() -> OptimizerAgent:
+    global _instance
+    if _instance is None:
+        _instance = OptimizerAgent()
+    return _instance
+
+
+TOOLS = OptimizerAgent.TOOLS
+
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute an optimizer tool call."""
-    if name == "profile_workflow":
-        return _handle_profile_workflow(tool_input)
-    elif name == "suggest_optimizations":
-        return _handle_suggest_optimizations(tool_input)
-    elif name == "check_tensorrt_status":
-        return _handle_check_tensorrt(tool_input)
-    elif name == "apply_optimization":
-        return _handle_apply_optimization(tool_input)
-    else:
-        return to_json({"error": f"Unknown optimizer tool: {name}"})
+    return _get_instance().handle(name, tool_input)
+
+
+def __getattr__(name: str):
+    """Proxy module-level state access to singleton instance."""
+    if name == "_OPTIMIZATIONS":
+        return _OPTIMIZATIONS
+    if name == "_GPU_HEAVY_NODES":
+        return _GPU_HEAVY_NODES
+    if name == "_TRT_PACKS":
+        return _TRT_PACKS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

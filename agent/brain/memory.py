@@ -15,8 +15,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from ..config import SESSIONS_DIR
-from ..tools._util import to_json
+from ._sdk import BrainAgent
 
 log = logging.getLogger(__name__)
 
@@ -41,217 +40,462 @@ def _temporal_weight(timestamp: float, now: float | None = None) -> float:
     weight = math.exp(-0.693147 * age / DECAY_HALF_LIFE_S)  # ln(2) = 0.693147
     return max(weight, 0.01)
 
-TOOLS: list[dict] = [
-    {
-        "name": "record_outcome",
-        "description": (
-            "Record the outcome of a workflow execution. Stores parameters, "
-            "model combo, quality assessment, render time, and user feedback. "
-            "Call after execute_workflow + analyze_image to build learning data."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-                "workflow_summary": {
-                    "type": "string",
-                    "description": "Brief workflow description for quick reference.",
-                },
-                "key_params": {
-                    "type": "object",
-                    "description": (
-                        "Key parameters: model, steps, cfg, sampler, scheduler, "
-                        "resolution, etc."
-                    ),
-                },
-                "model_combo": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of models used (checkpoint, lora, controlnet, etc.).",
-                },
-                "render_time_s": {
-                    "type": "number",
-                    "description": "Render time in seconds.",
-                },
-                "quality_score": {
-                    "type": "number",
-                    "description": "Quality score from vision analysis (0-1).",
-                },
-                "vision_notes": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Notes from vision analysis.",
-                },
-                "user_feedback": {
-                    "type": "string",
-                    "enum": ["positive", "negative", "neutral"],
-                    "description": "User's reaction to the output.",
-                },
-                "goal_id": {
-                    "type": "string",
-                    "description": (
-                        "Goal ID from planner (links outcome to the goal that "
-                        "triggered it). Optional — auto-populated when planner is active."
-                    ),
-                },
-            },
-            "required": ["key_params"],
-        },
-    },
-    {
-        "name": "get_learned_patterns",
-        "description": (
-            "Query outcome history for patterns. Returns aggregated insights: "
-            "best model combos, optimal parameters, quality trends. Use to inform "
-            "recommendations and avoid repeating past mistakes."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "What to look for: 'best_models', 'optimal_params', "
-                        "'quality_trends', 'speed_analysis', or 'all'."
-                    ),
-                },
-                "model_filter": {
-                    "type": "string",
-                    "description": "Filter outcomes by model name (substring match).",
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["session", "global"],
-                    "description": (
-                        "Scope of pattern query. 'session' (default) uses current "
-                        "session only. 'global' aggregates across all sessions for "
-                        "cross-session learning."
-                    ),
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "get_recommendations",
-        "description": (
-            "Get personalized recommendations based on outcome history. "
-            "Cross-references past successes with current workflow context "
-            "to suggest improvements."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-                "current_model": {
-                    "type": "string",
-                    "description": "Current checkpoint model name.",
-                },
-                "current_params": {
-                    "type": "object",
-                    "description": "Current workflow parameters.",
-                },
-                "goal": {
-                    "type": "string",
-                    "description": "What the artist is trying to achieve.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "detect_implicit_feedback",
-        "description": (
-            "Analyze behavior patterns in the outcome history to infer user "
-            "satisfaction without explicit ratings. Detects: reuse patterns "
-            "(iterating on a config = positive), abandonment (switching away = "
-            "negative), refinement bursts (small tweaks = refining), and "
-            "parameter regression (reverting = negative on recent change). "
-            "Returns enriched feedback signals per outcome."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "session": {
-                    "type": "string",
-                    "description": "Session name. Defaults to 'default'.",
-                },
-                "window": {
-                    "type": "integer",
-                    "description": (
-                        "Number of recent outcomes to analyze. Default: 20."
-                    ),
-                },
-            },
-            "required": [],
-        },
-    },
-]
-
 
 # ---------------------------------------------------------------------------
-# Storage
+# MemoryAgent class
 # ---------------------------------------------------------------------------
 
-def _outcomes_path(session: str) -> Path:
-    """Path to the outcomes JSONL file for a session."""
-    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    return SESSIONS_DIR / f"{session}_outcomes.jsonl"
+class MemoryAgent(BrainAgent):
+    """Outcome tracking and pattern learning."""
 
+    TOOLS: list[dict] = [
+        {
+            "name": "record_outcome",
+            "description": (
+                "Record the outcome of a workflow execution. Stores parameters, "
+                "model combo, quality assessment, render time, and user feedback. "
+                "Call after execute_workflow + analyze_image to build learning data."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                    "workflow_summary": {
+                        "type": "string",
+                        "description": "Brief workflow description for quick reference.",
+                    },
+                    "key_params": {
+                        "type": "object",
+                        "description": (
+                            "Key parameters: model, steps, cfg, sampler, scheduler, "
+                            "resolution, etc."
+                        ),
+                    },
+                    "model_combo": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of models used (checkpoint, lora, controlnet, etc.).",
+                    },
+                    "render_time_s": {
+                        "type": "number",
+                        "description": "Render time in seconds.",
+                    },
+                    "quality_score": {
+                        "type": "number",
+                        "description": "Quality score from vision analysis (0-1).",
+                    },
+                    "vision_notes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Notes from vision analysis.",
+                    },
+                    "user_feedback": {
+                        "type": "string",
+                        "enum": ["positive", "negative", "neutral"],
+                        "description": "User's reaction to the output.",
+                    },
+                    "goal_id": {
+                        "type": "string",
+                        "description": (
+                            "Goal ID from planner (links outcome to the goal that "
+                            "triggered it). Optional — auto-populated when planner is active."
+                        ),
+                    },
+                },
+                "required": ["key_params"],
+            },
+        },
+        {
+            "name": "get_learned_patterns",
+            "description": (
+                "Query outcome history for patterns. Returns aggregated insights: "
+                "best model combos, optimal parameters, quality trends. Use to inform "
+                "recommendations and avoid repeating past mistakes."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "What to look for: 'best_models', 'optimal_params', "
+                            "'quality_trends', 'speed_analysis', or 'all'."
+                        ),
+                    },
+                    "model_filter": {
+                        "type": "string",
+                        "description": "Filter outcomes by model name (substring match).",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["session", "global"],
+                        "description": (
+                            "Scope of pattern query. 'session' (default) uses current "
+                            "session only. 'global' aggregates across all sessions for "
+                            "cross-session learning."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "get_recommendations",
+            "description": (
+                "Get personalized recommendations based on outcome history. "
+                "Cross-references past successes with current workflow context "
+                "to suggest improvements."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                    "current_model": {
+                        "type": "string",
+                        "description": "Current checkpoint model name.",
+                    },
+                    "current_params": {
+                        "type": "object",
+                        "description": "Current workflow parameters.",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "What the artist is trying to achieve.",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "detect_implicit_feedback",
+            "description": (
+                "Analyze behavior patterns in the outcome history to infer user "
+                "satisfaction without explicit ratings. Detects: reuse patterns "
+                "(iterating on a config = positive), abandonment (switching away = "
+                "negative), refinement bursts (small tweaks = refining), and "
+                "parameter regression (reverting = negative on recent change). "
+                "Returns enriched feedback signals per outcome."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session": {
+                        "type": "string",
+                        "description": "Session name. Defaults to 'default'.",
+                    },
+                    "window": {
+                        "type": "integer",
+                        "description": (
+                            "Number of recent outcomes to analyze. Default: 20."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+    ]
 
-def _migrate_outcome(outcome: dict) -> dict:
-    """Upgrade an outcome record from older schema versions to current.
+    # --- Storage ---
 
-    v0 -> v1: adds schema_version field.
-    """
-    if "schema_version" not in outcome:
-        outcome["schema_version"] = 1
-    return outcome
+    def _outcomes_path(self, session: str) -> Path:
+        """Path to the outcomes JSONL file for a session."""
+        self.cfg.sessions_dir.mkdir(parents=True, exist_ok=True)
+        return self.cfg.sessions_dir / f"{session}_outcomes.jsonl"
 
-
-def _load_outcomes(session: str) -> list[dict]:
-    """Load all outcomes for a session, migrating old records."""
-    path = _outcomes_path(session)
-    if not path.exists():
-        return []
-    outcomes = []
-    for line in path.read_text(encoding="utf-8").strip().split("\n"):
-        if line:
-            try:
-                outcomes.append(_migrate_outcome(json.loads(line)))
-            except json.JSONDecodeError:
-                continue
-    return outcomes
-
-
-def _load_all_outcomes() -> list[dict]:
-    """Load outcomes from ALL sessions for cross-session learning.
-
-    Scans SESSIONS_DIR for all *_outcomes.jsonl files, loads and merges them,
-    then sorts by timestamp for temporal coherence.
-    """
-    if not SESSIONS_DIR.exists():
-        return []
-    all_outcomes = []
-    for path in sorted(SESSIONS_DIR.glob("*_outcomes.jsonl")):
+    def _load_outcomes(self, session: str) -> list[dict]:
+        """Load all outcomes for a session, migrating old records."""
+        path = self._outcomes_path(session)
+        if not path.exists():
+            return []
+        outcomes = []
         for line in path.read_text(encoding="utf-8").strip().split("\n"):
             if line:
                 try:
-                    all_outcomes.append(_migrate_outcome(json.loads(line)))
+                    outcomes.append(_migrate_outcome(json.loads(line)))
                 except json.JSONDecodeError:
                     continue
-    all_outcomes.sort(key=lambda o: o.get("timestamp", 0))
-    return all_outcomes
+        return outcomes
+
+    def _load_all_outcomes(self) -> list[dict]:
+        """Load outcomes from ALL sessions for cross-session learning."""
+        if not self.cfg.sessions_dir.exists():
+            return []
+        all_outcomes = []
+        for path in sorted(self.cfg.sessions_dir.glob("*_outcomes.jsonl")):
+            for line in path.read_text(encoding="utf-8").strip().split("\n"):
+                if line:
+                    try:
+                        all_outcomes.append(_migrate_outcome(json.loads(line)))
+                    except json.JSONDecodeError:
+                        continue
+        all_outcomes.sort(key=lambda o: o.get("timestamp", 0))
+        return all_outcomes
+
+    def _append_outcome(self, session: str, outcome: dict) -> None:
+        """Append an outcome to the JSONL file, rotating if size exceeded."""
+        path = self._outcomes_path(session)
+        if path.exists():
+            try:
+                if path.stat().st_size > OUTCOME_MAX_BYTES:
+                    _rotate_outcomes(path)
+            except OSError:
+                pass
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(outcome, sort_keys=True) + "\n")
+
+    # --- Handlers ---
+
+    def handle(self, name: str, tool_input: dict) -> str:
+        """Execute a memory tool call."""
+        if name == "record_outcome":
+            return self._handle_record_outcome(tool_input)
+        elif name == "get_learned_patterns":
+            return self._handle_get_learned_patterns(tool_input)
+        elif name == "get_recommendations":
+            return self._handle_get_recommendations(tool_input)
+        elif name == "detect_implicit_feedback":
+            return self._handle_detect_implicit_feedback(tool_input)
+        else:
+            return self.to_json({"error": f"Unknown memory tool: {name}"})
+
+    def _handle_record_outcome(self, tool_input: dict) -> str:
+        session = tool_input.get("session", "default")
+
+        outcome = {
+            "schema_version": OUTCOME_SCHEMA_VERSION,
+            "timestamp": time.time(),
+            "session": session,
+            "workflow_summary": tool_input.get("workflow_summary", ""),
+            "workflow_hash": _workflow_hash(tool_input.get("key_params", {})),
+            "key_params": tool_input.get("key_params", {}),
+            "model_combo": tool_input.get("model_combo", []),
+            "render_time_s": tool_input.get("render_time_s"),
+            "quality_score": tool_input.get("quality_score"),
+            "vision_notes": tool_input.get("vision_notes", []),
+            "user_feedback": tool_input.get("user_feedback", "neutral"),
+            "goal_id": tool_input.get("goal_id"),
+        }
+
+        self._append_outcome(session, outcome)
+
+        total = len(self._load_outcomes(session))
+        return self.to_json({
+            "recorded": True,
+            "total_outcomes": total,
+            "workflow_hash": outcome["workflow_hash"],
+            "message": f"Outcome recorded. {total} total outcomes for session '{session}'.",
+        })
+
+    def _handle_get_learned_patterns(self, tool_input: dict) -> str:
+        session = tool_input.get("session", "default")
+        query = tool_input.get("query", "all")
+        model_filter = tool_input.get("model_filter")
+        scope = tool_input.get("scope", "session")
+
+        outcomes = self._load_all_outcomes() if scope == "global" else self._load_outcomes(session)
+
+        if model_filter:
+            outcomes = [
+                o for o in outcomes
+                if any(model_filter.lower() in m.lower() for m in o.get("model_combo", []))
+                or model_filter.lower() in str(o.get("key_params", {}).get("model", "")).lower()
+            ]
+
+        if not outcomes:
+            return self.to_json({
+                "outcomes_count": 0,
+                "message": "No outcome data yet. Run some workflows first!",
+            })
+
+        result = {"outcomes_count": len(outcomes)}
+
+        if query in ("best_models", "all"):
+            result["best_model_combos"] = _best_model_combos(outcomes)
+        if query in ("optimal_params", "all"):
+            result["optimal_params"] = _optimal_params(outcomes)
+        if query in ("quality_trends", "all"):
+            result["quality_trends"] = _quality_trends(outcomes)
+        if query in ("speed_analysis", "all"):
+            result["speed_analysis"] = _speed_analysis(outcomes)
+
+        return self.to_json(result)
+
+    def _handle_get_recommendations(self, tool_input: dict) -> str:
+        session = tool_input.get("session", "default")
+        current_model = tool_input.get("current_model", "")
+        current_params = tool_input.get("current_params", {})
+        goal = tool_input.get("goal", "")
+        outcomes = self._load_outcomes(session)
+
+        if not outcomes:
+            return self.to_json({
+                "recommendations": [],
+                "message": "No outcome history yet. Run some workflows to build recommendations!",
+            })
+
+        recommendations = []
+
+        # 1. Check if there's a better model combo
+        best_combos = _best_model_combos(outcomes)
+        if best_combos and current_model:
+            top = best_combos[0]
+            if current_model not in top["models"] and top["avg_quality"] > 0.7:
+                recommendations.append({
+                    "type": "model_combo",
+                    "suggestion": f"Try model combo: {', '.join(top['models'])}",
+                    "reason": f"Avg quality {top['avg_quality']} over {top['sample_count']} runs",
+                    "confidence": min(top["sample_count"] / 5, 1.0),
+                })
+
+        # 2. Check for optimal parameter values
+        optimal = _optimal_params(outcomes)
+        for param, info in sorted(optimal.items()):
+            current_val = str(current_params.get(param, ""))
+            if current_val and current_val != info["best_value"] and info["sample_count"] >= 3:
+                recommendations.append({
+                    "type": "parameter",
+                    "parameter": param,
+                    "current": current_val,
+                    "suggested": info["best_value"],
+                    "reason": f"Avg quality {info['avg_quality']} over {info['sample_count']} runs",
+                    "confidence": min(info["sample_count"] / 5, 1.0),
+                })
+
+        # 3. Speed recommendations
+        speed = _speed_analysis(outcomes)
+        if isinstance(speed, dict) and "fastest_config" in speed:
+            if speed.get("avg_render_s", 0) > 10:
+                recommendations.append({
+                    "type": "performance",
+                    "suggestion": "Consider optimization — average render time is high",
+                    "avg_time": speed["avg_render_s"],
+                    "fastest_config": speed["fastest_config"],
+                    "confidence": 0.6,
+                })
+
+        # 4. Contextual recommendations (workflow-aware)
+        if current_params:
+            ctx_recs = _workflow_context_recommendations(outcomes, current_params)
+            recommendations.extend(ctx_recs)
+
+        # 5. Negative pattern avoidance
+        avoidance = _avoid_negative_patterns(outcomes)
+        if avoidance:
+            for warning in avoidance[:2]:
+                recommendations.append({
+                    "type": "warning",
+                    "suggestion": f"Avoid: {warning['pattern']}",
+                    "reason": warning["reason"],
+                    "confidence": min(warning["occurrences"] / 3, 1.0),
+                })
+
+        # 6. Goal-specific recommendations
+        if goal:
+            goal_lower = goal.lower()
+            if "fast" in goal_lower or "speed" in goal_lower:
+                if speed.get("fastest_config"):
+                    recommendations.append({
+                        "type": "goal",
+                        "suggestion": "Use fastest known config for speed",
+                        "config": speed["fastest_config"],
+                        "fastest_time": speed.get("fastest_s", 0),
+                        "confidence": 0.7,
+                    })
+            if "quality" in goal_lower or "detail" in goal_lower:
+                high_q = [o for o in outcomes if (o.get("quality_score") or 0) > 0.8]
+                if high_q:
+                    best = max(
+                        high_q,
+                        key=lambda o: (o.get("quality_score", 0), o.get("timestamp", 0)),
+                    )
+                    recommendations.append({
+                        "type": "goal",
+                        "suggestion": "Use highest quality config",
+                        "config": best.get("key_params", {}),
+                        "quality_score": best.get("quality_score"),
+                        "confidence": 0.8,
+                    })
+
+        # Sort by confidence
+        recommendations.sort(key=lambda r: (-r.get("confidence", 0), r.get("type", ""), r.get("suggestion", "")))
+
+        return self.to_json({
+            "recommendations": recommendations[:8],
+            "based_on": len(outcomes),
+            "avoidance_patterns": len(avoidance),
+            "message": f"{len(recommendations)} recommendations based on {len(outcomes)} past outcomes.",
+        })
+
+    def _handle_detect_implicit_feedback(self, tool_input: dict) -> str:
+        """Analyze behavior patterns to infer implicit feedback."""
+        session = tool_input.get("session", "default")
+        window = tool_input.get("window", 20)
+
+        outcomes = self._load_outcomes(session)
+        if not outcomes:
+            return self.to_json({
+                "signals": [],
+                "summary": {},
+                "message": "No outcome history yet.",
+            })
+
+        recent = outcomes[-window:]
+
+        all_signals = []
+        all_signals.extend(_detect_reuse(recent))
+        all_signals.extend(_detect_abandonment(recent))
+        all_signals.extend(_detect_refinement_bursts(recent))
+        all_signals.extend(_detect_parameter_regression(recent))
+
+        positive_count = sum(1 for s in all_signals if s["signal"] == "positive")
+        negative_count = sum(1 for s in all_signals if s["signal"] == "negative")
+        avg_strength = (
+            sum(s.get("strength", 0) for s in all_signals) / len(all_signals)
+            if all_signals else 0
+        )
+
+        if positive_count > negative_count * 2:
+            satisfaction = "likely_satisfied"
+        elif negative_count > positive_count * 2:
+            satisfaction = "likely_unsatisfied"
+        elif positive_count > 0 or negative_count > 0:
+            satisfaction = "mixed"
+        else:
+            satisfaction = "insufficient_data"
+
+        return self.to_json({
+            "signals": all_signals,
+            "summary": {
+                "total_signals": len(all_signals),
+                "positive": positive_count,
+                "negative": negative_count,
+                "avg_strength": round(avg_strength, 3),
+                "inferred_satisfaction": satisfaction,
+            },
+            "outcomes_analyzed": len(recent),
+            "total_outcomes": len(outcomes),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (stateless — shared between class and module)
+# ---------------------------------------------------------------------------
+
+def _migrate_outcome(outcome: dict) -> dict:
+    """Upgrade an outcome record from older schema versions to current."""
+    if "schema_version" not in outcome:
+        outcome["schema_version"] = 1
+    return outcome
 
 
 def _rotate_outcomes(path: Path) -> None:
@@ -260,34 +504,14 @@ def _rotate_outcomes(path: Path) -> None:
         src = Path(f"{path}.{i}") if i > 0 else path
         dst = Path(f"{path}.{i + 1}")
         if i == OUTCOME_BACKUP_COUNT:
-            # Drop the oldest
             if src.exists():
                 src.unlink()
         elif src.exists():
             src.rename(dst)
-    # Rename current -> .1
     if path.exists():
         path.rename(Path(f"{path}.1"))
     log.info("Rotated outcome files for %s", path.stem)
 
-
-def _append_outcome(session: str, outcome: dict) -> None:
-    """Append an outcome to the JSONL file, rotating if size exceeded."""
-    path = _outcomes_path(session)
-    # Check if rotation needed before writing
-    if path.exists():
-        try:
-            if path.stat().st_size > OUTCOME_MAX_BYTES:
-                _rotate_outcomes(path)
-        except OSError:
-            pass
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(outcome, sort_keys=True) + "\n")
-
-
-# ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
 
 def _workflow_hash(key_params: dict) -> str:
     """Hash workflow parameters for grouping."""
@@ -296,12 +520,9 @@ def _workflow_hash(key_params: dict) -> str:
 
 
 def _best_model_combos(outcomes: list[dict]) -> list[dict]:
-    """Find model combos with highest time-weighted average quality.
-
-    Uses exponential temporal decay so recent outcomes count more than old ones.
-    """
+    """Find model combos with highest time-weighted average quality."""
     now = time.time()
-    combo_data = defaultdict(list)  # combo -> [(score, weight)]
+    combo_data = defaultdict(list)
     for o in outcomes:
         combo = tuple(sorted(o.get("model_combo", [])))
         if not combo:
@@ -313,7 +534,7 @@ def _best_model_combos(outcomes: list[dict]) -> list[dict]:
 
     results = []
     for combo, entries in sorted(combo_data.items()):
-        entries.sort()  # He2025: deterministic float aggregation order
+        entries.sort()
         total_w = sum(w for _, w in entries)
         if total_w == 0:
             continue
@@ -325,18 +546,14 @@ def _best_model_combos(outcomes: list[dict]) -> list[dict]:
             "best_score": round(max(s for s, _ in entries), 3),
         })
 
-    # He2025: secondary tiebreaker for deterministic order on equal quality
     results.sort(key=lambda x: (-x["avg_quality"], tuple(sorted(x["models"]))))
     return results[:10]
 
 
 def _optimal_params(outcomes: list[dict]) -> dict:
-    """Find parameter values correlated with high quality.
-
-    Uses exponential temporal decay so recent outcomes count more than old ones.
-    """
+    """Find parameter values correlated with high quality."""
     now = time.time()
-    param_data = defaultdict(lambda: defaultdict(list))  # param -> value -> [(score, weight)]
+    param_data = defaultdict(lambda: defaultdict(list))
 
     for o in outcomes:
         score = o.get("quality_score")
@@ -353,7 +570,7 @@ def _optimal_params(outcomes: list[dict]) -> dict:
         best_avg = -1.0
         best_count = 0
         for value, entries in sorted(values.items()):
-            entries.sort()  # He2025: deterministic float aggregation order
+            entries.sort()
             total_w = sum(w for _, w in entries)
             if total_w == 0:
                 continue
@@ -378,7 +595,6 @@ def _speed_analysis(outcomes: list[dict]) -> dict:
     if not times:
         return {"message": "No render time data yet."}
 
-    # Find fastest configs
     fast_outcomes = sorted(
         [o for o in outcomes if o.get("render_time_s") is not None],
         key=lambda x: x["render_time_s"],
@@ -399,7 +615,6 @@ def _quality_trends(outcomes: list[dict]) -> dict:
     if not scored:
         return {"message": "No quality data yet."}
 
-    # Split into halves for trend
     mid = len(scored) // 2
     if mid == 0:
         return {
@@ -425,74 +640,6 @@ def _quality_trends(outcomes: list[dict]) -> dict:
         "positive_feedback": sum(1 for o in scored if o.get("user_feedback") == "positive"),
         "negative_feedback": sum(1 for o in scored if o.get("user_feedback") == "negative"),
     }
-
-
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
-
-def _handle_record_outcome(tool_input: dict) -> str:
-    session = tool_input.get("session", "default")
-
-    outcome = {
-        "schema_version": OUTCOME_SCHEMA_VERSION,
-        "timestamp": time.time(),
-        "session": session,
-        "workflow_summary": tool_input.get("workflow_summary", ""),
-        "workflow_hash": _workflow_hash(tool_input.get("key_params", {})),
-        "key_params": tool_input.get("key_params", {}),
-        "model_combo": tool_input.get("model_combo", []),
-        "render_time_s": tool_input.get("render_time_s"),
-        "quality_score": tool_input.get("quality_score"),
-        "vision_notes": tool_input.get("vision_notes", []),
-        "user_feedback": tool_input.get("user_feedback", "neutral"),
-        "goal_id": tool_input.get("goal_id"),
-    }
-
-    _append_outcome(session, outcome)
-
-    total = len(_load_outcomes(session))
-    return to_json({
-        "recorded": True,
-        "total_outcomes": total,
-        "workflow_hash": outcome["workflow_hash"],
-        "message": f"Outcome recorded. {total} total outcomes for session '{session}'.",
-    })
-
-
-def _handle_get_learned_patterns(tool_input: dict) -> str:
-    session = tool_input.get("session", "default")
-    query = tool_input.get("query", "all")
-    model_filter = tool_input.get("model_filter")
-    scope = tool_input.get("scope", "session")
-
-    outcomes = _load_all_outcomes() if scope == "global" else _load_outcomes(session)
-
-    if model_filter:
-        outcomes = [
-            o for o in outcomes
-            if any(model_filter.lower() in m.lower() for m in o.get("model_combo", []))
-            or model_filter.lower() in str(o.get("key_params", {}).get("model", "")).lower()
-        ]
-
-    if not outcomes:
-        return to_json({
-            "outcomes_count": 0,
-            "message": "No outcome data yet. Run some workflows first!",
-        })
-
-    result = {"outcomes_count": len(outcomes)}
-
-    if query in ("best_models", "all"):
-        result["best_model_combos"] = _best_model_combos(outcomes)
-    if query in ("optimal_params", "all"):
-        result["optimal_params"] = _optimal_params(outcomes)
-    if query in ("quality_trends", "all"):
-        result["quality_trends"] = _quality_trends(outcomes)
-    if query in ("speed_analysis", "all"):
-        result["speed_analysis"] = _speed_analysis(outcomes)
-
-    return to_json(result)
 
 
 def _avoid_negative_patterns(outcomes: list[dict]) -> list[dict]:
@@ -527,7 +674,6 @@ def _workflow_context_recommendations(
     """Generate recommendations based on workflow context patterns."""
     recs = []
 
-    # Detect if current workflow is under-stepped
     current_steps = current_params.get("steps")
     if current_steps and isinstance(current_steps, (int, float)):
         high_quality = [
@@ -550,11 +696,9 @@ def _workflow_context_recommendations(
                         "confidence": min(len(step_values) / 5, 1.0),
                     })
 
-    # Detect sampler mismatch with model
     current_sampler = current_params.get("sampler")
     current_model_name = str(current_params.get("model", "")).lower()
     if current_sampler and current_model_name:
-        # Find what sampler worked best with similar models
         model_outcomes = [
             o for o in outcomes
             if current_model_name in str(o.get("key_params", {}).get("model", "")).lower()
@@ -568,7 +712,7 @@ def _workflow_context_recommendations(
                     sampler_scores[s].append(o.get("quality_score", 0))
             if sampler_scores:
                 best_sampler = max(
-                    sorted(sampler_scores),  # He2025: sort keys for deterministic tiebreaker
+                    sorted(sampler_scores),
                     key=lambda s: sum(sampler_scores[s]) / len(sampler_scores[s]),
                 )
                 if best_sampler != current_sampler and len(sampler_scores[best_sampler]) >= 2:
@@ -583,124 +727,11 @@ def _workflow_context_recommendations(
     return recs
 
 
-def _handle_get_recommendations(tool_input: dict) -> str:
-    session = tool_input.get("session", "default")
-    current_model = tool_input.get("current_model", "")
-    current_params = tool_input.get("current_params", {})
-    goal = tool_input.get("goal", "")
-    outcomes = _load_outcomes(session)
-
-    if not outcomes:
-        return to_json({
-            "recommendations": [],
-            "message": "No outcome history yet. Run some workflows to build recommendations!",
-        })
-
-    recommendations = []
-
-    # 1. Check if there's a better model combo
-    best_combos = _best_model_combos(outcomes)
-    if best_combos and current_model:
-        top = best_combos[0]
-        if current_model not in top["models"] and top["avg_quality"] > 0.7:
-            recommendations.append({
-                "type": "model_combo",
-                "suggestion": f"Try model combo: {', '.join(top['models'])}",
-                "reason": f"Avg quality {top['avg_quality']} over {top['sample_count']} runs",
-                "confidence": min(top["sample_count"] / 5, 1.0),
-            })
-
-    # 2. Check for optimal parameter values
-    optimal = _optimal_params(outcomes)
-    # He2025: sort for deterministic recommendation order
-    for param, info in sorted(optimal.items()):
-        current_val = str(current_params.get(param, ""))
-        if current_val and current_val != info["best_value"] and info["sample_count"] >= 3:
-            recommendations.append({
-                "type": "parameter",
-                "parameter": param,
-                "current": current_val,
-                "suggested": info["best_value"],
-                "reason": f"Avg quality {info['avg_quality']} over {info['sample_count']} runs",
-                "confidence": min(info["sample_count"] / 5, 1.0),
-            })
-
-    # 3. Speed recommendations
-    speed = _speed_analysis(outcomes)
-    if isinstance(speed, dict) and "fastest_config" in speed:
-        if speed.get("avg_render_s", 0) > 10:
-            recommendations.append({
-                "type": "performance",
-                "suggestion": "Consider optimization — average render time is high",
-                "avg_time": speed["avg_render_s"],
-                "fastest_config": speed["fastest_config"],
-                "confidence": 0.6,
-            })
-
-    # 4. Contextual recommendations (workflow-aware)
-    if current_params:
-        ctx_recs = _workflow_context_recommendations(outcomes, current_params)
-        recommendations.extend(ctx_recs)
-
-    # 5. Negative pattern avoidance
-    avoidance = _avoid_negative_patterns(outcomes)
-    if avoidance:
-        for warning in avoidance[:2]:
-            recommendations.append({
-                "type": "warning",
-                "suggestion": f"Avoid: {warning['pattern']}",
-                "reason": warning["reason"],
-                "confidence": min(warning["occurrences"] / 3, 1.0),
-            })
-
-    # 6. Goal-specific recommendations
-    if goal:
-        goal_lower = goal.lower()
-        if "fast" in goal_lower or "speed" in goal_lower:
-            if speed.get("fastest_config"):
-                recommendations.append({
-                    "type": "goal",
-                    "suggestion": "Use fastest known config for speed",
-                    "config": speed["fastest_config"],
-                    "fastest_time": speed.get("fastest_s", 0),
-                    "confidence": 0.7,
-                })
-        if "quality" in goal_lower or "detail" in goal_lower:
-            high_q = [o for o in outcomes if (o.get("quality_score") or 0) > 0.8]
-            if high_q:
-                best = max(
-                    high_q,
-                    key=lambda o: (o.get("quality_score", 0), o.get("timestamp", 0)),
-                )  # He2025: timestamp tiebreaker for deterministic selection
-                recommendations.append({
-                    "type": "goal",
-                    "suggestion": "Use highest quality config",
-                    "config": best.get("key_params", {}),
-                    "quality_score": best.get("quality_score"),
-                    "confidence": 0.8,
-                })
-
-    # Sort by confidence
-    # He2025: secondary tiebreaker for deterministic order on equal confidence
-    recommendations.sort(key=lambda r: (-r.get("confidence", 0), r.get("type", ""), r.get("suggestion", "")))
-
-    return to_json({
-        "recommendations": recommendations[:8],
-        "based_on": len(outcomes),
-        "avoidance_patterns": len(avoidance),
-        "message": f"{len(recommendations)} recommendations based on {len(outcomes)} past outcomes.",
-    })
-
-
-# ---------------------------------------------------------------------------
-# Implicit feedback detection
-# ---------------------------------------------------------------------------
-
 def _params_similarity(p1: dict, p2: dict) -> float:
-    """Compare two parameter dicts. Returns 0.0 (nothing in common) to 1.0 (identical)."""
+    """Compare two parameter dicts. Returns 0.0 to 1.0."""
     if not p1 or not p2:
         return 0.0
-    all_keys = sorted(set(p1.keys()) | set(p2.keys()))  # He2025: sort before iteration
+    all_keys = sorted(set(p1.keys()) | set(p2.keys()))
     if not all_keys:
         return 0.0
     matches = sum(1 for k in all_keys if str(p1.get(k)) == str(p2.get(k)))
@@ -745,12 +776,10 @@ def _detect_abandonment(outcomes: list[dict]) -> list[dict]:
 
     total = len(outcomes)
     for combo, last_idx in sorted(combo_last_seen.items()):
-        # Count how many times this combo was used
         count = sum(
             1 for o in outcomes
             if tuple(sorted(o.get("model_combo", []))) == combo
         )
-        # Used only once and there are many subsequent runs with other combos
         remaining = total - last_idx - 1
         if count == 1 and remaining >= 2:
             signals.append({
@@ -767,12 +796,11 @@ def _detect_abandonment(outcomes: list[dict]) -> list[dict]:
 
 
 def _detect_refinement_bursts(outcomes: list[dict]) -> list[dict]:
-    """Detect rapid iteration with small param tweaks = refining (positive on approach)."""
+    """Detect rapid iteration with small param tweaks = refining (positive)."""
     signals = []
     if len(outcomes) < 2:
         return signals
 
-    # Look for clusters of outcomes with high parameter similarity
     burst_start = 0
     for i in range(1, len(outcomes)):
         similarity = _params_similarity(
@@ -780,7 +808,6 @@ def _detect_refinement_bursts(outcomes: list[dict]) -> list[dict]:
             outcomes[i - 1].get("key_params", {}),
         )
         if similarity < 0.5:
-            # End of a burst
             burst_len = i - burst_start
             if burst_len >= 3:
                 signals.append({
@@ -793,7 +820,6 @@ def _detect_refinement_bursts(outcomes: list[dict]) -> list[dict]:
                 })
             burst_start = i
 
-    # Check final burst
     burst_len = len(outcomes) - burst_start
     if burst_len >= 3:
         signals.append({
@@ -814,7 +840,6 @@ def _detect_parameter_regression(outcomes: list[dict]) -> list[dict]:
     if len(outcomes) < 3:
         return signals
 
-    # Track parameter value history
     for i in range(2, len(outcomes)):
         curr = outcomes[i].get("key_params", {})
         prev = outcomes[i - 1].get("key_params", {})
@@ -825,7 +850,6 @@ def _detect_parameter_regression(outcomes: list[dict]) -> list[dict]:
             prev_val = str(prev.get(key, ""))
             prev2_val = str(prev2.get(key, ""))
 
-            # Current value matches 2-ago but differs from 1-ago = regression
             if curr_val and curr_val == prev2_val and curr_val != prev_val:
                 signals.append({
                     "type": "parameter_regression",
@@ -841,74 +865,43 @@ def _detect_parameter_regression(outcomes: list[dict]) -> list[dict]:
     return signals
 
 
-def _handle_detect_implicit_feedback(tool_input: dict) -> str:
-    """Analyze behavior patterns to infer implicit feedback."""
-    session = tool_input.get("session", "default")
-    window = tool_input.get("window", 20)
-
-    outcomes = _load_outcomes(session)
-    if not outcomes:
-        return to_json({
-            "signals": [],
-            "summary": {},
-            "message": "No outcome history yet.",
-        })
-
-    # Use the most recent N outcomes
-    recent = outcomes[-window:]
-
-    # Run all detectors
-    all_signals = []
-    all_signals.extend(_detect_reuse(recent))
-    all_signals.extend(_detect_abandonment(recent))
-    all_signals.extend(_detect_refinement_bursts(recent))
-    all_signals.extend(_detect_parameter_regression(recent))
-
-    # Summarize
-    positive_count = sum(1 for s in all_signals if s["signal"] == "positive")
-    negative_count = sum(1 for s in all_signals if s["signal"] == "negative")
-    avg_strength = (
-        sum(s.get("strength", 0) for s in all_signals) / len(all_signals)
-        if all_signals else 0
-    )
-
-    # Overall satisfaction inference
-    if positive_count > negative_count * 2:
-        satisfaction = "likely_satisfied"
-    elif negative_count > positive_count * 2:
-        satisfaction = "likely_unsatisfied"
-    elif positive_count > 0 or negative_count > 0:
-        satisfaction = "mixed"
-    else:
-        satisfaction = "insufficient_data"
-
-    return to_json({
-        "signals": all_signals,
-        "summary": {
-            "total_signals": len(all_signals),
-            "positive": positive_count,
-            "negative": negative_count,
-            "avg_strength": round(avg_strength, 3),
-            "inferred_satisfaction": satisfaction,
-        },
-        "outcomes_analyzed": len(recent),
-        "total_outcomes": len(outcomes),
-    })
-
-
 # ---------------------------------------------------------------------------
-# Dispatch
+# Backward compatibility — lazy singleton
 # ---------------------------------------------------------------------------
+
+_instance: MemoryAgent | None = None
+
+
+def _get_instance() -> MemoryAgent:
+    global _instance
+    if _instance is None:
+        _instance = MemoryAgent()
+    return _instance
+
+
+TOOLS = MemoryAgent.TOOLS
+
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a memory tool call."""
-    if name == "record_outcome":
-        return _handle_record_outcome(tool_input)
-    elif name == "get_learned_patterns":
-        return _handle_get_learned_patterns(tool_input)
-    elif name == "get_recommendations":
-        return _handle_get_recommendations(tool_input)
-    elif name == "detect_implicit_feedback":
-        return _handle_detect_implicit_feedback(tool_input)
-    else:
-        return to_json({"error": f"Unknown memory tool: {name}"})
+    return _get_instance().handle(name, tool_input)
+
+
+def _outcomes_path(session: str) -> Path:
+    """Module-level proxy for MemoryAgent._outcomes_path."""
+    return _get_instance()._outcomes_path(session)
+
+
+def _load_outcomes(session: str) -> list[dict]:
+    """Module-level proxy for MemoryAgent._load_outcomes."""
+    return _get_instance()._load_outcomes(session)
+
+
+def _append_outcome(session: str, outcome: dict) -> None:
+    """Module-level proxy for MemoryAgent._append_outcome."""
+    return _get_instance()._append_outcome(session, outcome)
+
+
+def _load_all_outcomes() -> list[dict]:
+    """Module-level proxy for MemoryAgent._load_all_outcomes."""
+    return _get_instance()._load_all_outcomes()

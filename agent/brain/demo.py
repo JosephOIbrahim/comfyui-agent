@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 
-from ..tools._util import to_json
+from ._sdk import BrainAgent, BrainConfig
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # Demo scenarios
 # ---------------------------------------------------------------------------
 
-DEMO_SCENARIOS: dict[str, dict] = {
+_DEMO_SCENARIOS: dict[str, dict] = {
     "model_swap": {
         "title": "Upgrading Your Pipeline",
         "description": (
@@ -236,196 +236,223 @@ DEMO_SCENARIOS: dict[str, dict] = {
     },
 }
 
-# Module-level state for active demo
-_demo_state: dict = {
-    "active": False,
-    "scenario": None,
-    "current_step_idx": 0,
-    "started_at": None,
-    "checkpoints": [],
-}
-_demo_lock = threading.Lock()
-
 
 # ---------------------------------------------------------------------------
-# Tool schemas
+# DemoAgent class
 # ---------------------------------------------------------------------------
 
-TOOLS: list[dict] = [
-    {
-        "name": "start_demo",
-        "description": (
-            "Start a guided demo scenario. Activates narration mode where "
-            "the agent explains every action in artist-friendly terms. "
-            "Available scenarios: model_swap, speed_run, controlnet_add, full_pipeline."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "scenario": {
-                    "type": "string",
-                    "description": "Demo scenario name. Use 'list' to see all available scenarios.",
+class DemoAgent(BrainAgent):
+    """Guided demo walkthroughs for streams and podcasts."""
+
+    DEMO_SCENARIOS = _DEMO_SCENARIOS
+
+    TOOLS: list[dict] = [
+        {
+            "name": "start_demo",
+            "description": (
+                "Start a guided demo scenario. Activates narration mode where "
+                "the agent explains every action in artist-friendly terms. "
+                "Available scenarios: model_swap, speed_run, controlnet_add, full_pipeline."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scenario": {
+                        "type": "string",
+                        "description": "Demo scenario name. Use 'list' to see all available scenarios.",
+                    },
                 },
+                "required": ["scenario"],
             },
-            "required": ["scenario"],
         },
-    },
-    {
-        "name": "demo_checkpoint",
-        "description": (
-            "Mark a demo milestone. Summarizes what just happened and "
-            "previews what comes next. Use for pacing during live demos."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step_completed": {
-                    "type": "string",
-                    "description": "ID of the step that was just completed.",
+        {
+            "name": "demo_checkpoint",
+            "description": (
+                "Mark a demo milestone. Summarizes what just happened and "
+                "previews what comes next. Use for pacing during live demos."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "step_completed": {
+                        "type": "string",
+                        "description": "ID of the step that was just completed.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Any additional notes about what happened in this step.",
+                    },
                 },
-                "notes": {
-                    "type": "string",
-                    "description": "Any additional notes about what happened in this step.",
-                },
+                "required": ["step_completed"],
             },
-            "required": ["step_completed"],
         },
-    },
-]
+    ]
 
+    def __init__(self, config: BrainConfig | None = None):
+        super().__init__(config)
+        self._demo_state: dict = {
+            "active": False,
+            "scenario": None,
+            "current_step_idx": 0,
+            "started_at": None,
+            "checkpoints": [],
+        }
+        self._demo_lock = threading.Lock()
 
-# ---------------------------------------------------------------------------
-# Handlers
-# ---------------------------------------------------------------------------
+    def handle(self, name: str, tool_input: dict) -> str:
+        """Execute a demo tool call."""
+        with self._demo_lock:
+            if name == "start_demo":
+                return self._handle_start_demo(tool_input)
+            elif name == "demo_checkpoint":
+                return self._handle_demo_checkpoint(tool_input)
+            else:
+                return self.to_json({"error": f"Unknown demo tool: {name}"})
 
-def _handle_start_demo(tool_input: dict) -> str:
-    scenario_name = tool_input["scenario"]
+    def _handle_start_demo(self, tool_input: dict) -> str:
+        scenario_name = tool_input["scenario"]
 
-    if scenario_name == "list":
-        scenarios = []
-        for name, sc in sorted(DEMO_SCENARIOS.items()):
-            scenarios.append({
-                "name": name,
-                "title": sc["title"],
-                "description": sc["description"],
-                "audience": sc["audience"],
-                "duration": sc["duration_estimate"],
-                "steps": len(sc["steps"]),
+        if scenario_name == "list":
+            scenarios = []
+            for name, sc in sorted(self.DEMO_SCENARIOS.items()):
+                scenarios.append({
+                    "name": name,
+                    "title": sc["title"],
+                    "description": sc["description"],
+                    "audience": sc["audience"],
+                    "duration": sc["duration_estimate"],
+                    "steps": len(sc["steps"]),
+                })
+            return self.to_json({
+                "available_scenarios": scenarios,
+                "count": len(scenarios),
             })
-        return to_json({
-            "available_scenarios": scenarios,
-            "count": len(scenarios),
-        })
 
-    scenario = DEMO_SCENARIOS.get(scenario_name)
-    if not scenario:
-        return to_json({
-            "error": f"Unknown scenario: {scenario_name}",
-            "available": sorted(DEMO_SCENARIOS.keys()),
-        })
+        scenario = self.DEMO_SCENARIOS.get(scenario_name)
+        if not scenario:
+            return self.to_json({
+                "error": f"Unknown scenario: {scenario_name}",
+                "available": sorted(self.DEMO_SCENARIOS.keys()),
+            })
 
-    _demo_state["active"] = True
-    _demo_state["scenario"] = scenario_name
-    _demo_state["current_step_idx"] = 0
-    _demo_state["started_at"] = time.time()
-    _demo_state["checkpoints"] = []
+        self._demo_state["active"] = True
+        self._demo_state["scenario"] = scenario_name
+        self._demo_state["current_step_idx"] = 0
+        self._demo_state["started_at"] = time.time()
+        self._demo_state["checkpoints"] = []
 
-    first_step = scenario["steps"][0]
+        first_step = scenario["steps"][0]
 
-    return to_json({
-        "demo_started": True,
-        "scenario": scenario_name,
-        "title": scenario["title"],
-        "description": scenario["description"],
-        "total_steps": len(scenario["steps"]),
-        "first_step": {
-            "id": first_step["id"],
-            "label": first_step["label"],
-            "narration": first_step["narration"],
-            "suggested_tools": first_step["suggested_tools"],
-        },
-        "message": (
-            f"Demo '{scenario['title']}' started! "
-            f"{len(scenario['steps'])} steps. "
-            f"Estimated duration: {scenario['duration_estimate']}. "
-            f"First up: {first_step['label']}."
-        ),
-    })
-
-
-def _handle_demo_checkpoint(tool_input: dict) -> str:
-    step_completed = tool_input["step_completed"]
-    notes = tool_input.get("notes", "")
-
-    if not _demo_state["active"]:
-        return to_json({"error": "No active demo. Use start_demo first."})
-
-    scenario = DEMO_SCENARIOS.get(_demo_state["scenario"])
-    if not scenario:
-        return to_json({"error": "Demo scenario not found."})
-
-    # Record checkpoint
-    _demo_state["checkpoints"].append({
-        "step": step_completed,
-        "notes": notes,
-        "timestamp": time.time(),
-    })
-
-    # Advance to next step
-    _demo_state["current_step_idx"] += 1
-    step_idx = _demo_state["current_step_idx"]
-    total = len(scenario["steps"])
-
-    if step_idx >= total:
-        # Demo complete
-        elapsed = time.time() - _demo_state["started_at"]
-        _demo_state["active"] = False
-
-        return to_json({
-            "demo_complete": True,
-            "scenario": _demo_state["scenario"],
+        return self.to_json({
+            "demo_started": True,
+            "scenario": scenario_name,
             "title": scenario["title"],
-            "steps_completed": total,
-            "elapsed_s": round(elapsed, 1),
-            "elapsed_human": f"{int(elapsed // 60)}m {int(elapsed % 60)}s",
-            "checkpoints": _demo_state["checkpoints"],
+            "description": scenario["description"],
+            "total_steps": len(scenario["steps"]),
+            "first_step": {
+                "id": first_step["id"],
+                "label": first_step["label"],
+                "narration": first_step["narration"],
+                "suggested_tools": first_step["suggested_tools"],
+            },
             "message": (
-                f"Demo complete! '{scenario['title']}' finished in "
-                f"{int(elapsed // 60)}m {int(elapsed % 60)}s."
+                f"Demo '{scenario['title']}' started! "
+                f"{len(scenario['steps'])} steps. "
+                f"Estimated duration: {scenario['duration_estimate']}. "
+                f"First up: {first_step['label']}."
             ),
         })
 
-    # Show next step
-    next_step = scenario["steps"][step_idx]
-    progress = f"{step_idx}/{total}"
+    def _handle_demo_checkpoint(self, tool_input: dict) -> str:
+        step_completed = tool_input["step_completed"]
+        notes = tool_input.get("notes", "")
 
-    return to_json({
-        "checkpoint": step_completed,
-        "progress": progress,
-        "next_step": {
-            "id": next_step["id"],
-            "label": next_step["label"],
-            "narration": next_step["narration"],
-            "suggested_tools": next_step["suggested_tools"],
-        },
-        "elapsed_s": round(time.time() - _demo_state["started_at"], 1),
-        "message": (
-            f"[{progress}] {step_completed} complete. "
-            f"Next: {next_step['label']}."
-        ),
-    })
+        if not self._demo_state["active"]:
+            return self.to_json({"error": "No active demo. Use start_demo first."})
+
+        scenario = self.DEMO_SCENARIOS.get(self._demo_state["scenario"])
+        if not scenario:
+            return self.to_json({"error": "Demo scenario not found."})
+
+        # Record checkpoint
+        self._demo_state["checkpoints"].append({
+            "step": step_completed,
+            "notes": notes,
+            "timestamp": time.time(),
+        })
+
+        # Advance to next step
+        self._demo_state["current_step_idx"] += 1
+        step_idx = self._demo_state["current_step_idx"]
+        total = len(scenario["steps"])
+
+        if step_idx >= total:
+            # Demo complete
+            elapsed = time.time() - self._demo_state["started_at"]
+            self._demo_state["active"] = False
+
+            return self.to_json({
+                "demo_complete": True,
+                "scenario": self._demo_state["scenario"],
+                "title": scenario["title"],
+                "steps_completed": total,
+                "elapsed_s": round(elapsed, 1),
+                "elapsed_human": f"{int(elapsed // 60)}m {int(elapsed % 60)}s",
+                "checkpoints": self._demo_state["checkpoints"],
+                "message": (
+                    f"Demo complete! '{scenario['title']}' finished in "
+                    f"{int(elapsed // 60)}m {int(elapsed % 60)}s."
+                ),
+            })
+
+        # Show next step
+        next_step = scenario["steps"][step_idx]
+        progress = f"{step_idx}/{total}"
+
+        return self.to_json({
+            "checkpoint": step_completed,
+            "progress": progress,
+            "next_step": {
+                "id": next_step["id"],
+                "label": next_step["label"],
+                "narration": next_step["narration"],
+                "suggested_tools": next_step["suggested_tools"],
+            },
+            "elapsed_s": round(time.time() - self._demo_state["started_at"], 1),
+            "message": (
+                f"[{progress}] {step_completed} complete. "
+                f"Next: {next_step['label']}."
+            ),
+        })
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# Backward compatibility — lazy singleton
 # ---------------------------------------------------------------------------
+
+_instance: DemoAgent | None = None
+
+
+def _get_instance() -> DemoAgent:
+    global _instance
+    if _instance is None:
+        _instance = DemoAgent()
+    return _instance
+
+
+TOOLS = DemoAgent.TOOLS
+DEMO_SCENARIOS = _DEMO_SCENARIOS
+
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a demo tool call."""
-    with _demo_lock:
-        if name == "start_demo":
-            return _handle_start_demo(tool_input)
-        elif name == "demo_checkpoint":
-            return _handle_demo_checkpoint(tool_input)
-        else:
-            return to_json({"error": f"Unknown demo tool: {name}"})
+    return _get_instance().handle(name, tool_input)
+
+
+def __getattr__(name: str):
+    """Proxy module-level state access to singleton instance."""
+    if name == "_demo_state":
+        return _get_instance()._demo_state
+    if name == "_demo_lock":
+        return _get_instance()._demo_lock
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
