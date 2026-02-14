@@ -22,14 +22,15 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-61 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+62 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
 OPTIMIZER, DEMO). Natural conversation drives workflow inspection, discovery, modification,
 execution, optimization, and learning. Built with the Anthropic SDK, httpx, and jsonpatch.
 
-The transport layer (HTTP/WS to ComfyUI) is deliberately thin and swappable. MCP transport
-is also available as an optional adapter (`agent/mcp_server.py`). Our value lives in the
-intelligence and brain layers above the transport.
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 62 tools
+available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
+serves as a standalone fallback. Our value lives in the intelligence and brain layers above
+the transport.
 
 ---
 
@@ -43,7 +44,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (429 tests, all mocked, <35s)
+# Tests (459 tests, all mocked, <35s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -232,7 +233,7 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **UNDERSTAND** | `tools/workflow_parse.py` | 3 | loads, detects format, traces connections, extracts editable fields |
 | **UNDERSTAND** | `tools/comfy_inspect.py` | 4 | filesystem scanning, `list_models` with progressive disclosure |
 | **UNDERSTAND** | `tools/comfy_api.py` | 6 | live HTTP queries, `format` param for progressive disclosure |
-| **DISCOVER** | `tools/comfy_discover.py` | 4 | ComfyUI Manager registries (31k+ node types) + HuggingFace + freshness tracking |
+| **DISCOVER** | `tools/comfy_discover.py` | 5 | ComfyUI Manager registries (31k+ node types) + HuggingFace + freshness tracking + install instructions |
 | **DISCOVER** | `tools/workflow_templates.py` | 2 | starter workflows in `agent/templates/` |
 | **DISCOVER** | `tools/civitai_api.py` | 3 | CivitAI search, model details, trending models + local cross-ref |
 | **DISCOVER** | `tools/model_compat.py` | 2 | model family identification (SD1.5/SDXL/Flux/SD3), compatibility checking |
@@ -245,18 +246,22 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
 | **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
 | **BRAIN:DEMO** | `brain/demo.py` | 2 | `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
-| **TRANSPORT** | `mcp_server.py` | — | MCP adapter exposing all 61 tools via Model Context Protocol (optional) |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 62 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
-BUILT (v0.3.0 — working today):
-  ✅ 61 tools: 41 intelligence layer + 20 brain layer
+BUILT (v0.3.1 — working today):
+  ✅ 62 tools: 42 intelligence layer + 20 brain layer
+  ✅ MCP as primary interface (core dependency, not optional)
+  ✅ Session isolation (WorkflowSession with per-session locking)
+  ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
   ✅ Agent loop with streaming, tool dispatch, context management
   ✅ RFC6902 patch engine with undo history
   ✅ ComfyUI Manager registry search (31k+ nodes)
   ✅ HuggingFace model search
   ✅ CivitAI integration (search, trending, model details, local cross-ref)
+  ✅ Install instructions tool (discovery -> installation bridge)
   ✅ Session persistence and resume
   ✅ Knowledge system (ControlNet, Flux, video, recipes)
   ✅ Brain: Vision (Claude Vision + perceptual hash A/B comparison)
@@ -265,7 +270,6 @@ BUILT (v0.3.0 — working today):
   ✅ Brain: Orchestrator (parallel sub-tasks, tool access profiles, TTL eviction)
   ✅ Brain: Optimizer (GPU profiles, TensorRT/CUTLASS, auto-apply)
   ✅ Brain: Demo (4 guided scenarios for streams/podcasts)
-  ✅ MCP transport adapter (optional, exposes all 61 tools)
   ✅ WebSocket execution monitoring (real-time progress)
   ✅ Model compatibility tracking (SD1.5/SDXL/Flux/SD3 family detection)
   ✅ Freshness tracking (registry staleness, cache management)
@@ -277,10 +281,11 @@ BUILT (v0.3.0 — working today):
   ✅ Goal tracking (planner goal_id -> memory outcome linking)
   ✅ Cross-session learning (scope=global aggregates all sessions)
   ✅ BrainMessage protocol activated (vision -> memory)
-  ✅ He2025 determinism audit (sorted float aggregation, stable iteration)
-  ✅ 429 tests, all mocked, <35s, 0 lint warnings
+  ✅ He2025 determinism (3-pass audit, 21 violations fixed, full compliance)
+  ✅ 459 tests, all mocked, <35s, 0 lint warnings
 
 NEXT:
+  🔲 Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
   🔲 Agent SDK extraction (brain modules -> standalone agents)
   🔲 Rich CLI formatting (panels, tables, syntax highlighting)
   🔲 GitHub API release tracking for key custom node repos
@@ -487,21 +492,21 @@ Every tool module in `agent/tools/` exports the same interface:
 **Future:** MCP adapter as an alternative transport. Same tool interface, different backend.
 Artist doesn't know or care which transport is active.
 
-**Decision: HTTP/WS is the primary transport. MCP is additive, not a replacement.**
-The intelligence layers don't care which transport is underneath — that's the point.
+**Decision: MCP is the primary interface. HTTP/WS is the transport underneath.**
+Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 61 tools are exposed via Model Context Protocol using `mcp.server.Server`. Install with
-`pip install -e ".[mcp]"` and run `agent mcp` to start the stdio transport. Schema conversion
-bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool handlers are wrapped with
-`run_in_executor` for the async MCP runtime.
+All 62 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
+Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
+handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation
+via `WorkflowSession` enables concurrent tool calls within a single Claude Code session.
 
 ### Supported Backends (Priority Order)
-1. **Direct HTTP/WS** — ComfyUI's native API (primary, always works)
-2. **MCP stdio** — `agent mcp` command, for integration with MCP clients
-3. **IO-AtelierTech MCP** — if artist already has it installed
-4. **Comfy Pilot MCP** — alternative MCP implementation
+1. **MCP stdio** — `agent mcp` command, primary interface for Claude Code / Claude Desktop
+2. **Direct HTTP/WS** — ComfyUI's native API (transport layer, always works)
+3. **CLI agent** — `agent run` standalone fallback with built-in agent loop
 
 ---
 
@@ -529,12 +534,19 @@ Circuit breaker for HTTP resilience, temporal decay in memory aggregations,
 goal tracking (planner->memory linking), cross-session learning, BrainMessage
 protocol activation, He2025 determinism audit and fixes. 429 tests.
 
+### Phase 3.75: MCP-First Transformation -- COMPLETE
+MCP as core dependency (not optional), CLAUDE.md knowledge layer (tool rules,
+artistic intent translation, model family reference), WorkflowSession for
+per-session state isolation, `get_install_instructions` tool, He2025 deep
+audit (3 passes, 21 violations fixed). 459 tests. 62 tools.
+
 ### Phase 4: Next
-**Goal:** Agent SDK extraction and rich CLI experience.
+**Goal:** Unified discovery and agent SDK extraction.
 
 **Tasks:**
-1. 🔲 Agent SDK extraction (brain modules -> standalone agents)
-2. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
+1. 🔲 Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
+2. 🔲 Agent SDK extraction (brain modules -> standalone agents)
+3. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
 3. 🔲 GitHub API release tracking for key custom node repos
 4. 🔲 Proactive surfacing (recommend when relevant, not firehose)
 

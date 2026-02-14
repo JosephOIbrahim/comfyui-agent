@@ -102,14 +102,14 @@ agent search "anime" --models --type lora   # Filter by model type
 
 ## How It Works
 
-The agent uses Claude (Anthropic's AI) with 61 specialized tools across two tiers:
+The agent uses Claude (Anthropic's AI) with 62 specialized tools across two tiers:
 
 **Intelligence Layer (41 tools)**
 
 | Layer | Tools | What they do |
 |-------|-------|-------------|
 | **UNDERSTAND** | 13 | Parse workflows, scan models/nodes, query ComfyUI API, detect format |
-| **DISCOVER** | 8 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility |
+| **DISCOVER** | 9 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility, install instructions |
 | **PILOT** | 13 | RFC6902 patch engine with undo, semantic node ops, session persistence |
 | **VERIFY** | 7 | Validate, execute, WebSocket progress monitoring, execution status |
 
@@ -161,12 +161,12 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 - **UI format with API data** — the default "Save" export. Contains visual layout plus embedded API data. Agent extracts what it needs.
 - **UI-only format** — older exports with only visual layout. The agent can read the structure but can't modify or execute these.
 
-## MCP Server (Optional)
+## MCP Server (Primary Interface)
 
-All 61 tools are also available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Desktop, Claude Code, or other MCP clients:
+All 62 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
 
 ```bash
-pip install -e ".[mcp]"
+pip install -e "."
 agent mcp
 ```
 
@@ -184,7 +184,7 @@ Tests run without ComfyUI — everything is mocked:
 
 ```bash
 python -m pytest tests/ -v
-# 429 tests, all mocked, under 20 seconds
+# 459 tests, all mocked, under 35 seconds
 ```
 
 ## License
