@@ -263,10 +263,11 @@ def _handle_read_node_source(tool_input: dict) -> str:
 
     if not pack_dir.exists():
         # Suggest similar names
-        available = [
+        # He2025: sort for deterministic suggestion order
+        available = sorted([
             d.name for d in CUSTOM_NODES_DIR.iterdir()
             if _is_node_pack(d) and node_pack.lower() in d.name.lower()
-        ]
+        ])
         return to_json({
             "error": f"Node pack '{node_pack}' not found.",
             "similar": available[:10],

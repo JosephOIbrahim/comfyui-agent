@@ -189,7 +189,8 @@ def _find_editable_fields(nodes: dict, class_filter: str = "") -> list[dict]:
         if filter_lower and filter_lower not in class_type.lower():
             continue
 
-        for field_name, value in node.get("inputs", {}).items():
+        # He2025: sort for deterministic field order per node
+        for field_name, value in sorted(node.get("inputs", {}).items()):
             # Skip connections (2-element list [node_id, output_index])
             if isinstance(value, list) and len(value) == 2:
                 continue
@@ -297,7 +298,8 @@ def _validate_against_comfyui(nodes: dict, connections: list[dict]) -> dict:
         return {"error": str(e)}
 
     # Check each node
-    for nid, node in nodes.items():
+    # He2025: sort for deterministic error order
+    for nid, node in sorted(nodes.items()):
         if node.get("_ui_node"):
             continue
         class_type = node.get("class_type", "")

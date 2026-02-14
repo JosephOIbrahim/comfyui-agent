@@ -195,7 +195,8 @@ def _queue_prompt(workflow: dict) -> tuple[str | None, str | None]:
             node_errors = err_data.get("node_errors", {})
             if node_errors:
                 msgs = []
-                for nid, nerr in node_errors.items():
+                # He2025: sort for deterministic error message order
+                for nid, nerr in sorted(node_errors.items()):
                     class_type = nerr.get("class_type", "?")
                     for exc in nerr.get("errors", []):
                         msgs.append(f"Node [{nid}] {class_type}: {exc.get('message', str(exc))}")
@@ -237,7 +238,8 @@ def _poll_completion(
             if completed or status_str in ("success", "error"):
                 # Extract outputs
                 outputs = []
-                for node_id, node_out in entry.get("outputs", {}).items():
+                # He2025: sort for deterministic output order
+                for node_id, node_out in sorted(entry.get("outputs", {}).items()):
                     for img in node_out.get("images", []):
                         outputs.append({
                             "type": "image",
@@ -412,7 +414,8 @@ def _execute_with_websocket(
             resp.raise_for_status()
             history = resp.json()
         if prompt_id in history:
-            for node_out in history[prompt_id].get("outputs", {}).values():
+            # He2025: sort for deterministic output order
+            for _nid, node_out in sorted(history[prompt_id].get("outputs", {}).items()):
                 for img in node_out.get("images", []):
                     outputs.append({"type": "image", "filename": img.get("filename"), "subfolder": img.get("subfolder", "")})
                 for vid in node_out.get("gifs", []):
@@ -429,7 +432,8 @@ def _execute_with_websocket(
             "class_type": class_type,
             "duration_s": t.get("duration_s", 0),
         })
-    timing.sort(key=lambda x: x["duration_s"], reverse=True)
+    # He2025: secondary tiebreaker for deterministic order on equal durations
+    timing.sort(key=lambda x: (-x["duration_s"], x["node_id"]))
 
     return {
         "status": "complete",
@@ -495,7 +499,8 @@ def _handle_validate_before_execute(tool_input: dict) -> str:
         required_inputs = node_schema.get("input", {}).get("required", {})
 
         # Check required inputs are provided
-        for req_name, req_spec in required_inputs.items():
+        # He2025: sort for deterministic error order
+        for req_name, req_spec in sorted(required_inputs.items()):
             if req_name not in inputs:
                 errors.append(
                     f"Node [{nid}] {class_type}: missing required input '{req_name}'."
@@ -645,7 +650,8 @@ def _handle_get_execution_status(tool_input: dict) -> str:
     entry = history[prompt_id]
     status_info = entry.get("status", {})
     outputs = []
-    for node_id, node_out in entry.get("outputs", {}).items():
+    # He2025: sort for deterministic output order
+    for node_id, node_out in sorted(entry.get("outputs", {}).items()):
         for img in node_out.get("images", []):
             outputs.append({
                 "type": "image",

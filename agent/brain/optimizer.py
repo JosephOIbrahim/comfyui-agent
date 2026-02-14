@@ -472,7 +472,8 @@ def _handle_check_tensorrt(tool_input: dict) -> str:
     engine_cache = MODELS_DIR / "tensorrt" if MODELS_DIR.exists() else None
     cached_engines = []
     if engine_cache and engine_cache.exists():
-        for f in engine_cache.glob("*.engine"):
+        # He2025: sort for deterministic engine list order
+        for f in sorted(engine_cache.glob("*.engine")):
             cached_engines.append({
                 "name": f.name,
                 "size_mb": round(f.stat().st_size / (1024 * 1024), 1),

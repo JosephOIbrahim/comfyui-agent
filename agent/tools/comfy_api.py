@@ -220,7 +220,7 @@ def _handle_get_all_nodes(tool_input: dict) -> str:
                 "category": info.get("category", ""),
                 "display_name": info.get("display_name", name),
                 "description": info.get("description", ""),
-                "input_types": list((info.get("input", {}).get("required", {})).keys()),
+                "input_types": sorted((info.get("input", {}).get("required", {})).keys()),
                 "output_types": info.get("output", []),
             }
         return to_json({"count": len(nodes), "nodes": nodes})
@@ -254,7 +254,8 @@ def _handle_get_node_info(tool_input: dict) -> str:
             node_type = matches[0]
         else:
             # Suggest similar names
-            similar = [n for n in all_nodes if node_type.lower() in n.lower()][:10]
+            # He2025: sort for deterministic suggestion order
+            similar = sorted(n for n in all_nodes if node_type.lower() in n.lower())[:10]
             return to_json({
                 "error": f"Node type '{node_type}' not found.",
                 "similar_nodes": similar,
@@ -306,9 +307,10 @@ def _handle_get_history(tool_input: dict) -> str:
 
     # Summarize outputs
     result = {}
-    for pid, entry in history.items():
+    # He2025: sort for deterministic output order
+    for pid, entry in sorted(history.items()):
         outputs_summary = []
-        for node_id, node_out in entry.get("outputs", {}).items():
+        for node_id, node_out in sorted(entry.get("outputs", {}).items()):
             for img in node_out.get("images", []):
                 outputs_summary.append({
                     "type": "image",

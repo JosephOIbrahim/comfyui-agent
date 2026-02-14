@@ -325,7 +325,8 @@ def _best_model_combos(outcomes: list[dict]) -> list[dict]:
             "best_score": round(max(s for s, _ in entries), 3),
         })
 
-    results.sort(key=lambda x: x["avg_quality"], reverse=True)
+    # He2025: secondary tiebreaker for deterministic order on equal quality
+    results.sort(key=lambda x: (-x["avg_quality"], tuple(sorted(x["models"]))))
     return results[:10]
 
 
@@ -611,7 +612,8 @@ def _handle_get_recommendations(tool_input: dict) -> str:
 
     # 2. Check for optimal parameter values
     optimal = _optimal_params(outcomes)
-    for param, info in optimal.items():
+    # He2025: sort for deterministic recommendation order
+    for param, info in sorted(optimal.items()):
         current_val = str(current_params.get(param, ""))
         if current_val and current_val != info["best_value"] and info["sample_count"] >= 3:
             recommendations.append({
@@ -679,7 +681,8 @@ def _handle_get_recommendations(tool_input: dict) -> str:
                 })
 
     # Sort by confidence
-    recommendations.sort(key=lambda r: r.get("confidence", 0), reverse=True)
+    # He2025: secondary tiebreaker for deterministic order on equal confidence
+    recommendations.sort(key=lambda r: (-r.get("confidence", 0), r.get("type", ""), r.get("suggestion", "")))
 
     return to_json({
         "recommendations": recommendations[:8],
