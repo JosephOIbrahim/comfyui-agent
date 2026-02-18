@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-agent"
-version = "0.3.1"
+version = "0.4.0"
 description = "AI co-pilot for ComfyUI — inspect, discover, modify, and execute workflows through natural conversation"
 readme = "README.md"
 license = {text = "MIT"}

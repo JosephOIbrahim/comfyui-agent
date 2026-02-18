@@ -197,7 +197,7 @@ The agent's 44 intelligence + 21 brain tools are organized into four layers, eac
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
-┌──────────────────── SUPER DUPER AGENT v0.3.0 ─────────────────────┐
+┌──────────────────── SUPER DUPER AGENT v0.4.0 ─────────────────────┐
 │                                                                    │
 │  BRAIN LAYER (21 tools)                                            │
 │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌───────┐ ┌───────┐ │
@@ -252,7 +252,7 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 ### What's Built vs What's Next
 
 ```
-BUILT (v0.3.1 — working today):
+BUILT (v0.4.0 — working today):
   ✅ 65 tools: 44 intelligence layer + 21 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
@@ -545,15 +545,25 @@ artistic intent translation, model family reference), WorkflowSession for
 per-session state isolation, `get_install_instructions` tool, He2025 deep
 audit (3 passes, 21 violations fixed). 497 tests. 60 tools.
 
-### Phase 4: Next
-**Goal:** Unified discovery and agent SDK extraction.
+### Phase 4: Complete
+**Goal:** Unified discovery, agent SDK extraction, rich CLI, GitHub tracking, proactive surfacing.
 
 **Tasks:**
 1. ✅ Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
 2. ✅ Agent SDK extraction (BrainConfig + BrainAgent, 6 standalone agent classes)
-3. 🔲 Rich CLI formatting (panels, tables, syntax highlighting)
-3. 🔲 GitHub API release tracking for key custom node repos
-4. 🔲 Proactive surfacing (recommend when relevant, not firehose)
+3. ✅ Rich CLI formatting (Rich Tables for inspect/parse/sessions/search)
+4. ✅ GitHub API release tracking (check_node_updates, get_repo_releases)
+5. ✅ Proactive surfacing (memory recommendations injected into system prompt)
+
+573 tests. 65 tools.
+
+### Phase 5: Next
+**Goal:** Demo polish and ecosystem integration.
+
+**Tasks:**
+1. 🔲 Demo scenarios run start-to-finish without errors
+2. 🔲 Workflow pattern classification ("This is an img2img pipeline with ControlNet")
+3. 🔲 Plain-English workflow summaries
 
 **Success Criteria:**
 - Non-technical artist can modify a workflow using natural language

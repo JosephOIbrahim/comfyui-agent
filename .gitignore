@@ -36,3 +36,6 @@ logs/
 .idea/
 *.swp
 *.swo
+
+# Windows artifacts
+nul

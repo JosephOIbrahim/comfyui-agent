@@ -56,7 +56,7 @@ def run(
         f"Model: {AGENT_MODEL}\n"
         f"ComfyUI: {COMFYUI_URL}\n"
         f"Database: {COMFYUI_DATABASE}",
-        title="ComfyUI Agent v0.2",
+        title="ComfyUI Agent v0.4",
     ))
 
     # Load session context for system prompt injection
