@@ -7,6 +7,7 @@ Adds higher-order capabilities on top of the intelligence layers:
   Orchestrator — coordinate parallel sub-tasks
   Optimizer — GPU-aware performance engineering
   Demo      — guided walkthroughs for streams/podcasts
+  IterativeRefine — autonomous quality iteration loop
 
 Each module exports:
   TOOLS: list[dict]    -- Anthropic tool schemas
@@ -15,14 +16,16 @@ Each module exports:
 SDK classes (for standalone/testing use):
   BrainConfig  — dependency injection container
   BrainAgent   — base class for all brain agents
-  VisionAgent, PlannerAgent, MemoryAgent, OrchestratorAgent, OptimizerAgent, DemoAgent
+  VisionAgent, PlannerAgent, MemoryAgent, OrchestratorAgent, OptimizerAgent,
+  DemoAgent, IterativeRefineAgent
 """
 
 import logging
 
-from . import vision, planner, memory, orchestrator, optimizer, demo
+from . import vision, planner, memory, orchestrator, optimizer, demo, iterative_refine
 from ._sdk import BrainAgent as BrainAgent, BrainConfig as BrainConfig
 from .demo import DemoAgent as DemoAgent
+from .iterative_refine import IterativeRefineAgent as IterativeRefineAgent
 from .memory import MemoryAgent as MemoryAgent
 from .optimizer import OptimizerAgent as OptimizerAgent
 from .orchestrator import OrchestratorAgent as OrchestratorAgent
@@ -31,7 +34,7 @@ from .vision import VisionAgent as VisionAgent
 
 log = logging.getLogger(__name__)
 
-_MODULES = (vision, planner, memory, orchestrator, optimizer, demo)
+_MODULES = (vision, planner, memory, orchestrator, optimizer, demo, iterative_refine)
 
 # Collect all brain tool schemas
 ALL_BRAIN_TOOLS: list[dict] = []

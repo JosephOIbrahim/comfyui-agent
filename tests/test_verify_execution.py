@@ -20,8 +20,8 @@ from agent.tools.verify_execution import (
 
 @pytest.fixture
 def mock_comfyui_database(tmp_path, monkeypatch):
-    """Point COMFYUI_DATABASE to a temp dir and ensure _util allows it."""
-    monkeypatch.setattr("agent.tools.verify_execution.COMFYUI_DATABASE", tmp_path)
+    """Point COMFYUI_OUTPUT_DIR to a temp dir and ensure _util allows it."""
+    monkeypatch.setattr("agent.tools.verify_execution.COMFYUI_OUTPUT_DIR", tmp_path)
     # Also patch _util safe dirs to include tmp_path
     monkeypatch.setattr(
         "agent.tools._util._SAFE_DIRS",
@@ -81,9 +81,7 @@ def sample_workflow():
 class TestGetOutputPath:
     def test_basic_resolution(self, mock_comfyui_database):
         """Resolve a simple filename to output dir."""
-        output_dir = mock_comfyui_database / "output"
-        output_dir.mkdir()
-        img = output_dir / "ComfyUI_00001_.png"
+        img = mock_comfyui_database / "ComfyUI_00001_.png"
         img.write_bytes(b"fake png data")
 
         result = json.loads(handle("get_output_path", {"filename": "ComfyUI_00001_.png"}))
@@ -94,9 +92,9 @@ class TestGetOutputPath:
 
     def test_subfolder(self, mock_comfyui_database):
         """Resolve with subfolder."""
-        output_dir = mock_comfyui_database / "output" / "batch01"
-        output_dir.mkdir(parents=True)
-        img = output_dir / "img_001.png"
+        sub = mock_comfyui_database / "batch01"
+        sub.mkdir()
+        img = sub / "img_001.png"
         img.write_bytes(b"data")
 
         result = json.loads(handle("get_output_path", {
@@ -108,7 +106,6 @@ class TestGetOutputPath:
 
     def test_file_not_found(self, mock_comfyui_database):
         """Non-existent file returns exists=False."""
-        (mock_comfyui_database / "output").mkdir()
         result = json.loads(handle("get_output_path", {"filename": "no_such_file.png"}))
         assert result["exists"] is False
         assert result["size_bytes"] == 0
@@ -128,9 +125,7 @@ class TestGetOutputPath:
 class TestVerifyExecution:
     def test_basic_verify(self, mock_comfyui_database, mock_history_success):
         """Successful verification with file on disk."""
-        output_dir = mock_comfyui_database / "output"
-        output_dir.mkdir()
-        (output_dir / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
+        (mock_comfyui_database / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
 
         with patch("agent.tools.verify_execution.httpx.Client") as MockClient:
             mock_resp = MagicMock()
@@ -150,7 +145,6 @@ class TestVerifyExecution:
 
     def test_file_missing(self, mock_comfyui_database, mock_history_success):
         """Output referenced in history but file doesn't exist."""
-        (mock_comfyui_database / "output").mkdir()
         # Don't create the file
 
         with patch("agent.tools.verify_execution.httpx.Client") as MockClient:
@@ -191,9 +185,7 @@ class TestVerifyExecution:
 
     def test_analyze_true_calls_vision(self, mock_comfyui_database, mock_history_success):
         """analyze=True triggers vision analysis."""
-        output_dir = mock_comfyui_database / "output"
-        output_dir.mkdir()
-        (output_dir / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
+        (mock_comfyui_database / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
 
         vision_result = json.dumps({"quality_score": 0.85, "artifacts": []})
 
@@ -240,9 +232,7 @@ class TestVerifyExecution:
 
     def test_analyze_false_skips_vision(self, mock_comfyui_database, mock_history_success):
         """analyze=False (default) does not call vision."""
-        output_dir = mock_comfyui_database / "output"
-        output_dir.mkdir()
-        (output_dir / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
+        (mock_comfyui_database / "ComfyUI_00001_.png").write_bytes(b"x" * 1024)
 
         with patch("agent.tools.verify_execution.httpx.Client") as MockClient:
             mock_resp = MagicMock()
@@ -270,7 +260,7 @@ class TestVerifyExecution:
 
     def test_render_time_passthrough(self, mock_comfyui_database, mock_history_success):
         """render_time_s is passed through to result."""
-        (mock_comfyui_database / "output").mkdir()
+        # output dir is mock_comfyui_database itself (already exists)
 
         with patch("agent.tools.verify_execution.httpx.Client") as MockClient:
             mock_resp = MagicMock()

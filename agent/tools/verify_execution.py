@@ -13,7 +13,7 @@ import logging
 
 import httpx
 
-from ..config import COMFYUI_DATABASE, COMFYUI_URL
+from ..config import COMFYUI_OUTPUT_DIR, COMFYUI_URL
 from ._util import to_json, validate_path
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def _resolve_output_path(filename: str, subfolder: str = "") -> dict:
             "error": "Empty filename",
         }
 
-    output_dir = COMFYUI_DATABASE / "output"
+    output_dir = COMFYUI_OUTPUT_DIR
     if subfolder:
         abs_path = output_dir / subfolder / filename
     else:
@@ -292,29 +292,32 @@ def _verify_prompt(
                 vision_analysis = {"error": str(e)}
 
     # 5. Record outcome to memory
+    # record_outcome expects top-level fields: key_params, render_time_s,
+    # quality_score, workflow_hash, goal_id, model_combo, etc.
     outcome_recorded = False
     try:
         from . import handle as dispatch_tool
 
+        # Build model_combo from key_params
+        model_combo = []
+        if key_params.get("model"):
+            model_combo.append(key_params["model"])
+
         outcome_input: dict = {
             "session": session,
-            "action": "execute_workflow",
-            "result": "success" if status_str == "success" else status_str,
-            "details": {
-                "prompt_id": prompt_id,
-                "output_count": len(outputs),
-                "all_exist": all_exist,
-                **key_params,
-            },
+            "key_params": key_params,
+            "workflow_hash": workflow_hash,
+            "workflow_summary": f"{key_params.get('model', 'unknown')} "
+                               f"{key_params.get('steps', '?')} steps "
+                               f"CFG {key_params.get('cfg', '?')}",
+            "model_combo": model_combo,
         }
         if render_time_s is not None:
-            outcome_input["details"]["render_time_s"] = render_time_s
+            outcome_input["render_time_s"] = render_time_s
         if goal_id:
             outcome_input["goal_id"] = goal_id
         if vision_analysis and "quality_score" in vision_analysis:
-            outcome_input["details"]["quality_score"] = vision_analysis["quality_score"]
-        if workflow_hash:
-            outcome_input["details"]["workflow_hash"] = workflow_hash
+            outcome_input["quality_score"] = vision_analysis["quality_score"]
 
         dispatch_tool("record_outcome", outcome_input)
         outcome_recorded = True

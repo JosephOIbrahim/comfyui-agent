@@ -22,10 +22,12 @@ def _get_safe_dirs() -> list[Path]:
     global _SAFE_DIRS
     if _SAFE_DIRS is None:
         from ..config import (
-            COMFYUI_DATABASE, PROJECT_DIR, SESSIONS_DIR, WORKFLOWS_DIR,
+            COMFYUI_DATABASE, COMFYUI_OUTPUT_DIR, PROJECT_DIR, SESSIONS_DIR,
+            WORKFLOWS_DIR,
         )
         _SAFE_DIRS = [
             COMFYUI_DATABASE.resolve(),
+            COMFYUI_OUTPUT_DIR.resolve(),
             PROJECT_DIR.resolve(),
             SESSIONS_DIR.resolve(),
             WORKFLOWS_DIR.resolve(),

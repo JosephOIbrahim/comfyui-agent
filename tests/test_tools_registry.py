@@ -107,8 +107,10 @@ class TestToolRegistry:
             # Verify loop
             "get_output_path",
             "verify_execution",
+            # Brain: Iterative refine
+            "iterative_refine",
         }
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 62, f"Expected 62 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 63, f"Expected 63 tools, got {len(ALL_TOOLS)}"

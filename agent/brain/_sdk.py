@@ -67,7 +67,7 @@ class BrainConfig:
     comfyui_url: str = "http://127.0.0.1:8188"
     custom_nodes_dir: Path = field(default_factory=lambda: Path("./Custom_Nodes"))
     models_dir: Path = field(default_factory=lambda: Path("./models"))
-    agent_model: str = "claude-opus-4-6-20250929"
+    agent_model: str = "claude-sonnet-4-20250514"
     vision_limiter: Callable = field(default_factory=lambda: _null_limiter_factory)
     tool_dispatcher: Callable | None = None
     get_workflow_state: Callable | None = None

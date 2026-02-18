@@ -22,7 +22,7 @@ if ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
 
 # MCP auth token (optional — for future HTTP/SSE transport auth)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
-AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-4-6-20250929")
+AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-4-20250514")
 MAX_TOKENS = 16384
 MAX_AGENT_TURNS = 30
 
@@ -54,6 +54,24 @@ COMFYUI_DATABASE = Path(os.getenv("COMFYUI_DATABASE", _default_comfyui_database(
 CUSTOM_NODES_DIR = COMFYUI_DATABASE / "Custom_Nodes"
 MODELS_DIR = COMFYUI_DATABASE / "models"
 WORKFLOWS_DIR = COMFYUI_DATABASE / "Workflows"
+
+# Output directory — may differ from COMFYUI_DATABASE when using extra_model_paths
+# or symlinked setups (e.g., models at G:\COMFYUI_Database but output at G:\COMFY\ComfyUI\output)
+def _default_comfyui_output() -> str:
+    """Default output directory. Checks COMFYUI_OUTPUT_DIR env var first."""
+    env = os.getenv("COMFYUI_OUTPUT_DIR")
+    if env:
+        return env
+    # Check the common separate-install pattern
+    _sys = platform.system()
+    if _sys == "Windows":
+        candidate = Path("G:/COMFY/ComfyUI/output")
+        if candidate.exists():
+            return str(candidate)
+    return str(COMFYUI_DATABASE / "output")
+
+
+COMFYUI_OUTPUT_DIR = Path(_default_comfyui_output())
 
 # Project paths
 PROJECT_DIR = Path(__file__).parent.parent
