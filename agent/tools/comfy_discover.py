@@ -806,6 +806,16 @@ def _search_huggingface(query: str, model_type: str | None, max_results: int) ->
             "vae": "vae",
             "controlnet": "controlnet",
             "embedding": "textual-inversion",
+            "3d": "image-to-3d",
+            "image-to-3d": "image-to-3d",
+            "text-to-3d": "text-to-3d",
+            "text-to-speech": "text-to-speech",
+            "tts": "text-to-speech",
+            "audio": "text-to-audio",
+            "text-to-audio": "text-to-audio",
+            "text-to-video": "text-to-video",
+            "video": "text-to-video",
+            "image-to-video": "image-to-video",
         }
         tag = type_tags.get(model_type.lower())
         if tag:

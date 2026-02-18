@@ -20,6 +20,83 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _GOAL_PATTERNS: dict[str, dict] = {
+    # --- Specific patterns first (checked before generic "build"/"create") ---
+    "chain_workflows": {
+        "triggers": [
+            "chain", "multi-stage", "multistage", "then feed",
+            "pass output", "connect workflows", "stage", "sequence",
+            "image to 3d", "txt2img then", "generate then",
+            "3d pipeline", "audio pipeline", "multi-modal",
+        ],
+        "steps": [
+            {"id": "decompose", "action": "Decompose goal into pipeline stages",
+             "tools": ["list_workflow_templates", "discover"]},
+            {"id": "define_pipeline",
+             "action": "Define the pipeline: stages, input/output mappings",
+             "tools": ["create_pipeline"]},
+            {"id": "verify_stages",
+             "action": "Verify each stage's workflow is valid",
+             "tools": ["validate_before_execute"]},
+            {"id": "run_pipeline",
+             "action": "Execute the full pipeline",
+             "tools": ["run_pipeline"]},
+            {"id": "verify_outputs",
+             "action": "Verify pipeline outputs and record outcomes",
+             "tools": ["verify_execution", "analyze_image"]},
+            {"id": "iterate",
+             "action": "Review results and iterate if needed",
+             "tools": ["get_pipeline_status", "compare_outputs"]},
+        ],
+    },
+    "generate_3d": {
+        "triggers": [
+            "3d model", "3d mesh", "generate 3d", "hunyuan3d", "hunyuan 3d",
+            "text to 3d", "image to 3d", "3d asset", "3d object",
+            "gaussian splat", "3dgs", "point cloud",
+        ],
+        "steps": [
+            {"id": "find_3d_nodes",
+             "action": "Find available 3D generation nodes and models",
+             "tools": ["discover", "list_custom_nodes", "list_models"]},
+            {"id": "plan_stages",
+             "action": "Plan the 3D generation pipeline stages",
+             "tools": ["create_pipeline"]},
+            {"id": "configure",
+             "action": "Configure each stage (conditioning, resolution, steps)",
+             "tools": ["set_input"]},
+            {"id": "run_pipeline",
+             "action": "Execute the 3D generation pipeline",
+             "tools": ["run_pipeline"]},
+            {"id": "verify_output",
+             "action": "Verify 3D output files exist and are valid",
+             "tools": ["get_pipeline_status", "get_output_path"]},
+        ],
+    },
+    "generate_audio": {
+        "triggers": [
+            "tts", "text to speech", "narration", "voice",
+            "generate audio", "audio generation", "speech",
+            "cosyvoice", "bark", "read aloud", "narrator",
+        ],
+        "steps": [
+            {"id": "find_audio_nodes",
+             "action": "Find available TTS/audio nodes and models",
+             "tools": ["discover", "list_custom_nodes", "list_models"]},
+            {"id": "select_template",
+             "action": "Select or build an audio generation workflow",
+             "tools": ["list_workflow_templates", "get_workflow_template"]},
+            {"id": "configure",
+             "action": "Configure TTS parameters (text, voice, speed)",
+             "tools": ["set_input"]},
+            {"id": "execute",
+             "action": "Execute the audio generation workflow",
+             "tools": ["execute_with_progress"]},
+            {"id": "verify_output",
+             "action": "Verify audio output exists",
+             "tools": ["verify_execution", "get_output_path"]},
+        ],
+    },
+    # --- Generic patterns (checked after specific ones) ---
     "build_workflow": {
         "triggers": ["build", "create", "make", "set up", "new workflow", "from scratch"],
         "steps": [
@@ -268,7 +345,7 @@ class PlannerAgent(BrainAgent):
     def _match_pattern(self, goal: str) -> tuple[str, dict]:
         """Match a goal string to a plan pattern."""
         goal_lower = goal.lower()
-        for name, pattern in sorted(self.GOAL_PATTERNS.items()):
+        for name, pattern in self.GOAL_PATTERNS.items():
             for trigger in pattern["triggers"]:
                 if trigger in goal_lower:
                     return name, pattern

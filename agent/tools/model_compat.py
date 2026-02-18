@@ -89,6 +89,57 @@ MODEL_FAMILIES = {
         "lora_compatible": True,
         "incompatible_families": ["sd15", "sdxl", "flux"],
     },
+    "hunyuan3d": {
+        "label": "Hunyuan3D",
+        "resolution": "n/a (3D)",
+        "checkpoint_patterns": [
+            r"(?i)hunyuan[-_]?3d", r"(?i)hy3d",
+            r"(?i)hunyuan.*3d.*v[12]",
+        ],
+        "vae_patterns": [],
+        "controlnet_patterns": [],
+        "lora_compatible": False,
+        "incompatible_families": [
+            "sd15", "sdxl", "flux", "sd3", "wan", "audio",
+        ],
+        "modality": "3d",
+    },
+    "wan": {
+        "label": "Wan (Video/3D)",
+        "resolution": "variable",
+        "checkpoint_patterns": [
+            r"(?i)wan[-_]?2\.?1", r"(?i)wan[-_]?v2",
+            r"(?i)wan[-_]?i2v", r"(?i)wan[-_]?t2v",
+            r"(?i)wan[-_]?fun",
+        ],
+        "vae_patterns": [
+            r"(?i)wan.*vae",
+        ],
+        "controlnet_patterns": [],
+        "lora_compatible": True,
+        "incompatible_families": [
+            "sd15", "sdxl", "flux", "sd3", "hunyuan3d", "audio",
+        ],
+        "modality": "video",
+    },
+    "audio": {
+        "label": "Audio/TTS",
+        "resolution": "n/a (audio)",
+        "checkpoint_patterns": [
+            r"(?i)cosyvoice", r"(?i)cosy[-_]?voice",
+            r"(?i)qwen[-_]?audio", r"(?i)qwen[-_]?tts",
+            r"(?i)bark", r"(?i)tortoise[-_]?tts",
+            r"(?i)xtts", r"(?i)fish[-_]?speech",
+            r"(?i)chattts", r"(?i)chat[-_]?tts",
+        ],
+        "vae_patterns": [],
+        "controlnet_patterns": [],
+        "lora_compatible": False,
+        "incompatible_families": [
+            "sd15", "sdxl", "flux", "sd3", "hunyuan3d", "wan",
+        ],
+        "modality": "audio",
+    },
 }
 
 
@@ -172,6 +223,8 @@ def _extract_models_from_workflow(workflow: dict) -> list[str]:
     model_input_names = {
         "ckpt_name", "vae_name", "lora_name", "control_net_name",
         "model_name", "clip_name", "unet_name",
+        "model_path", "mesh_model", "point_cloud",
+        "audio_model", "tts_model", "video_model",
     }
     for node in workflow.values():
         if not isinstance(node, dict):

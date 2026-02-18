@@ -55,6 +55,51 @@ class TestPlanGoal:
         }))
         assert result["pattern"] == "add_controlnet"
 
+    def test_chain_workflows_pattern(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Chain txt2img then upscale in a pipeline",
+            "session": "test_chain",
+        }))
+        assert result["pattern"] == "chain_workflows"
+        assert result["total_steps"] >= 4
+
+    def test_pipeline_trigger(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Create a multi-stage pipeline for 3D generation",
+            "session": "test_pipeline",
+        }))
+        assert result["pattern"] == "chain_workflows"
+
+    def test_generate_3d_pattern(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Generate a 3D model of a stone column",
+            "session": "test_3d",
+        }))
+        assert result["pattern"] == "generate_3d"
+        assert result["total_steps"] >= 4
+
+    def test_hunyuan3d_trigger(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Use hunyuan3d to create a mesh",
+            "session": "test_hy3d",
+        }))
+        assert result["pattern"] == "generate_3d"
+
+    def test_generate_audio_pattern(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Generate TTS narration for the scene",
+            "session": "test_audio",
+        }))
+        assert result["pattern"] == "generate_audio"
+        assert result["total_steps"] >= 4
+
+    def test_cosyvoice_trigger(self):
+        result = json.loads(planner.handle("plan_goal", {
+            "goal": "Use cosyvoice to generate a voiceover",
+            "session": "test_cosy",
+        }))
+        assert result["pattern"] == "generate_audio"
+
     def test_generic_fallback(self):
         result = json.loads(planner.handle("plan_goal", {
             "goal": "Do something unusual with the workflow",

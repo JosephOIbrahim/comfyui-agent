@@ -73,6 +73,21 @@ _KNOWLEDGE_TRIGGERS = {
         "create workflow", "build workflow", "from scratch",
         "new workflow", "make a workflow", "set up a pipeline",
     ],
+    "3d_workflows": [
+        "3d", "3D", "mesh", "hunyuan3d", "Hunyuan3D", "triplane",
+        "gaussian", "splat", "3dgs", "3DGS", "glb", "GLB", "ply",
+        "point_cloud", "Hunyuan3DLoader", "SaveGLB", "Preview3D",
+        "Load3DGaussian", "MeshDecoder", "3d_gen",
+        "3d generation", "Wan2.1", "wan2", "Wan-T2V", "Wan-I2V",
+    ],
+    "audio_workflows": [
+        "tts", "TTS", "text to speech", "audio", "voice",
+        "cosyvoice", "CosyVoice", "CosyVoiceLoader",
+        "qwen audio", "QwenAudio", "bark", "tortoise",
+        "xtts", "XTTS", "fish speech", "chattts", "ChatTTS",
+        "SaveAudio", "LoadAudio", "AudioSave",
+        "text-to-speech", "narration", "speech synthesis",
+    ],
 }
 
 

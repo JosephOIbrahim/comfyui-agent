@@ -381,6 +381,56 @@ class TestDynamicKnowledge:
         triggers = _detect_relevant_knowledge(ctx)
         assert "common_recipes" in triggers
 
+    def test_3d_detected_from_workflow(self):
+        ctx = {
+            "workflow": {
+                "current_workflow": {
+                    "1": {"class_type": "Hunyuan3DLoader"},
+                    "2": {"class_type": "SaveGLB"},
+                },
+            },
+            "notes": [],
+        }
+        triggers = _detect_relevant_knowledge(ctx)
+        assert "3d_workflows" in triggers
+
+    def test_3d_detected_from_notes(self):
+        ctx = {
+            "workflow": {},
+            "notes": [{"text": "generate a 3D mesh of a column"}],
+        }
+        triggers = _detect_relevant_knowledge(ctx)
+        assert "3d_workflows" in triggers
+
+    def test_audio_detected_from_workflow(self):
+        ctx = {
+            "workflow": {
+                "current_workflow": {
+                    "1": {"class_type": "CosyVoiceLoader"},
+                    "2": {"class_type": "SaveAudio"},
+                },
+            },
+            "notes": [],
+        }
+        triggers = _detect_relevant_knowledge(ctx)
+        assert "audio_workflows" in triggers
+
+    def test_audio_detected_from_notes(self):
+        ctx = {
+            "workflow": {},
+            "notes": [{"text": "add TTS narration to the scene"}],
+        }
+        triggers = _detect_relevant_knowledge(ctx)
+        assert "audio_workflows" in triggers
+
+    def test_wan_triggers_3d(self):
+        ctx = {
+            "workflow": {},
+            "notes": [{"text": "use Wan2.1 for multi-view generation"}],
+        }
+        triggers = _detect_relevant_knowledge(ctx)
+        assert "3d_workflows" in triggers
+
 
 # ---------------------------------------------------------------------------
 # 7. Observation masking
