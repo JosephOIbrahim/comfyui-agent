@@ -15,7 +15,7 @@ from pathlib import Path
 
 import anthropic
 
-from ._protocol import brain_message
+from ._protocol import brain_message, dispatch_brain_message
 from ._sdk import BrainAgent
 
 log = logging.getLogger(__name__)
@@ -272,6 +272,7 @@ class VisionAgent(BrainAgent):
             },
         )
         log.debug("BrainMessage: vision->memory: %s", msg["correlation_id"])
+        dispatch_brain_message(msg)
 
         return self.to_json(result)
 
@@ -339,6 +340,7 @@ class VisionAgent(BrainAgent):
             },
         )
         log.debug("BrainMessage: vision->memory comparison: %s", msg["correlation_id"])
+        dispatch_brain_message(msg)
 
         return self.to_json(result)
 

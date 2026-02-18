@@ -284,3 +284,45 @@ class TestBrainMessageActivation:
         mock_brain_msg.assert_called_once()
         call_kwargs = mock_brain_msg.call_args
         assert call_kwargs[1]["payload"]["action"] == "images_compared"
+
+
+class TestDispatchBrainMessage:
+    """Verify that dispatch_brain_message routes to memory and never raises."""
+
+    def test_dispatch_calls_record_outcome(self, fake_image):
+        """dispatch_brain_message routes vision->memory to record_outcome."""
+        from agent.brain._protocol import brain_message, dispatch_brain_message
+
+        msg = brain_message(
+            source="vision",
+            target="memory",
+            msg_type="result",
+            payload={
+                "action": "image_analyzed",
+                "quality_score": 0.85,
+            },
+        )
+
+        with patch("agent.tools.handle") as mock_dispatch:
+            mock_dispatch.return_value = "{}"
+            dispatch_brain_message(msg)
+
+        mock_dispatch.assert_called_once()
+        call_args = mock_dispatch.call_args
+        assert call_args[0][0] == "record_outcome"
+        assert call_args[0][1]["action"] == "image_analyzed"
+
+    def test_dispatch_never_raises(self):
+        """dispatch_brain_message catches all exceptions."""
+        from agent.brain._protocol import brain_message, dispatch_brain_message
+
+        msg = brain_message(
+            source="vision",
+            target="memory",
+            msg_type="result",
+            payload={"action": "test"},
+        )
+
+        with patch("agent.tools.handle", side_effect=RuntimeError("boom")):
+            # Should not raise
+            dispatch_brain_message(msg)

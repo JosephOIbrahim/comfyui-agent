@@ -102,6 +102,21 @@ TOOLS: list[dict] = [
                     "type": "integer",
                     "description": "Max seconds to wait (default 300 for progress mode).",
                 },
+                "auto_verify": {
+                    "type": "boolean",
+                    "description": (
+                        "Automatically verify outputs after execution completes: "
+                        "check files exist, record outcome to memory. Default false."
+                    ),
+                },
+                "session": {
+                    "type": "string",
+                    "description": "Session name for auto_verify memory recording. Default 'default'.",
+                },
+                "goal_id": {
+                    "type": "string",
+                    "description": "Goal ID from planner, for linking outcome to a goal.",
+                },
             },
             "required": [],
         },
@@ -583,6 +598,9 @@ def _handle_execute_workflow(tool_input: dict) -> str:
 def _handle_execute_with_progress(tool_input: dict) -> str:
     path_str = tool_input.get("path")
     timeout = tool_input.get("timeout", 300)
+    auto_verify = tool_input.get("auto_verify", False)
+    session = tool_input.get("session", "default")
+    goal_id = tool_input.get("goal_id")
 
     if path_str:
         workflow, err = _load_workflow_from_file(path_str)
@@ -597,6 +615,24 @@ def _handle_execute_with_progress(tool_input: dict) -> str:
             })
 
     result = _execute_with_websocket(workflow, timeout=timeout)
+
+    # Auto-verify if requested and execution completed successfully
+    if auto_verify and result.get("status") == "complete" and result.get("prompt_id"):
+        try:
+            from .verify_execution import _verify_prompt
+
+            verification = _verify_prompt(
+                result["prompt_id"],
+                analyze=False,
+                session=session,
+                render_time_s=result.get("total_time_s"),
+                goal_id=goal_id,
+            )
+            result["verification"] = verification
+        except Exception as e:
+            log.warning("Auto-verify failed: %s", e)
+            result["verification"] = {"error": str(e)}
+
     return to_json(result)
 
 
