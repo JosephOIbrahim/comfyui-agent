@@ -27,7 +27,7 @@ DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATO
 OPTIMIZER, DEMO). Natural conversation drives workflow inspection, discovery, modification,
 execution, optimization, and learning. Built with the Anthropic SDK, httpx, and jsonpatch.
 
-The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 60 tools
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 65 tools
 available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
 serves as a standalone fallback. Our value lives in the intelligence and brain layers above
 the transport.
@@ -193,13 +193,13 @@ Some tools overlap with Claude Code's native capabilities. All are kept for doma
 
 ### Four Intelligence Layers
 
-The agent's 40 intelligence + 20 brain tools are organized into four layers, each solving
+The agent's 44 intelligence + 21 brain tools are organized into four layers, each solving
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
 ┌──────────────────── SUPER DUPER AGENT v0.3.0 ─────────────────────┐
 │                                                                    │
-│  BRAIN LAYER (20 tools)                                            │
+│  BRAIN LAYER (21 tools)                                            │
 │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌───────┐ ┌───────┐ │
 │  │PLANNER │ │ VISION │ │ MEMORY │ │ ORCH  │ │OPTIM  │ │ DEMO  │ │
 │  │4 tools │ │4 tools │ │4 tools │ │2 tools│ │4 tools│ │2 tools│ │
@@ -208,7 +208,7 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 │                   _protocol.py (BrainMessage)                     │
 │      ┌──────────────┬──┴───────┬──────────────┐                   │
 │                                                                    │
-│  INTELLIGENCE LAYERS (40 tools)                                    │
+│  INTELLIGENCE LAYERS (44 tools)                                    │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │ UNDERSTAND│  │ DISCOVER  │  │  PILOT   │  │   VERIFY     │    │
 │  │ 13 tools  │  │  6 tools  │  │ 13 tools │  │   7 tools    │    │
@@ -239,19 +239,21 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **PILOT** | `tools/workflow_patch.py` | 9 | RFC6902 patching (6) + semantic: `add_node`, `connect_nodes`, `set_input` (3) |
 | **PILOT** | `tools/session_tools.py` | 4 | save/load/list sessions via `memory/session.py` |
 | **VERIFY** | `tools/comfy_execute.py` | 4 | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` (WebSocket) |
+| **VERIFY** | `tools/verify_execution.py` | 2 | `get_output_path`, `verify_execution` — post-execution verification loop |
+| **DISCOVER** | `tools/github_releases.py` | 2 | `check_node_updates`, `get_repo_releases` — GitHub release tracking for custom nodes |
 | **BRAIN:VISION** | `brain/vision.py` | 4 | `analyze_image`, `compare_outputs`, `suggest_improvements`, `hash_compare_images` |
 | **BRAIN:PLANNER** | `brain/planner.py` | 4 | `plan_goal`, `get_plan`, `complete_step`, `replan` — goal decomposition |
 | **BRAIN:MEMORY** | `brain/memory.py` | 4 | `record_outcome`, `get_learned_patterns`, `get_recommendations`, `detect_implicit_feedback` |
 | **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
 | **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
 | **BRAIN:DEMO** | `brain/demo.py` | 2 | `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
-| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 60 tools via Model Context Protocol (primary interface) |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 65 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
 BUILT (v0.3.1 — working today):
-  ✅ 60 tools: 40 intelligence layer + 20 brain layer
+  ✅ 65 tools: 44 intelligence layer + 21 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
   ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
@@ -500,7 +502,7 @@ Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 60 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+All 65 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
 core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
 Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
 handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation

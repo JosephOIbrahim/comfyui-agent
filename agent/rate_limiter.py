@@ -116,3 +116,8 @@ def HUGGINGFACE_LIMITER() -> RateLimiter:
 def VISION_LIMITER() -> RateLimiter:
     """Claude Vision API: 0.5 req/s sustained, burst of 2."""
     return GlobalRateLimiter.get("vision", rate=0.5, capacity=2)
+
+
+def GITHUB_LIMITER() -> RateLimiter:
+    """GitHub API: 1 req/s sustained, burst of 5."""
+    return GlobalRateLimiter.get("github", rate=1.0, capacity=5)

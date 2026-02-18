@@ -102,18 +102,18 @@ agent search "anime" --models --type lora   # Filter by model type
 
 ## How It Works
 
-The agent uses Claude (Anthropic's AI) with 62 specialized tools across two tiers:
+The agent uses Claude (Anthropic's AI) with 65 specialized tools across two tiers:
 
-**Intelligence Layer (41 tools)**
+**Intelligence Layer (44 tools)**
 
 | Layer | Tools | What they do |
 |-------|-------|-------------|
 | **UNDERSTAND** | 13 | Parse workflows, scan models/nodes, query ComfyUI API, detect format |
-| **DISCOVER** | 9 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility, install instructions |
+| **DISCOVER** | 12 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility, install instructions, GitHub releases |
 | **PILOT** | 13 | RFC6902 patch engine with undo, semantic node ops, session persistence |
-| **VERIFY** | 7 | Validate, execute, WebSocket progress monitoring, execution status |
+| **VERIFY** | 6 | Validate, execute, WebSocket progress monitoring, post-execution verification |
 
-**Brain Layer (20 tools)**
+**Brain Layer (21 tools)**
 
 | Module | Tools | What they do |
 |--------|-------|-------------|
@@ -163,7 +163,7 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 
 ## MCP Server (Primary Interface)
 
-All 62 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
+All 65 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
 
 ```bash
 pip install -e "."

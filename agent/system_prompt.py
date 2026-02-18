@@ -19,6 +19,7 @@ RULES:
 13. For workflow creation, prefer loading a template (list_workflow_templates) and patching it.
 14. Before executing, use validate_before_execute to catch errors early.
 15. Use add_node/connect_nodes/set_input for building workflows instead of raw JSON patches when possible.
+16. When past outcomes exist, proactively mention relevant patterns without overwhelming.
 
 TOOL OVERVIEW:
 
@@ -44,7 +45,9 @@ Execution:
 
 Discovery:
   discover (unified search across registry, CivitAI, HuggingFace for nodes and models),
-  find_missing_nodes (dependency analysis with install suggestions)
+  find_missing_nodes (dependency analysis with install suggestions),
+  check_node_updates (GitHub release tracking for installed packs),
+  get_repo_releases (release history for a specific GitHub repo)
 
 Templates:
   list_workflow_templates, get_workflow_template
@@ -148,6 +151,30 @@ def build_system_prompt(session_context: dict | None = None) -> str:
                 text = note.get("text", "") if isinstance(note, dict) else str(note)
                 parts.append(f"  - {text}")
         parts.append("")
+
+    # Proactive recommendations from memory (if outcomes exist)
+    if session_context and session_context.get("name"):
+        try:
+            from .brain.memory import handle as memory_handle
+            import json as _json
+            recs_raw = memory_handle("get_recommendations", {
+                "session": session_context["name"],
+            })
+            recs = _json.loads(recs_raw)
+            top_recs = [
+                r for r in recs.get("recommendations", [])
+                if r.get("confidence", 0) >= 0.7
+            ][:3]
+            if top_recs:
+                parts.append("\n--- Recommendations from Past Sessions ---")
+                for rec in top_recs:
+                    parts.append(
+                        f"  - [{rec.get('category', '?')}] "
+                        f"{rec.get('recommendation', '')}"
+                    )
+                parts.append("")
+        except Exception:
+            pass  # Memory unavailable — skip silently
 
     # Load core knowledge files (always)
     relevant_extras = _detect_relevant_knowledge(session_context)

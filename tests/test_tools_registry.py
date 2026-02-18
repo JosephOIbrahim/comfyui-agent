@@ -109,8 +109,11 @@ class TestToolRegistry:
             "verify_execution",
             # Brain: Iterative refine
             "iterative_refine",
+            # GitHub releases
+            "check_node_updates",
+            "get_repo_releases",
         }
         assert expected.issubset(names), f"Missing tools: {expected - names}"
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 63, f"Expected 63 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 65, f"Expected 65 tools, got {len(ALL_TOOLS)}"

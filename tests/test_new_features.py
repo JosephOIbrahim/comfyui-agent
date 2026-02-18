@@ -63,6 +63,35 @@ class TestSessionAwarePrompt:
         assert "ComfyUI co-pilot" in prompt
         assert "Session Context" not in prompt
 
+    def test_with_recommendations(self):
+        from unittest.mock import patch as mock_patch
+        ctx = {
+            "name": "test-session",
+            "notes": [],
+            "workflow": {},
+        }
+        mock_recs = json.dumps({
+            "recommendations": [
+                {"category": "sampler", "recommendation": "DPM++ 2M Karras works best", "confidence": 0.9},
+                {"category": "model", "recommendation": "SDXL base produces best results", "confidence": 0.8},
+                {"category": "low", "recommendation": "Try Euler", "confidence": 0.3},
+            ],
+        })
+        with mock_patch("agent.system_prompt.memory_handle", create=True):
+            # Patch at import location inside the function
+            with mock_patch("agent.brain.memory.handle", return_value=mock_recs):
+                prompt = build_system_prompt(session_context=ctx)
+        assert "Recommendations from Past Sessions" in prompt
+        assert "DPM++ 2M Karras works best" in prompt
+        assert "SDXL base produces best results" in prompt
+        # Low confidence should be filtered out
+        assert "Try Euler" not in prompt
+
+    def test_without_recommendations(self):
+        # No session name → no recommendations injected
+        prompt = build_system_prompt(session_context=None)
+        assert "Recommendations from Past Sessions" not in prompt
+
     def test_with_session_notes(self):
         ctx = {
             "name": "test-session",

@@ -9,6 +9,7 @@ import threading
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from .config import AGENT_MODEL, COMFYUI_URL, COMFYUI_DATABASE, ANTHROPIC_API_KEY, LOG_DIR
 from .logging_config import setup_logging
@@ -168,8 +169,12 @@ def inspect():
         console.print(f"[red]Models: {result['error']}[/red]")
     else:
         console.print(f"[bold]Models[/bold] ({result['directory']})")
+        table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+        table.add_column("Type", style="cyan")
+        table.add_column("Count", justify="right")
         for model_type, count in sorted(result["types"].items()):
-            console.print(f"  {model_type}: {count} file(s)")
+            table.add_row(model_type, str(count))
+        console.print(table)
         console.print()
 
     # Custom nodes
@@ -178,15 +183,15 @@ def inspect():
         console.print(f"[red]Custom nodes: {result['error']}[/red]")
     else:
         console.print(f"[bold]Custom Node Packs[/bold] ({result['count']} installed)")
+        table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+        table.add_column("Pack Name", style="bold")
+        table.add_column("Nodes", justify="center")
+        table.add_column("Readme", justify="center")
         for pack in result["packs"]:
-            name = pack["name"]
-            markers = []
-            if pack.get("registers_nodes"):
-                markers.append("nodes")
-            if pack.get("has_readme"):
-                markers.append("readme")
-            suffix = f" [{', '.join(markers)}]" if markers else ""
-            console.print(f"  {name}{suffix}")
+            nodes_mark = "yes" if pack.get("registers_nodes") else ""
+            readme_mark = "yes" if pack.get("has_readme") else ""
+            table.add_row(pack["name"], nodes_mark, readme_mark)
+        console.print(table)
 
 
 @app.command()
@@ -248,10 +253,13 @@ def parse(
         ct = node.get("class_type", "Unknown")
         class_counts[ct] = class_counts.get(ct, 0) + 1
 
-    console.print("[bold]Node types:[/bold]")
+    table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+    table.add_column("Node Type", style="cyan")
+    table.add_column("Count", justify="right")
     for ct, count in sorted(class_counts.items()):
-        suffix = f" (×{count})" if count > 1 else ""
-        console.print(f"  {ct}{suffix}")
+        table.add_row(ct, str(count))
+    console.print("[bold]Node types:[/bold]")
+    console.print(table)
 
     # Show editable fields (API format only — UI format lacks field names)
     api_nodes = {
@@ -259,7 +267,10 @@ def parse(
         if n.get("inputs") and not n.get("_widgets_values")
     }
     if api_nodes:
-        console.print("\n[bold]Editable fields:[/bold]")
+        fields_table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+        fields_table.add_column("Node [ID]", style="bold")
+        fields_table.add_column("Field")
+        fields_table.add_column("Value", style="dim")
         for nid, node in sorted(api_nodes.items()):
             ct = node.get("class_type", "?")
             for field, value in node.get("inputs", {}).items():
@@ -268,7 +279,9 @@ def parse(
                 val_repr = repr(value)
                 if len(val_repr) > 50:
                     val_repr = val_repr[:47] + "..."
-                console.print(f"  [{nid}] {ct}.{field} = {val_repr}")
+                fields_table.add_row(f"{ct} [{nid}]", field, val_repr)
+        console.print("\n[bold]Editable fields:[/bold]")
+        console.print(fields_table)
     elif fmt == "UI format":
         console.print(
             "\n[dim]UI-format workflow — editable fields require ComfyUI "
@@ -285,13 +298,19 @@ def sessions():
         return
 
     console.print(f"[bold]Saved Sessions[/bold] ({result['count']})\n")
+    table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+    table.add_column("Name", style="bold")
+    table.add_column("Saved At")
+    table.add_column("Workflow", justify="center")
+    table.add_column("Notes", justify="right")
     for s in result["sessions"]:
-        name = s["name"]
-        saved_at = s.get("saved_at", "?")
-        notes = s.get("notes_count", 0)
-        wf = " [workflow]" if s.get("has_workflow") else ""
-        notes_str = f" [{notes} note(s)]" if notes else ""
-        console.print(f"  [bold]{name}[/bold]  {saved_at}{wf}{notes_str}")
+        table.add_row(
+            s["name"],
+            s.get("saved_at", "?"),
+            "yes" if s.get("has_workflow") else "",
+            str(s.get("notes_count", 0)) if s.get("notes_count") else "",
+        )
+    console.print(table)
 
 
 @app.command()
@@ -336,30 +355,38 @@ def search(
             f"[bold]{result['total']} results[/bold] "
             f"(sources: {', '.join(result.get('sources_searched', []))})\n"
         )
+        table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+        table.add_column("Name", style="bold")
+        table.add_column("Type")
+        table.add_column("Source")
+        table.add_column("Status")
         for r in result["results"]:
             name = r.get("name", "?")
             rtype = r.get("type", "")
             source = r.get("source", "")
-            installed = r.get("installed", False)
-            status = " [green]installed[/green]" if installed else ""
+            extra = [p for p in [r.get("model_type", ""), r.get("base_model", "")] if p]
+            if extra:
+                rtype = f"{rtype} ({', '.join(extra)})" if rtype else ", ".join(extra)
+            status = "[green]installed[/green]" if r.get("installed") else ""
+            table.add_row(name, rtype, source, status)
+        console.print(table)
 
-            console.print(f"  [bold]{name}[/bold]{status}")
-            parts = [p for p in [rtype, source, r.get("model_type", ""), r.get("base_model", "")] if p]
-            if parts:
-                console.print(f"    {' | '.join(parts)}")
-            desc = r.get("description", "")
-            if desc:
-                console.print(f"    {desc[:100]}")
-            url = r.get("url", "")
-            if url:
-                console.print(f"    [dim]{url}[/dim]")
+        # Show descriptions below the table for entries that have them
+        descs = [
+            (r.get("name", "?"), r.get("description", ""))
+            for r in result["results"] if r.get("description")
+        ]
+        if descs:
+            console.print()
+            for name, desc in descs:
+                console.print(f"  [bold]{name}[/bold]: {desc[:120]}")
     else:
         console.print(f"[yellow]No results for '{query}'[/yellow]")
 
 
 @app.command()
 def mcp():
-    """Primary integration -- exposes all 60 tools via MCP for Claude Code.
+    """Primary integration -- exposes all 65 tools via MCP for Claude Code.
 
     Starts the MCP server using stdio transport. Configure in your
     Claude Code settings (.claude/settings.json) to use these tools
