@@ -28,7 +28,7 @@ OPTIMIZER, DEMO, INTENT, ITERATION). Natural conversation drives workflow inspec
 discovery, modification, execution, optimization, and learning. Built with the Anthropic
 SDK, httpx, and jsonpatch.
 
-The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 76 tools
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 77 tools
 available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
 serves as a standalone fallback. Our value lives in the intelligence and brain layers above
 the transport.
@@ -258,13 +258,13 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **BRAIN:INTENT** | `brain/intent_collector.py` | 2 | `capture_intent`, `get_current_intent` — artistic intent capture for metadata |
 | **BRAIN:ITERATION** | `brain/iteration_accumulator.py` | 3 | `start_iteration_tracking`, `record_iteration_step`, `finalize_iterations` — refinement journey tracking |
 | **VERIFY** | `tools/image_metadata.py` | 3 | `write_image_metadata`, `read_image_metadata`, `reconstruct_context` — PNG creative metadata embedding |
-| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 76 tools via Model Context Protocol (primary interface) |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 77 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
 BUILT (v0.4.0 — working today):
-  ✅ 76 tools: 50 intelligence layer + 26 brain layer
+  ✅ 77 tools: 50 intelligence layer + 27 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
   ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
@@ -530,7 +530,7 @@ Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 76 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+All 77 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
 core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
 Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
 handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation
