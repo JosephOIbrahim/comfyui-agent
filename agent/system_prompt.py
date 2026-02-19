@@ -98,6 +98,11 @@ _KNOWLEDGE_TRIGGERS = {
         "SaveAudio", "LoadAudio", "AudioSave",
         "text-to-speech", "narration", "speech synthesis",
     ],
+    "workflow_optimization": [
+        "slow", "bottleneck", "optimize workflow", "performance",
+        "speed up", "taking too long", "profiler", "ProfilerX",
+        "too slow", "faster", "laggy", "TensorRT", "tensorrt",
+    ],
 }
 
 
