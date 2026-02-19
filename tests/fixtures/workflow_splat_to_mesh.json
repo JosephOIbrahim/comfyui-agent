@@ -1,0 +1,32 @@
+{
+    "1": {
+        "class_type": "Load3DGaussian",
+        "inputs": {
+            "file_path": "scene.ply",
+            "max_points": 100000
+        }
+    },
+    "2": {
+        "class_type": "MarchingCubes",
+        "inputs": {
+            "point_cloud": ["1", 0],
+            "resolution": 256,
+            "threshold": 0.5
+        }
+    },
+    "3": {
+        "class_type": "MeshCleanup",
+        "inputs": {
+            "mesh": ["2", 0],
+            "remove_isolated": true,
+            "smooth_iterations": 2
+        }
+    },
+    "4": {
+        "class_type": "SaveGLB",
+        "inputs": {
+            "mesh": ["3", 0],
+            "filename_prefix": "converted_mesh"
+        }
+    }
+}

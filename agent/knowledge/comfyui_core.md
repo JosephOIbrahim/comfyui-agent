@@ -27,6 +27,7 @@ Strict types for node connections:
 - POINT_CLOUD — 3D point cloud (from Gaussian Splatting or NeRF reconstruction)
 - TRIPLANE — triplane feature tensor (intermediate 3D representation)
 - CAMERA — camera position and rotation data (used by 3D control/viewport nodes)
+- LOAD3D_CAMERA — structured camera output from Load3D node (position, target, up, fov, focal_length)
 - POSE — body or hand pose skeleton (used by VNCCS, OpenPose, ControlNet)
 
 Types must match on connections. IMAGE cannot connect to LATENT input.

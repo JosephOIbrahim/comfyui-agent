@@ -98,6 +98,14 @@ _KNOWLEDGE_TRIGGERS = {
         "SaveAudio", "LoadAudio", "AudioSave",
         "text-to-speech", "narration", "speech synthesis",
     ],
+    "3d_camera_pipeline": [
+        "camera control", "camera position", "camera settings",
+        "load3d camera", "LOAD3D_CAMERA", "Load3D_Camera",
+        "cinematic", "focal length", "camera pipeline",
+        "shot type", "framing", "camera rig",
+        "sensor size", "anamorphic", "camera lens",
+        "AdvancedCameraControl", "camera export",
+    ],
     "workflow_optimization": [
         "slow", "bottleneck", "optimize workflow", "performance",
         "speed up", "taking too long", "profiler", "ProfilerX",

@@ -1,0 +1,75 @@
+{
+    "1": {
+        "class_type": "LoadImage",
+        "inputs": {
+            "image": "reference.png"
+        }
+    },
+    "2": {
+        "class_type": "Hunyuan3DLoader",
+        "inputs": {
+            "model_name": "hunyuan3d-v3.safetensors"
+        }
+    },
+    "3": {
+        "class_type": "Hunyuan3DConditioner",
+        "inputs": {
+            "image": ["1", 0],
+            "model": ["2", 0]
+        }
+    },
+    "4": {
+        "class_type": "Hunyuan3DSampler",
+        "inputs": {
+            "conditioning": ["3", 0],
+            "model": ["2", 0],
+            "steps": 50,
+            "guidance_scale": 7.5,
+            "seed": 42
+        }
+    },
+    "5": {
+        "class_type": "Hunyuan3DMeshDecoder",
+        "inputs": {
+            "triplane": ["4", 0],
+            "model": ["2", 0],
+            "resolution": 512
+        }
+    },
+    "6": {
+        "class_type": "MeshyGenerate",
+        "inputs": {
+            "image": ["1", 0],
+            "style": "realistic",
+            "api_key": "MESHY_API_KEY"
+        }
+    },
+    "7": {
+        "class_type": "TripoGenerate",
+        "inputs": {
+            "image": ["1", 0],
+            "quality": "high"
+        }
+    },
+    "8": {
+        "class_type": "SaveGLB",
+        "inputs": {
+            "mesh": ["5", 0],
+            "filename_prefix": "hunyuan_output"
+        }
+    },
+    "9": {
+        "class_type": "SaveGLB",
+        "inputs": {
+            "mesh": ["6", 0],
+            "filename_prefix": "meshy_output"
+        }
+    },
+    "10": {
+        "class_type": "SaveGLB",
+        "inputs": {
+            "mesh": ["7", 0],
+            "filename_prefix": "tripo_output"
+        }
+    }
+}
