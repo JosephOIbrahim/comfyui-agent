@@ -79,6 +79,16 @@ _KNOWLEDGE_TRIGGERS = {
         "point_cloud", "Hunyuan3DLoader", "SaveGLB", "Preview3D",
         "Load3DGaussian", "MeshDecoder", "3d_gen",
         "3d generation", "Wan2.1", "wan2", "Wan-T2V", "Wan-I2V",
+        "vnccs", "VNCCS", "action director", "ActionDirector",
+        "pose", "camera angle", "3d viewport", "3dview",
+        "depth map from 3d", "controlnet 3d",
+    ],
+    "3d_partner_nodes": [
+        "mesh generation", "3d model", "generate 3d", "best 3d",
+        "hunyuan3d", "meshy", "tripo", "rodin", "trellis",
+        "partner node", "partner", "which 3d", "compare 3d",
+        "splat to mesh", "gaussian to mesh", "convert splat",
+        "export 3d", "NeRF to mesh", "get GLB", "marching cubes",
     ],
     "audio_workflows": [
         "tts", "TTS", "text to speech", "audio", "voice",

@@ -427,6 +427,258 @@ class TestValidateWorkflow:
 
 
 # ---------------------------------------------------------------------------
+# 3D workflow tests (Graft A: 3D data type support)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def hunyuan3d_workflow(tmp_path):
+    """Minimal Hunyuan3D workflow: loader -> conditioner -> sampler -> mesh decoder -> save."""
+    data = {
+        "1": {
+            "class_type": "LoadImage",
+            "inputs": {
+                "image": "input.png",
+            },
+        },
+        "2": {
+            "class_type": "Hunyuan3DLoader",
+            "inputs": {
+                "model_name": "hunyuan3d-v2.safetensors",
+            },
+        },
+        "3": {
+            "class_type": "Hunyuan3DConditioner",
+            "inputs": {
+                "image": ["1", 0],
+                "model": ["2", 0],
+            },
+        },
+        "4": {
+            "class_type": "Hunyuan3DSampler",
+            "inputs": {
+                "conditioning": ["3", 0],
+                "model": ["2", 0],
+                "steps": 50,
+                "guidance_scale": 7.5,
+            },
+        },
+        "5": {
+            "class_type": "Hunyuan3DMeshDecoder",
+            "inputs": {
+                "triplane": ["4", 0],
+                "resolution": 512,
+            },
+        },
+        "6": {
+            "class_type": "SaveGLB",
+            "inputs": {
+                "mesh": ["5", 0],
+                "filename_prefix": "output_3d",
+            },
+        },
+    }
+    path = tmp_path / "hunyuan3d_workflow.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def splat_to_mesh_workflow(tmp_path):
+    """Gaussian splat to mesh conversion workflow."""
+    data = {
+        "1": {
+            "class_type": "Load3DGaussian",
+            "inputs": {
+                "file_path": "scene.ply",
+            },
+        },
+        "2": {
+            "class_type": "GaussianToMesh",
+            "inputs": {
+                "point_cloud": ["1", 0],
+                "marching_cubes_resolution": 256,
+            },
+        },
+        "3": {
+            "class_type": "SaveGLB",
+            "inputs": {
+                "mesh": ["2", 0],
+                "filename_prefix": "converted_mesh",
+            },
+        },
+    }
+    path = tmp_path / "splat_to_mesh.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+class TestHunyuan3DWorkflow:
+    def test_parse_3d_workflow(self, hunyuan3d_workflow):
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(hunyuan3d_workflow)})
+        )
+        assert result["format"] == "api"
+        assert result["node_count"] == 6
+        assert result["connection_count"] == 6  # image, 2x model, conditioning, triplane, mesh
+
+    def test_3d_nodes_categorized(self, hunyuan3d_workflow):
+        """Summary should categorize 3D nodes under '3D Processing'."""
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(hunyuan3d_workflow)})
+        )
+        summary = result["summary"]
+        assert "3D Processing" in summary
+        assert "Hunyuan3DMeshDecoder" in summary
+        assert "Hunyuan3DSampler" in summary
+
+    def test_3d_connections_traced(self, hunyuan3d_workflow):
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(hunyuan3d_workflow)})
+        )
+        conns = result["connections"]
+        edges = {
+            (c["to_class"], c["to_input"]): c["from_class"]
+            for c in conns
+        }
+        assert edges[("Hunyuan3DMeshDecoder", "triplane")] == "Hunyuan3DSampler"
+        assert edges[("SaveGLB", "mesh")] == "Hunyuan3DMeshDecoder"
+
+    def test_3d_editable_fields(self, hunyuan3d_workflow):
+        result = json.loads(
+            workflow_parse.handle("get_editable_fields", {"path": str(hunyuan3d_workflow)})
+        )
+        fields = result["editable_fields"] if "editable_fields" in result else []
+        by_class = result.get("fields_by_class", {})
+        assert "Hunyuan3DSampler" in by_class
+        sampler_fields = by_class["Hunyuan3DSampler"]
+        field_names = [f["field"] for f in sampler_fields]
+        assert "steps" in field_names
+        assert "guidance_scale" in field_names
+
+
+class TestSplatToMeshWorkflow:
+    def test_parse_splat_conversion(self, splat_to_mesh_workflow):
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(splat_to_mesh_workflow)})
+        )
+        assert result["format"] == "api"
+        assert result["node_count"] == 3
+
+    def test_splat_nodes_categorized(self, splat_to_mesh_workflow):
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(splat_to_mesh_workflow)})
+        )
+        summary = result["summary"]
+        # Both gaussian and mesh nodes should be in 3D Processing
+        assert "3D Processing" in summary
+
+    def test_splat_conversion_chain(self, splat_to_mesh_workflow):
+        result = json.loads(
+            workflow_parse.handle("load_workflow", {"path": str(splat_to_mesh_workflow)})
+        )
+        conns = result["connections"]
+        edges = {
+            (c["to_class"], c["to_input"]): c["from_class"]
+            for c in conns
+        }
+        assert edges[("GaussianToMesh", "point_cloud")] == "Load3DGaussian"
+        assert edges[("SaveGLB", "mesh")] == "GaussianToMesh"
+
+
+class TestValidation3DWorkflow:
+    def test_validation_with_3d_types(self, hunyuan3d_workflow):
+        """Mock validation with 3D node types and MESH/TRIPLANE types."""
+        mock_object_info = {
+            "LoadImage": {
+                "input": {"required": {"image": ["STRING"]}},
+                "output": ["IMAGE", "MASK"],
+            },
+            "Hunyuan3DLoader": {
+                "input": {"required": {"model_name": [["hunyuan3d-v2.safetensors"]]}},
+                "output": ["MODEL"],
+            },
+            "Hunyuan3DConditioner": {
+                "input": {"required": {"image": ["IMAGE"], "model": ["MODEL"]}},
+                "output": ["CONDITIONING"],
+            },
+            "Hunyuan3DSampler": {
+                "input": {"required": {
+                    "conditioning": ["CONDITIONING"],
+                    "model": ["MODEL"],
+                    "steps": ["INT"],
+                    "guidance_scale": ["FLOAT"],
+                }},
+                "output": ["TRIPLANE"],
+            },
+            "Hunyuan3DMeshDecoder": {
+                "input": {"required": {"triplane": ["TRIPLANE"], "resolution": ["INT"]}},
+                "output": ["MESH"],
+            },
+            "SaveGLB": {
+                "input": {"required": {"mesh": ["MESH"], "filename_prefix": ["STRING"]}},
+                "output": [],
+            },
+        }
+
+        mock_resp = type("MockResp", (), {
+            "json": lambda self: mock_object_info,
+            "raise_for_status": lambda self: None,
+        })()
+
+        with patch("agent.tools.workflow_parse.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.get.return_value = mock_resp
+
+            result = json.loads(
+                workflow_parse.handle("validate_workflow", {"path": str(hunyuan3d_workflow)})
+            )
+            assert result["valid"] is True
+            assert len(result["errors"]) == 0
+
+    def test_validation_detects_3d_type_mismatch(self, tmp_path):
+        """IMAGE -> MESH input should be a type mismatch."""
+        data = {
+            "1": {
+                "class_type": "LoadImage",
+                "inputs": {"image": "input.png"},
+            },
+            "2": {
+                "class_type": "SaveGLB",
+                "inputs": {
+                    "mesh": ["1", 0],  # IMAGE -> MESH (mismatch)
+                    "filename_prefix": "out",
+                },
+            },
+        }
+        wf = tmp_path / "mismatch_3d.json"
+        wf.write_text(json.dumps(data), encoding="utf-8")
+
+        mock_object_info = {
+            "LoadImage": {
+                "input": {"required": {"image": ["STRING"]}},
+                "output": ["IMAGE", "MASK"],
+            },
+            "SaveGLB": {
+                "input": {"required": {"mesh": ["MESH"], "filename_prefix": ["STRING"]}},
+                "output": [],
+            },
+        }
+
+        mock_resp = type("MockResp", (), {
+            "json": lambda self: mock_object_info,
+            "raise_for_status": lambda self: None,
+        })()
+
+        with patch("agent.tools.workflow_parse.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.get.return_value = mock_resp
+
+            result = json.loads(
+                workflow_parse.handle("validate_workflow", {"path": str(wf)})
+            )
+            assert result["valid"] is False
+            assert any("Type mismatch" in e for e in result["errors"])
+
+
+# ---------------------------------------------------------------------------
 # Tool registry integration
 # ---------------------------------------------------------------------------
 

@@ -892,3 +892,68 @@ class TestDiscover:
         # Extra keys are included in the result
         assert "alpha" in r
         assert "zebra" in r
+
+
+# ---------------------------------------------------------------------------
+# Partner Node tier detection (Graft B)
+# ---------------------------------------------------------------------------
+
+class TestPartnerNodes:
+    def test_partner_tier_by_url(self):
+        """Partner nodes detected by URL match."""
+        tier = comfy_discover._get_source_tier(
+            "Hunyuan3D", "https://github.com/Tencent/Hunyuan3D-2",
+        )
+        assert tier == "partner"
+
+    def test_partner_tier_by_keyword(self):
+        """Partner nodes detected by keyword in title."""
+        assert comfy_discover._get_source_tier("Meshy Nodes", "") == "partner"
+        assert comfy_discover._get_source_tier("Tripo 3D Pack", "") == "partner"
+        assert comfy_discover._get_source_tier("Rodin Generator", "") == "partner"
+
+    def test_core_tier(self):
+        """Core nodes from comfyanonymous."""
+        tier = comfy_discover._get_source_tier(
+            "ComfyUI", "https://github.com/comfyanonymous/ComfyUI",
+        )
+        assert tier == "core"
+
+    def test_community_tier(self):
+        """Default tier for unrecognized packs."""
+        tier = comfy_discover._get_source_tier(
+            "ComfyUI_IPAdapter_plus",
+            "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+        )
+        assert tier == "community"
+
+    def test_source_tier_in_discover_results(self, mock_registries):
+        """Discover results include source_tier field."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "IPAdapter",
+            "category": "nodes",
+            "sources": ["registry"],
+        }))
+        assert result["total"] > 0
+        for r in result["results"]:
+            assert "source_tier" in r
+            assert r["source_tier"] in ("core", "partner", "community")
+
+    def test_partner_ranked_above_community(self):
+        """Partner nodes should rank above community at same relevance."""
+        results = [
+            {"name": "Community Pack", "installed": False,
+             "relevance_score": 0.9, "source_tier": "community"},
+            {"name": "Partner Pack", "installed": False,
+             "relevance_score": 0.9, "source_tier": "partner"},
+        ]
+        ranked = comfy_discover._rank_results(results)
+        assert ranked[0]["name"] == "Partner Pack"
+        assert ranked[1]["name"] == "Community Pack"
+
+    def test_partner_registry_completeness(self):
+        """All expected partners are in the registry."""
+        assert "Hunyuan3D" in comfy_discover.PARTNER_NODES
+        assert "Meshy" in comfy_discover.PARTNER_NODES
+        assert "Tripo" in comfy_discover.PARTNER_NODES
+        assert "Rodin" in comfy_discover.PARTNER_NODES

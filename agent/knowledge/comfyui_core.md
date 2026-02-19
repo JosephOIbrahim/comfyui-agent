@@ -21,7 +21,16 @@ Strict types for node connections:
 - STRING, INT, FLOAT, BOOLEAN — primitives
 - COMBO — dropdown selection (defined in INPUT_TYPES)
 
+3D types (used by Hunyuan3D, ComfyUI-3D-Pack, VNCCS, etc.):
+- MESH — 3D mesh geometry (vertices, faces, UVs; exportable as GLB/OBJ)
+- VOXEL — 3D volume (used for volumetric effects and splat-to-mesh conversion)
+- POINT_CLOUD — 3D point cloud (from Gaussian Splatting or NeRF reconstruction)
+- TRIPLANE — triplane feature tensor (intermediate 3D representation)
+- CAMERA — camera position and rotation data (used by 3D control/viewport nodes)
+- POSE — body or hand pose skeleton (used by VNCCS, OpenPose, ControlNet)
+
 Types must match on connections. IMAGE cannot connect to LATENT input.
+3D types follow the same strict matching — MESH cannot connect to IMAGE input.
 
 ## Node Registration
 
@@ -67,6 +76,7 @@ models/controlnet/ — ControlNet models
 models/clip/ — standalone CLIP models
 models/upscale_models/ — upscaler models
 models/embeddings/ — textual inversions
+models/3d/ — 3D generation models (Hunyuan3D, Meshy, Trellis, etc.)
 
 ## Key Patterns
 

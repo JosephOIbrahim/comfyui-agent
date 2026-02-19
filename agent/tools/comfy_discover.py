@@ -20,6 +20,66 @@ from ..rate_limiter import HUGGINGFACE_LIMITER
 from ._util import to_json
 
 # ---------------------------------------------------------------------------
+# Partner Node registry — officially supported by Comfy-Org + provider
+# Update quarterly or when new partnerships are announced.
+# ---------------------------------------------------------------------------
+
+PARTNER_NODES: dict[str, dict] = {
+    "Hunyuan3D": {
+        "provider": "Tencent",
+        "capabilities": "text/image/sketch to production 3D mesh",
+        "best_for": "final production assets, high-quality 3D generation",
+        "url": "https://github.com/Tencent/Hunyuan3D-2",
+        "keywords": ["hunyuan3d", "hunyuan 3d", "tencent"],
+    },
+    "Meshy": {
+        "provider": "Meshy",
+        "capabilities": "AI mesh generation (stylized assets)",
+        "best_for": "game-ready stylized assets, fast stylized generation",
+        "url": "https://github.com/meshyai/comfyui-meshy",
+        "keywords": ["meshy"],
+    },
+    "Tripo": {
+        "provider": "Tripo",
+        "capabilities": "fast 3D prototyping and iteration",
+        "best_for": "rapid prototyping, quick iterations",
+        "url": "https://github.com/VAST-AI-Research/ComfyUI-Tripo",
+        "keywords": ["tripo", "vast-ai"],
+    },
+    "Rodin": {
+        "provider": "Deemos",
+        "capabilities": "high-quality 3D generation with geometric detail",
+        "best_for": "realistic/detailed models, high geometric fidelity",
+        "url": "https://github.com/Deemos-Technology/ComfyUI-Rodin",
+        "keywords": ["rodin", "deemos"],
+    },
+}
+
+# Core node packs that ship with ComfyUI or are maintained by Comfy-Org
+_CORE_URLS = frozenset([
+    "https://github.com/comfyanonymous/ComfyUI",
+])
+
+
+def _get_source_tier(title: str, url: str) -> str:
+    """Determine source tier: 'core', 'partner', or 'community'."""
+    url_lower = (url or "").lower()
+    title_lower = (title or "").lower()
+
+    # Check core
+    if url_lower in _CORE_URLS or "comfyanonymous" in url_lower:
+        return "core"
+
+    # Check partner nodes
+    for partner_info in PARTNER_NODES.values():
+        if partner_info["url"].lower() == url_lower:
+            return "partner"
+        if any(kw in title_lower for kw in partner_info["keywords"]):
+            return "partner"
+
+    return "community"
+
+# ---------------------------------------------------------------------------
 # Tool schemas
 # ---------------------------------------------------------------------------
 
@@ -313,6 +373,7 @@ def _normalize_result(
         "name": name,
         "relevance_score": round(relevance_score, 3),
         "source": source,
+        "source_tier": _get_source_tier(name, url),
         "type": result_type,
         "url": url,
     }
@@ -503,14 +564,18 @@ def _deduplicate(results: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
+_TIER_RANK = {"core": 0, "partner": 1, "community": 2}
+
+
 def _rank_results(results: list[dict]) -> list[dict]:
-    """Rank: installed first, then relevance score, then name (He2025 tiebreaker)."""
+    """Rank: installed first, tier (core>partner>community), relevance, name."""
     return sorted(
         results,
         key=lambda r: (
-            not r.get("installed", False),   # installed first (False < True, so negate)
-            -r.get("relevance_score", 0),     # higher score first
-            r.get("name", ""),                # alphabetical tiebreaker
+            not r.get("installed", False),            # installed first
+            _TIER_RANK.get(r.get("source_tier", "community"), 2),  # tier rank
+            -r.get("relevance_score", 0),              # higher score first
+            r.get("name", ""),                         # alphabetical tiebreaker
         ),
     )
 

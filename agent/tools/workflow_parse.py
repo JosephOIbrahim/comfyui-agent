@@ -226,6 +226,7 @@ def _build_summary(nodes: dict, connections: list[dict], fmt: str) -> str:
     loaders = []
     encoders = []
     samplers = []
+    threed = []
     outputs = []
     other = []
 
@@ -237,6 +238,12 @@ def _build_summary(nodes: dict, connections: list[dict], fmt: str) -> str:
             encoders.append(ct)
         elif any(k in ct_lower for k in ("sample", "sampler", "ksampler", "denoise")):
             samplers.append(ct)
+        elif any(k in ct_lower for k in (
+            "mesh", "voxel", "3d", "triplane", "gaussian", "splat",
+            "point_cloud", "glb", "ply", "obj", "nerf",
+            "pose", "camera", "hunyuan3d",
+        )):
+            threed.append(ct)
         elif any(k in ct_lower for k in ("save", "preview", "output", "combine", "video")):
             outputs.append(ct)
         else:
@@ -248,6 +255,8 @@ def _build_summary(nodes: dict, connections: list[dict], fmt: str) -> str:
         lines.append(f"Encoding: {', '.join(encoders)}")
     if samplers:
         lines.append(f"Sampling: {', '.join(samplers)}")
+    if threed:
+        lines.append(f"3D Processing: {', '.join(threed)}")
     if outputs:
         lines.append(f"Output: {', '.join(outputs)}")
     if other:
