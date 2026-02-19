@@ -322,6 +322,7 @@ def run_agent_turn(
     *,
     on_text_delta: callable = None,
     on_tool_call: callable = None,
+    on_tool_result: callable = None,
     on_thinking_delta: callable = None,
     on_stream_end: callable = None,
 ) -> tuple[list[dict], bool]:
@@ -388,13 +389,15 @@ def run_agent_turn(
                 tool_id, result = future.result()
                 results_map[tool_id] = result
 
-        # Preserve original order
+        # Preserve original order, notify on results
         for tc in tool_calls:
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tc.id,
                 "content": results_map[tc.id],
             })
+            if on_tool_result:
+                on_tool_result(tc.name, tc.input, results_map[tc.id])
     elif len(tool_calls) == 1:
         # Single tool call — run directly (no thread overhead)
         tc = tool_calls[0]
@@ -408,6 +411,8 @@ def run_agent_turn(
             "tool_use_id": tc.id,
             "content": result,
         })
+        if on_tool_result:
+            on_tool_result(tc.name, tc.input, result)
 
     # Append assistant message
     messages.append({"role": "assistant", "content": assistant_content})

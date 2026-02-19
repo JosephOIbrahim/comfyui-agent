@@ -158,6 +158,344 @@ def _inject_workflow(conv: ConversationState, workflow_data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Panel builders (tool result -> structured panel data for frontend)
+# ---------------------------------------------------------------------------
+
+# Ordered slot classification rules (checked first to last; first match wins).
+# More specific patterns before generic ones to avoid false matches.
+_SLOT_RULES = [
+    ("controlnet", ["controlnet", "control_net", "preprocessor", "canny", "openpose"]),
+    ("vae",        ["vae"]),
+    ("clip",       ["clip", "textencode", "t5"]),
+    ("latent",     ["latent", "emptylatent"]),
+    ("sampler",    ["sampler", "ksampler"]),
+    ("conditioning", ["conditioning", "prompt"]),
+    ("sigmas",     ["sigmas", "scheduler"]),
+    ("guider",     ["guider"]),
+    ("noise",      ["randomnoise"]),
+    ("mask",       ["mask"]),
+    ("image",      ["image", "preview", "save", "video", "combine"]),
+    ("model",      ["checkpoint", "model", "unet", "lora", "loader"]),
+]
+
+
+def _classify_slot(class_type: str) -> str:
+    """Keyword-based class_type -> slot type string."""
+    ct_lower = class_type.lower()
+    for slot_type, keywords in _SLOT_RULES:
+        for kw in keywords:
+            if kw in ct_lower:
+                return slot_type
+    return "model"  # fallback
+
+
+def _extract_flow_chain(nodes: dict, max_nodes: int = 8) -> list[dict]:
+    """BFS from root nodes to build a signal flow chain.
+
+    Args:
+        nodes: API format {node_id: {class_type, inputs}}
+        max_nodes: Maximum nodes in chain
+
+    Returns:
+        List of {label, slotType} dicts
+    """
+    if not nodes:
+        return []
+
+    # Find nodes that receive input from other nodes (have upstream connections)
+    has_upstream = set()
+    for nid, ndata in nodes.items():
+        for val in (ndata.get("inputs") or {}).values():
+            if isinstance(val, list) and len(val) == 2:
+                # This node (nid) receives input from val[0]
+                has_upstream.add(nid)
+
+    # Roots: nodes with no upstream connections (source nodes)
+    all_ids = set(nodes.keys())
+    roots = all_ids - has_upstream
+    if not roots:
+        roots = {sorted(all_ids)[0]} if all_ids else set()
+
+    # BFS from roots
+    visited = []
+    queue_bfs = list(sorted(roots))
+    seen = set()
+
+    while queue_bfs and len(visited) < max_nodes:
+        nid = queue_bfs.pop(0)
+        if nid in seen:
+            continue
+        seen.add(nid)
+
+        ndata = nodes.get(nid)
+        if not ndata:
+            continue
+
+        ct = ndata.get("class_type", "?")
+        visited.append({"label": ct, "slotType": _classify_slot(ct)})
+
+        # Find downstream nodes (nodes that reference this nid)
+        for other_id, other_data in nodes.items():
+            if other_id in seen:
+                continue
+            for val in (other_data.get("inputs") or {}).values():
+                if isinstance(val, list) and len(val) == 2 and str(val[0]) == nid:
+                    queue_bfs.append(other_id)
+                    break
+
+    return visited
+
+
+# Slot type -> hex color for panel dot colors
+_SLOT_HEX = {
+    "clip": "#FFD500", "clip_vision": "#A8DADC", "conditioning": "#FFA931",
+    "controlnet": "#6EE7B7", "image": "#64B5F6", "latent": "#FF9CF9",
+    "mask": "#81C784", "model": "#B39DDB", "style_model": "#C2FFAE",
+    "vae": "#FF6E6E", "noise": "#B0B0B0", "guider": "#66FFFF",
+    "sampler": "#ECB4B4", "sigmas": "#CDFFCD",
+}
+
+
+def _panel_workflow_analysis(result: dict) -> dict | None:
+    """Build panel data from load_workflow / validate_workflow result."""
+    # Extract nodes from result
+    nodes = result.get("nodes") or result.get("workflow") or {}
+    if isinstance(nodes, str):
+        return None
+
+    # If result has API-format workflow data embedded
+    if not nodes and "node_count" in result:
+        # Minimal header-only panel
+        return {
+            "type": "workflow_analysis",
+            "header": {
+                "label": "workflow \u00b7 analysis",
+                "badge": result.get("format", "workflow"),
+                "title": result.get("loaded_path", "Workflow loaded").split("/")[-1].split("\\")[-1],
+                "summary": f"{result.get('node_count', '?')} nodes, "
+                           f"{result.get('connection_count', '?')} connections. "
+                           f"Format: {result.get('format', 'unknown')}.",
+                "stats": [
+                    {"value": str(result.get("node_count", "?")), "label": "nodes"},
+                    {"value": str(result.get("connection_count", "?")), "label": "connections"},
+                ],
+            },
+            "sections": [],
+            "footer": {"status": "loaded", "actions": [
+                {"label": "Modify", "variant": "secondary"},
+                {"label": "Run", "variant": "primary"},
+            ]},
+        }
+
+    # Full analysis with node classification
+    # Group nodes by slot type
+    groups = {}
+    for nid, ndata in nodes.items():
+        ct = ndata.get("class_type", "?")
+        slot = _classify_slot(ct)
+        groups.setdefault(slot, []).append({"label": ct, "slotType": slot})
+
+    # Count connections
+    conn_count = 0
+    for ndata in nodes.values():
+        for val in (ndata.get("inputs") or {}).values():
+            if isinstance(val, list) and len(val) == 2:
+                conn_count += 1
+
+    # Build flow chain
+    flow = _extract_flow_chain(nodes)
+
+    # Determine workflow type from nodes
+    class_types = {n.get("class_type", "").lower() for n in nodes.values()}
+    wf_type = "workflow"
+    if any("video" in c or "animatediff" in c or "svd" in c for c in class_types):
+        wf_type = "video gen"
+    elif any("controlnet" in c for c in class_types):
+        wf_type = "controlnet"
+    elif any("img2img" in c or "inpaint" in c for c in class_types):
+        wf_type = "img2img"
+    else:
+        wf_type = "txt2img"
+
+    sections = []
+
+    # Signal Flow section (open by default)
+    if flow:
+        sections.append({
+            "title": "Signal Flow",
+            "dotColor": "#00BB81",
+            "count": len(flow),
+            "defaultOpen": True,
+            "type": "flow_chain",
+            "data": {"chains": [{"nodes": flow}]},
+        })
+
+    # Node group sections (collapsed)
+    # Priority order for display
+    group_order = ["model", "clip", "conditioning", "sampler", "vae",
+                   "controlnet", "image", "latent", "mask", "noise",
+                   "guider", "sigmas"]
+    group_labels = {
+        "model": "Models & Loaders", "clip": "Text Encoding",
+        "conditioning": "Conditioning", "sampler": "Sampling",
+        "vae": "VAE", "controlnet": "ControlNet", "image": "Image I/O",
+        "latent": "Latent Space", "mask": "Masks", "noise": "Noise",
+        "guider": "Guidance", "sigmas": "Noise Schedule",
+    }
+
+    for slot in group_order:
+        if slot not in groups:
+            continue
+        tags = groups[slot]
+        # Deduplicate tags
+        seen = {}
+        deduped = []
+        for t in tags:
+            key = t["label"]
+            if key in seen:
+                seen[key] += 1
+            else:
+                seen[key] = 1
+                deduped.append(t)
+        # Add counts to labels
+        final_tags = []
+        for t in deduped:
+            label = t["label"]
+            count = seen[label]
+            if count > 1:
+                label = f"{label} \u00d7{count}"
+            final_tags.append({"label": label, "slotType": t["slotType"]})
+
+        sections.append({
+            "title": group_labels.get(slot, slot.title()),
+            "dotColor": _SLOT_HEX.get(slot, "#9a9caa"),
+            "count": len(tags),
+            "defaultOpen": False,
+            "type": "slot_tags",
+            "data": {"tags": final_tags},
+        })
+
+    return {
+        "type": "workflow_analysis",
+        "header": {
+            "label": "workflow \u00b7 analysis",
+            "badge": wf_type,
+            "title": "Workflow Analysis",
+            "summary": f"{len(nodes)} nodes, {conn_count} connections.",
+            "stats": [
+                {"value": str(len(nodes)), "label": "nodes"},
+                {"value": str(conn_count), "label": "connections"},
+                {"value": wf_type, "label": "type"},
+            ],
+        },
+        "sections": sections,
+        "footer": {"status": "loaded", "actions": [
+            {"label": "Modify", "variant": "secondary"},
+            {"label": "Run", "variant": "primary"},
+        ]},
+    }
+
+
+def _panel_discovery(result: dict, tool_input: dict) -> dict | None:
+    """Build panel data from discover tool results."""
+    results_list = result.get("results", [])
+    if not results_list:
+        return None
+
+    query = tool_input.get("query", "search")
+    category = tool_input.get("category", "all")
+
+    sections = []
+    max_results = 5
+    for item in results_list[:max_results]:
+        name = item.get("name", item.get("title", "Unknown"))
+        desc = item.get("description", "")[:120]
+        source = item.get("source", "")
+        installed = item.get("installed", False)
+
+        tags = []
+        if item.get("model_type") or item.get("type"):
+            t = item.get("model_type") or item.get("type")
+            slot = _classify_slot(str(t))
+            tags.append({"label": str(t), "slotType": slot})
+        if installed:
+            tags.append({"label": "installed", "slotType": "controlnet"})
+
+        rows = []
+        if source:
+            rows.append({"label": "Source", "value": source})
+        if item.get("downloads"):
+            rows.append({"label": "Downloads", "value": str(item["downloads"])})
+        if item.get("rating"):
+            rows.append({"label": "Rating", "value": str(item["rating"])})
+
+        section_data = {}
+        section_type = "detail_rows"
+        if tags:
+            section_type = "slot_tags"
+            section_data["tags"] = tags
+        if rows:
+            section_type = "detail_rows"
+            section_data["rows"] = rows
+
+        sections.append({
+            "title": name,
+            "dotColor": "#00BB81",
+            "count": None,
+            "defaultOpen": len(sections) == 0,  # first result open
+            "type": section_type,
+            "data": section_data,
+        })
+
+    return {
+        "type": "discovery",
+        "header": {
+            "label": f"discovery \u00b7 {category}",
+            "badge": str(len(results_list)),
+            "title": f'Results for "{query}"',
+            "summary": f"Found {len(results_list)} result{'s' if len(results_list) != 1 else ''}. "
+                       f"Top result: {results_list[0].get('name', '?')}.",
+            "stats": [
+                {"value": str(len(results_list)), "label": "found"},
+            ],
+        },
+        "sections": sections,
+        "footer": {
+            "status": "ready",
+            "actions": [{"label": "Details", "variant": "secondary"}],
+        },
+    }
+
+
+# Tools that produce panelable results
+_PANEL_TOOLS = {
+    "load_workflow", "validate_workflow",
+    "discover",
+}
+
+
+def _build_panel_for_tool(name: str, tool_input: dict, result_json: str) -> dict | None:
+    """Dispatch tool result to appropriate panel builder. Returns panel dict or None."""
+    if name not in _PANEL_TOOLS:
+        return None
+
+    try:
+        result = json.loads(result_json) if isinstance(result_json, str) else result_json
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    if isinstance(result, dict) and result.get("error"):
+        return None
+
+    if name in ("load_workflow", "validate_workflow"):
+        return _panel_workflow_analysis(result)
+    elif name == "discover":
+        return _panel_discovery(result, tool_input)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Synchronous agent runner (called from thread)
 # ---------------------------------------------------------------------------
 
@@ -188,12 +526,18 @@ def _run_agent_sync(conv: ConversationState, user_text: str, msg_queue: queue.Qu
                     "stage": stage,
                 })
 
+            def on_result(name, inp, result_json):
+                panel = _build_panel_for_tool(name, inp, result_json)
+                if panel:
+                    msg_queue.put({"type": "panel", "panel": panel})
+
             conv.messages, done = run_agent_turn(
                 _client,
                 conv.messages,
                 conv.system_prompt,
                 on_text_delta=on_text,
                 on_tool_call=on_tool,
+                on_tool_result=on_result,
             )
 
             if done:
@@ -390,6 +734,12 @@ async def _forward_event(ws, event, accumulated_text):
             "type": "stage",
             "stage": event.get("stage", "THINKING"),
             "detail": f"Using {event['tool']}...",
+        })
+
+    elif etype == "panel":
+        await ws.send_json({
+            "type": "panel",
+            "panel": event["panel"],
         })
 
     elif etype == "error":

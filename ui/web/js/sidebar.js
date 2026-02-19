@@ -1,4 +1,5 @@
 import { app } from "../../../scripts/app.js";
+import { renderText, createTypingIndicator, createPanel } from "./chat.js";
 
 /* ── SUPER DUPER Sidebar ─────────────────────────────────────────────
  *  Registers a sidebar tab in ComfyUI's extension manager.
@@ -28,11 +29,19 @@ function createMessageEl(role, text) {
     msg.appendChild(label);
   }
 
-  const body = document.createElement("span");
+  const body = document.createElement("div");
   body.className = "sd-message__body";
-  body.textContent = text;
-  msg.appendChild(body);
 
+  if (role === "agent") {
+    // Rich text rendering for agent messages
+    body.classList.add("sd-text-body");
+    body.appendChild(renderText(text));
+  } else {
+    // Plain text for user and system messages
+    body.textContent = text;
+  }
+
+  msg.appendChild(body);
   return msg;
 }
 
@@ -47,7 +56,6 @@ class AgentConnection {
     this.maxReconnectDelay = 15000;
     this.currentDelay = this.reconnectDelay;
     this._closed = false;
-    this._streamEl = null;        // element accumulating streamed text
   }
 
   connect() {
@@ -104,7 +112,6 @@ function buildSidebar(el) {
   el.style.height = "100%";
   el.style.display = "flex";
   el.style.flexDirection = "column";
-  el.style.fontFamily = "system-ui, -apple-system, sans-serif";
 
   el.innerHTML = `
     <div class="sd-header">
@@ -141,7 +148,9 @@ function buildSidebar(el) {
   const stageDetail = el.querySelector("#sd-stage-detail");
 
   let busy = false;
-  let streamingEl = null; // element receiving streamed text deltas
+  let streamingEl = null;     // element receiving streamed text deltas
+  let streamAccum = "";       // accumulated text during streaming
+  let typingIndicator = null; // typing dots shown during stream
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -172,32 +181,85 @@ function buildSidebar(el) {
         break;
 
       case "text_delta":
-        // Streaming: append text to current agent message
+        // Streaming: show typing indicator, accumulate text
         if (!streamingEl) {
-          streamingEl = createMessageEl("agent", "");
+          streamingEl = document.createElement("div");
+          streamingEl.className = "sd-message sd-message--agent";
+
+          const label = document.createElement("span");
+          label.className = "sd-message__label";
+          label.textContent = "Agent";
+          streamingEl.appendChild(label);
+
+          const body = document.createElement("div");
+          body.className = "sd-message__body sd-text-body";
+          streamingEl.appendChild(body);
+
           messagesEl.appendChild(streamingEl);
+          streamAccum = "";
         }
-        const body = streamingEl.querySelector(".sd-message__body");
-        body.textContent += data.text;
+
+        streamAccum += data.text;
+
+        // Show typing indicator during streaming
+        const streamBody = streamingEl.querySelector(".sd-message__body");
+        if (!typingIndicator) {
+          typingIndicator = createTypingIndicator();
+          streamBody.appendChild(typingIndicator);
+        }
+
         scrollToBottom();
         break;
 
-      case "message":
-        // Full message — replace streaming element or create new
+      case "message": {
+        // Full message — render with rich text, replacing streaming element
+        const finalText = data.content || streamAccum;
+
         if (streamingEl) {
-          const msgBody = streamingEl.querySelector(".sd-message__body");
-          msgBody.textContent = data.content;
+          // Replace streaming content with final rendered text
+          const body = streamingEl.querySelector(".sd-message__body");
+          body.textContent = ""; // clear typing indicator
+          body.classList.add("sd-text-body");
+          body.appendChild(renderText(finalText));
           streamingEl = null;
+          streamAccum = "";
+          typingIndicator = null;
         } else {
-          messagesEl.appendChild(createMessageEl("agent", data.content));
+          messagesEl.appendChild(createMessageEl("agent", finalText));
         }
         scrollToBottom();
         break;
+      }
+
+      case "panel": {
+        // Structured panel from tool result
+        const panelEl = createPanel(data.panel);
+        if (panelEl) {
+          // Wrap in a message container for consistent spacing
+          const wrapper = document.createElement("div");
+          wrapper.className = "sd-message sd-message--agent";
+          wrapper.style.padding = "0";
+          wrapper.style.background = "none";
+          wrapper.appendChild(panelEl);
+          messagesEl.appendChild(wrapper);
+          scrollToBottom();
+        }
+        break;
+      }
 
       case "stage":
         setStage(data.stage, data.detail);
         if (data.stage === "DONE") {
+          // Clean up streaming state
+          if (streamingEl && streamAccum) {
+            const body = streamingEl.querySelector(".sd-message__body");
+            body.textContent = "";
+            body.classList.add("sd-text-body");
+            body.appendChild(renderText(streamAccum));
+          }
           streamingEl = null;
+          streamAccum = "";
+          typingIndicator = null;
           setBusy(false);
         }
         break;
@@ -206,6 +268,8 @@ function buildSidebar(el) {
         setStage(null);
         messagesEl.appendChild(createMessageEl("system", data.message));
         streamingEl = null;
+        streamAccum = "";
+        typingIndicator = null;
         setBusy(false);
         scrollToBottom();
         break;
