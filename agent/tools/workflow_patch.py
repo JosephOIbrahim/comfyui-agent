@@ -617,6 +617,35 @@ def handle(name: str, tool_input: dict) -> str:
             return to_json({"error": str(e)})
 
 
+def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None:
+    """Load a workflow from raw dict data (no filesystem I/O).
+
+    Called by the sidebar backend to inject the live ComfyUI graph.
+    Returns None on success, error string on failure.
+    """
+    from .workflow_parse import _extract_api_format
+
+    nodes, fmt = _extract_api_format(data)
+
+    if fmt == "ui_only":
+        return (
+            "UI-only workflow format -- can't patch without API data. "
+            "Re-export using 'Save (API Format)' in ComfyUI."
+        )
+
+    if not nodes:
+        return "No nodes found in workflow data."
+
+    with _state_lock:
+        _state["loaded_path"] = source
+        _state["format"] = fmt
+        _state["base_workflow"] = copy.deepcopy(nodes)
+        _state["current_workflow"] = copy.deepcopy(nodes)
+        _state["history"] = []
+
+    return None
+
+
 def get_current_workflow() -> dict | None:
     """Get the current workflow dict (used by comfy_execute)."""
     return _state["current_workflow"]

@@ -482,6 +482,35 @@ def _handle_get_editable_fields(tool_input: dict) -> str:
 # Dispatch
 # ---------------------------------------------------------------------------
 
+def summarize_workflow_data(data: dict) -> dict:
+    """Summarize a raw workflow dict without filesystem I/O.
+
+    Called by the sidebar backend to build context for the system prompt.
+    Returns a structured summary dict.
+    """
+    nodes, fmt = _extract_api_format(data)
+    connections = _trace_connections(nodes)
+    editable = _find_editable_fields(nodes)
+    summary = _build_summary(nodes, connections, fmt)
+
+    node_list = {}
+    for nid, node in sorted(nodes.items()):
+        entry = {"class_type": node.get("class_type", "")}
+        if not node.get("_ui_node"):
+            entry["input_count"] = len(node.get("inputs", {}))
+        node_list[nid] = entry
+
+    return {
+        "format": fmt,
+        "node_count": len(nodes),
+        "connection_count": len(connections),
+        "editable_field_count": len(editable),
+        "summary": summary,
+        "nodes": node_list,
+        "editable_fields": editable,
+    }
+
+
 def handle(name: str, tool_input: dict) -> str:
     """Execute a workflow_parse tool call."""
     try:
