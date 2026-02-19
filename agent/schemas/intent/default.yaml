@@ -1,0 +1,60 @@
+schema:
+  name: "IntentSpecification"
+  version: "1.0"
+  agent: "intent"
+  description: "Translates artistic intent into parameter mutations"
+
+fields:
+  model_id:
+    type: "string"
+    required: true
+    description: "Active model identifier"
+  parameter_mutations:
+    type: "list"
+    required: true
+    description: "Concrete parameter changes to apply"
+    item_schema:
+      target:
+        type: "string"
+        description: "Node.parameter path"
+      action:
+        type: "enum"
+        values: ["set", "adjust_up", "adjust_down"]
+      value:
+        type: "any"
+        description: "Concrete value for set actions"
+      magnitude:
+        type: "enum"
+        values: ["slight", "moderate", "large"]
+        required: false
+      reason:
+        type: "string"
+        description: "Why this change"
+  prompt_mutations:
+    type: "list"
+    required: true
+    description: "Changes to prompt text"
+    item_schema:
+      target:
+        type: "enum"
+        values: ["positive_prompt", "negative_prompt"]
+      action:
+        type: "enum"
+        values: ["append", "prepend", "replace", "remove"]
+      value:
+        type: "string"
+      reason:
+        type: "string"
+  confidence:
+    type: "float"
+    range: [0.0, 1.0]
+    required: true
+    description: "How confident the agent is in this translation"
+  conflicts_resolved:
+    type: "list[string]"
+    required: false
+    description: "Explanations of how competing intents were reconciled"
+  warnings:
+    type: "list[string]"
+    required: false
+    description: "Issues the user should be aware of"

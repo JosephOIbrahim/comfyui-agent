@@ -1,0 +1,50 @@
+schema:
+  name: "VerificationResult"
+  version: "1.0"
+  agent: "verify"
+  description: "Quality judgment and iteration control"
+
+fields:
+  overall_score:
+    type: "float"
+    range: [0.0, 1.0]
+    required: true
+    description: "Composite quality score"
+  intent_alignment:
+    type: "float"
+    range: [0.0, 1.0]
+    required: true
+    description: "Did we achieve what the user asked for"
+  technical_quality:
+    type: "float"
+    range: [0.0, 1.0]
+    required: true
+    description: "Model-relative quality assessment"
+  decision:
+    type: "enum"
+    values: ["accept", "refine", "reprompt", "escalate"]
+    required: true
+    description: "Iteration control decision"
+  refinement_actions:
+    type: "list"
+    required: false
+    description: "Actions for next iteration"
+    item_schema:
+      type:
+        type: "enum"
+        values: ["adjust_params", "reprompt", "inpaint", "upscale", "retry"]
+      target:
+        type: "string"
+      reason:
+        type: "string"
+      priority:
+        type: "integer"
+        required: false
+  diagnosed_issues:
+    type: "list[string]"
+    required: false
+    description: "Issues found in the output"
+  model_limitations:
+    type: "list[string]"
+    required: false
+    description: "Issues that cannot be fixed by parameter changes"

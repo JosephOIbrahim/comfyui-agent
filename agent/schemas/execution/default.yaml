@@ -1,0 +1,36 @@
+schema:
+  name: "ExecutionResult"
+  version: "1.0"
+  agent: "execution"
+  description: "Result of workflow execution"
+
+fields:
+  status:
+    type: "enum"
+    values: ["success", "error", "timeout"]
+    required: true
+    description: "Execution status"
+  patches_applied:
+    type: "list"
+    required: true
+    description: "RFC6902 patches that were applied"
+    item_schema:
+      op:
+        type: "string"
+      path:
+        type: "string"
+      value:
+        type: "any"
+        required: false
+  output_images:
+    type: "list[string]"
+    required: false
+    description: "Paths to output images"
+  execution_time:
+    type: "float"
+    required: false
+    description: "Execution duration in seconds"
+  error_message:
+    type: "string"
+    required: false
+    description: "Error details if status is error"

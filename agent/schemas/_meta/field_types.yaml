@@ -1,0 +1,32 @@
+# Canonical type definitions for agent output schemas
+types:
+  string:
+    python: "str"
+    description: "Text value"
+  integer:
+    python: "int"
+    description: "Whole number"
+  float:
+    python: "float"
+    description: "Decimal number"
+  boolean:
+    python: "bool"
+    description: "True or false"
+  object:
+    python: "dict"
+    description: "Nested structure with sub-fields"
+  list:
+    python: "list"
+    description: "Ordered collection"
+  "list[string]":
+    python: "list[str]"
+    description: "List of text values"
+  "list[integer]":
+    python: "list[int]"
+    description: "List of whole numbers"
+  enum:
+    python: "str"
+    description: "One of a fixed set of values (see 'values' field)"
+  any:
+    python: "Any"
+    description: "Any type accepted"
