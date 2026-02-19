@@ -10,7 +10,6 @@ Schema versioned (v1) for forward compatibility.
 
 import json
 import logging
-import time
 
 from ._util import to_json, validate_path
 

@@ -256,7 +256,6 @@ class VerifyAgent:
 
         # --- Boost for expected characteristics present -------------------
         expected = quality_section.get("expected_characteristics", [])
-        composition = output_analysis.get("composition", "")
         analysis_text = str(output_analysis).lower()
 
         if expected:
@@ -412,7 +411,6 @@ class VerifyAgent:
 
         # Check parameter failure modes
         if parameters_used:
-            param_section = quality_section  # failure modes live in param profiles
             param_issues = self._check_parameter_failure_modes(
                 parameters_used, get_parameter_section.__wrapped__  # type: ignore[attr-defined]
                 if hasattr(get_parameter_section, "__wrapped__")

@@ -8,14 +8,13 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 # Ensure ui package is importable
 project_root = str(Path(__file__).resolve().parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from ui.server.routes import (
+from ui.server.routes import (  # noqa: E402
     _classify_slot,
     _extract_flow_chain,
     _panel_workflow_analysis,

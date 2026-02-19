@@ -110,7 +110,7 @@ class TestDirectAPI:
 
     def test_default_patches_and_params(self, agent):
         agent.start("test")
-        result = agent.record_step(1, "initial", "gen")
+        agent.record_step(1, "initial", "gen")
         steps = agent.get_steps()
         assert steps[0]["patches"] == []
         assert steps[0]["params"] == {}

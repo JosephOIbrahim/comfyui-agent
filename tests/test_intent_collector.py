@@ -8,7 +8,6 @@ import pytest
 from agent.brain.intent_collector import (
     IntentCollectorAgent,
     TOOLS,
-    _singleton_lock,
 )
 from agent.brain._sdk import BrainConfig
 

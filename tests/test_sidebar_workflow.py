@@ -118,7 +118,7 @@ class TestStateAfterDataLoad:
         import json
         data = json.loads(result)
         assert data.get("added") is True
-        new_id = data["node_id"]
+        _new_id = data["node_id"]
 
         # set_input on existing node
         result2 = workflow_patch.handle("set_input", {

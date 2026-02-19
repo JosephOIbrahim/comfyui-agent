@@ -4,7 +4,6 @@ Covers: load_profile resolution chain, caching, fallback behaviour,
 convenience accessors, list_profiles, and YAML profile validation.
 """
 
-import copy
 import threading
 
 import pytest

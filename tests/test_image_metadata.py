@@ -6,8 +6,6 @@ import time
 import pytest
 
 from agent.tools.image_metadata import (
-    METADATA_CHUNK_KEY,
-    METADATA_SCHEMA_V1,
     TOOLS,
     _validate_metadata,
     handle,
@@ -15,8 +13,8 @@ from agent.tools.image_metadata import (
 
 # We need PIL for these tests
 PIL = pytest.importorskip("PIL")
-from PIL import Image
-from PIL.PngImagePlugin import PngInfo
+from PIL import Image  # noqa: E402
+from PIL.PngImagePlugin import PngInfo  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

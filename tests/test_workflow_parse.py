@@ -547,7 +547,7 @@ class TestHunyuan3DWorkflow:
         result = json.loads(
             workflow_parse.handle("get_editable_fields", {"path": str(hunyuan3d_workflow)})
         )
-        fields = result["editable_fields"] if "editable_fields" in result else []
+        _fields = result["editable_fields"] if "editable_fields" in result else []
         by_class = result.get("fields_by_class", {})
         assert "Hunyuan3DSampler" in by_class
         sampler_fields = by_class["Hunyuan3DSampler"]
