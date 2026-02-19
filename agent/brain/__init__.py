@@ -22,10 +22,12 @@ SDK classes (for standalone/testing use):
 
 import logging
 
-from . import vision, planner, memory, orchestrator, optimizer, demo, iterative_refine
+from . import vision, planner, memory, orchestrator, optimizer, demo, iterative_refine, intent_collector, iteration_accumulator
 from ._sdk import BrainAgent as BrainAgent, BrainConfig as BrainConfig
 from .demo import DemoAgent as DemoAgent
+from .intent_collector import IntentCollectorAgent as IntentCollectorAgent
 from .iterative_refine import IterativeRefineAgent as IterativeRefineAgent
+from .iteration_accumulator import IterationAccumulatorAgent as IterationAccumulatorAgent
 from .memory import MemoryAgent as MemoryAgent
 from .optimizer import OptimizerAgent as OptimizerAgent
 from .orchestrator import OrchestratorAgent as OrchestratorAgent
@@ -34,7 +36,7 @@ from .vision import VisionAgent as VisionAgent
 
 log = logging.getLogger(__name__)
 
-_MODULES = (vision, planner, memory, orchestrator, optimizer, demo, iterative_refine)
+_MODULES = (vision, planner, memory, orchestrator, optimizer, demo, iterative_refine, intent_collector, iteration_accumulator)
 
 # Collect all brain tool schemas
 ALL_BRAIN_TOOLS: list[dict] = []

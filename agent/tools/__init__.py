@@ -11,11 +11,11 @@ Brain tools are lazily imported to avoid circular dependencies
 
 import logging
 
-from . import comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline
+from . import comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline, image_metadata
 
 log = logging.getLogger(__name__)
 
-_MODULES = (comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline)
+_MODULES = (comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline, image_metadata)
 
 # Intelligence layer tool schemas
 _LAYER_TOOLS: list[dict] = []
