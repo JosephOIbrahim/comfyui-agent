@@ -22,12 +22,13 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-60 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+76 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
-OPTIMIZER, DEMO). Natural conversation drives workflow inspection, discovery, modification,
-execution, optimization, and learning. Built with the Anthropic SDK, httpx, and jsonpatch.
+OPTIMIZER, DEMO, INTENT, ITERATION). Natural conversation drives workflow inspection,
+discovery, modification, execution, optimization, and learning. Built with the Anthropic
+SDK, httpx, and jsonpatch.
 
-The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 65 tools
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 76 tools
 available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
 serves as a standalone fallback. Our value lives in the intelligence and brain layers above
 the transport.
@@ -44,7 +45,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (497 tests, all mocked, <35s)
+# Tests (762 tests, all mocked, <25s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -122,6 +123,9 @@ When using the ComfyUI agent tools via MCP, follow these rules:
 | **Brain: Orchestrator** | `spawn_subtask`, `check_subtasks` |
 | **Brain: Optimizer** | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
 | **Brain: Demo** | `start_demo`, `demo_checkpoint` |
+| **Brain: Intent** | `capture_intent`, `get_current_intent` |
+| **Brain: Iteration** | `start_iteration_tracking`, `record_iteration_step`, `finalize_iterations` |
+| **Image Metadata** | `write_image_metadata`, `read_image_metadata`, `reconstruct_context` |
 
 ---
 
@@ -193,25 +197,29 @@ Some tools overlap with Claude Code's native capabilities. All are kept for doma
 
 ### Four Intelligence Layers
 
-The agent's 44 intelligence + 21 brain tools are organized into four layers, each solving
+The agent's 50 intelligence + 26 brain tools are organized into four layers, each solving
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
 ┌──────────────────── SUPER DUPER AGENT v0.4.0 ─────────────────────┐
 │                                                                    │
-│  BRAIN LAYER (21 tools)                                            │
+│  BRAIN LAYER (26 tools)                                            │
 │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌───────┐ ┌───────┐ │
 │  │PLANNER │ │ VISION │ │ MEMORY │ │ ORCH  │ │OPTIM  │ │ DEMO  │ │
 │  │4 tools │ │4 tools │ │4 tools │ │2 tools│ │4 tools│ │2 tools│ │
 │  └───┬────┘ └───┬────┘ └───┬────┘ └───┬───┘ └───┬───┘ └───┬───┘ │
-│      └──────────┴──────┬───┴──────────┴─────────┴─────────┘     │
+│  ┌────────┐ ┌──────────┐ ┌──────────┐                           │
+│  │ITER_REF│ │ INTENT   │ │ITERATION │                           │
+│  │1 tool  │ │ 2 tools  │ │ 3 tools  │                           │
+│  └───┬────┘ └────┬─────┘ └────┬─────┘                           │
+│      └───────────┴────────┬───┴───────────────────────────┘     │
 │                   _protocol.py (BrainMessage)                     │
 │      ┌──────────────┬──┴───────┬──────────────┐                   │
 │                                                                    │
-│  INTELLIGENCE LAYERS (44 tools)                                    │
+│  INTELLIGENCE LAYERS (50 tools)                                    │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │ UNDERSTAND│  │ DISCOVER  │  │  PILOT   │  │   VERIFY     │    │
-│  │ 13 tools  │  │  6 tools  │  │ 13 tools │  │   7 tools    │    │
+│  │ 13 tools  │  │  6 tools  │  │ 13 tools │  │  10 tools    │    │
 │  └─────┬─────┘  └─────┬─────┘  └────┬─────┘  └──────┬───────┘    │
 │        └──────────────┴──────┬───────┴───────────────┘            │
 │                    ┌─────────▼─────────┐                          │
@@ -247,13 +255,16 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **BRAIN:ORCH** | `brain/orchestrator.py` | 2 | `spawn_subtask`, `check_subtasks` — parallel work with filtered tool access |
 | **BRAIN:OPTIM** | `brain/optimizer.py` | 4 | `profile_workflow`, `suggest_optimizations`, `check_tensorrt_status`, `apply_optimization` |
 | **BRAIN:DEMO** | `brain/demo.py` | 2 | `start_demo`, `demo_checkpoint` — guided walkthroughs for streams/podcasts |
-| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 65 tools via Model Context Protocol (primary interface) |
+| **BRAIN:INTENT** | `brain/intent_collector.py` | 2 | `capture_intent`, `get_current_intent` — artistic intent capture for metadata |
+| **BRAIN:ITERATION** | `brain/iteration_accumulator.py` | 3 | `start_iteration_tracking`, `record_iteration_step`, `finalize_iterations` — refinement journey tracking |
+| **VERIFY** | `tools/image_metadata.py` | 3 | `write_image_metadata`, `read_image_metadata`, `reconstruct_context` — PNG creative metadata embedding |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 76 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
 BUILT (v0.4.0 — working today):
-  ✅ 65 tools: 44 intelligence layer + 21 brain layer
+  ✅ 76 tools: 50 intelligence layer + 26 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
   ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
@@ -271,6 +282,9 @@ BUILT (v0.4.0 — working today):
   ✅ Brain: Orchestrator (parallel sub-tasks, tool access profiles, TTL eviction)
   ✅ Brain: Optimizer (GPU profiles, TensorRT/CUTLASS, auto-apply)
   ✅ Brain: Demo (4 guided scenarios for streams/podcasts)
+  ✅ Brain: Intent Collector (artistic intent capture for metadata embedding)
+  ✅ Brain: Iteration Accumulator (refinement journey tracking + finalization)
+  ✅ Creative Metadata Layer (PNG tEXt embedding, schema v1, reconstruct context)
   ✅ WebSocket execution monitoring (real-time progress)
   ✅ Model compatibility tracking (SD1.5/SDXL/Flux/SD3 family detection)
   ✅ Freshness tracking (registry staleness, cache management)
@@ -283,14 +297,14 @@ BUILT (v0.4.0 — working today):
   ✅ Cross-session learning (scope=global aggregates all sessions)
   ✅ BrainMessage protocol activated (vision -> memory)
   ✅ He2025 determinism (3-pass audit, 21 violations fixed, full compliance)
-  ✅ 497 tests, all mocked, <35s, 0 lint warnings
+  ✅ 762 tests, all mocked, <25s, 0 lint warnings
 
 NEXT:
-  ✅ Unified discovery tool (merge search_custom_nodes + search_models + CivitAI)
-  ✅ Agent SDK extraction (BrainConfig + BrainAgent base class, 6 standalone agent classes)
-  🔲 Rich CLI formatting (panels, tables, syntax highlighting)
-  🔲 GitHub API release tracking for key custom node repos
-  🔲 Proactive surfacing: recommend when relevant, not firehose
+  🔲 Auto-embed metadata after successful execution (wire verify_execution -> image_metadata)
+  🔲 Auto-read metadata when loading images (wire into session resume)
+  🔲 Demo scenarios run start-to-finish without errors
+  🔲 Workflow pattern classification ("This is an img2img pipeline with ControlNet")
+  🔲 Plain-English workflow summaries
 ```
 
 ---
@@ -459,6 +473,18 @@ vae_tiling, batch_size, step_optimization, sampler_efficiency.
 has narration text, suggested tools, and pacing checkpoints. Module-level state
 tracks active demo progress.
 
+### Brain: Intent Collector (`brain/intent_collector.py`)
+Captures artistic intent before execution: user's original request, agent's technical
+interpretation, style references, and session context. Thread-safe module state with
+history accumulation. Intent is consumed by `image_metadata.write_image_metadata`
+after successful execution for PNG embedding.
+
+### Brain: Iteration Accumulator (`brain/iteration_accumulator.py`)
+Tracks the refinement journey across iterations. Each step records: iteration number,
+type (initial/refinement/variation/rollback), trigger text, RFC6902 patches applied,
+parameter snapshot, user feedback, and agent observation. Finalization marks the accepted
+iteration and returns the full history ready for metadata embedding.
+
 ---
 
 ## Knowledge System
@@ -502,7 +528,7 @@ Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 65 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+All 76 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
 core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
 Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
 handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation
@@ -557,17 +583,30 @@ audit (3 passes, 21 violations fixed). 497 tests. 60 tools.
 
 573 tests. 65 tools.
 
-### Phase 5: Next
-**Goal:** Demo polish and ecosystem integration.
+### Phase 5A: Pipeline + 3D + Creative Metadata -- COMPLETE
+Pipeline engine, 3D/audio discovery, planner templates, sidebar workflow context
+injection, web UI design system, ProfilerX performance profiling knowledge.
+
+Creative Metadata Layer: PNG tEXt embedding (schema v1) with intent capture,
+iteration tracking, and context reconstruction. 3 intelligence tools
+(write/read/reconstruct) + 5 brain tools (intent collector, iteration accumulator).
+
+762 tests. 76 tools.
+
+### Phase 5B: Next
+**Goal:** Demo polish, metadata integration, and ecosystem completion.
 
 **Tasks:**
-1. 🔲 Demo scenarios run start-to-finish without errors
-2. 🔲 Workflow pattern classification ("This is an img2img pipeline with ControlNet")
-3. 🔲 Plain-English workflow summaries
+1. 🔲 Wire metadata auto-embed into verify_execution (post-execution)
+2. 🔲 Wire metadata auto-read into session resume (pre-conversation)
+3. 🔲 Demo scenarios run start-to-finish without errors
+4. 🔲 Workflow pattern classification ("This is an img2img pipeline with ControlNet")
+5. 🔲 Plain-English workflow summaries
 
 **Success Criteria:**
 - Non-technical artist can modify a workflow using natural language
 - Agent explains every action in terms the artist understands
+- Output images carry full creative context that reconstructs on reload
 - Demo mode runs start-to-finish without errors
 - Looks good enough to show on a podcast/stream
 
@@ -597,7 +636,7 @@ audit (3 passes, 21 violations fixed). 497 tests. 60 tools.
 - Missing model errors -> trigger DISCOVER layer to find alternatives
 - Tool exceptions caught at dispatch level (both `tools/__init__.py` and `brain/__init__.py`), returned as JSON error strings to prevent agent loop crashes
 - File path sanitization in `_util.validate_path()` blocks access outside allowed directories
-- Thread safety: workflow_patch, orchestrator, and demo modules use `threading.Lock` on mutable state
+- Thread safety: workflow_patch, orchestrator, demo, intent_collector, and iteration_accumulator modules use `threading.Lock` on mutable state
 - Never show raw tracebacks to the artist. Translate to human language.
 
 ### Commit Messages

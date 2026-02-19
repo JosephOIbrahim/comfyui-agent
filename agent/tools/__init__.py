@@ -4,7 +4,7 @@ Each tool module exports:
   TOOLS: list[dict]    -- Anthropic tool schemas
   handle(name, input)  -- Execute a tool call, return result string
 
-Intelligence layers (47 tools) + Brain layer (21 tools) = 68 tools total.
+Intelligence layers (50 tools) + Brain layer (26 tools) = 76 tools total.
 Brain tools are lazily imported to avoid circular dependencies
 (brain modules import _util from this package).
 """

@@ -8,6 +8,8 @@ Adds higher-order capabilities on top of the intelligence layers:
   Optimizer — GPU-aware performance engineering
   Demo      — guided walkthroughs for streams/podcasts
   IterativeRefine — autonomous quality iteration loop
+  IntentCollector — capture artistic intent for metadata embedding
+  IterationAccumulator — track refinement journey across iterations
 
 Each module exports:
   TOOLS: list[dict]    -- Anthropic tool schemas
@@ -17,7 +19,7 @@ SDK classes (for standalone/testing use):
   BrainConfig  — dependency injection container
   BrainAgent   — base class for all brain agents
   VisionAgent, PlannerAgent, MemoryAgent, OrchestratorAgent, OptimizerAgent,
-  DemoAgent, IterativeRefineAgent
+  DemoAgent, IterativeRefineAgent, IntentCollectorAgent, IterationAccumulatorAgent
 """
 
 import logging
