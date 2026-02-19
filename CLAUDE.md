@@ -45,7 +45,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (796 tests, all mocked, <25s)
+# Tests (1124 tests, all mocked, <25s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -298,14 +298,15 @@ BUILT (v0.4.0 — working today):
   ✅ BrainMessage protocol activated (vision -> memory)
   ✅ He2025 determinism (3-pass audit, 21 violations fixed, full compliance)
   ✅ Model Profile Registry (YAML profiles for Flux, SDXL + 3 arch fallbacks, thread-safe loader)
-  ✅ 796 tests, all mocked, <25s, 0 lint warnings
+  ✅ Schema System (loader, validator, generator, inheritance, 3 default schemas)
+  ✅ MoE Agents: Intent (artistic→params), Verify (model-relative quality), Router (sequencer)
+  ✅ iterative_refine MoE pipeline (Intent→Execute→Verify loop with refinement feedback)
+  ✅ 1124 tests, all mocked, <25s, 0 lint warnings
 
-NEXT (MoE Architecture):
-  🔲 Phase 1.5: Schema System (agent output contracts, SchemaGenerator, validation)
-  🔲 Phase 2: Intent Agent (artistic language → parameter specifications)
-  🔲 Phase 3: Verify Agent (model-relative quality judgment)
-  🔲 Phase 4: Router (authority delegation, loop control)
-  🔲 Phase 5: Integration + iterative_refine (autonomous quality loop)
+NEXT:
+  🔲 Demo scenarios run start-to-finish without errors
+  🔲 Workflow pattern classification ("This is an img2img pipeline with ControlNet")
+  🔲 Plain-English workflow summaries
 ```
 
 ---
@@ -603,12 +604,14 @@ fallbacks (default_dit, default_unet, default_video). Thread-safe loader with
 
 796 tests. 76 tools.
 
-### MoE Phase 1.5: Schema System -- Next
-**Goal:** Agent output contracts, SchemaGenerator, validation infrastructure.
+### MoE Phases 1.5-5: Schema System + Specialist Agents + Integration -- COMPLETE
+Schema System: loader with inheritance, validator, generator from examples.
+Intent Agent: pure reasoning layer translating artistic intent into parameter
+mutations with conflict resolution. Verify Agent: model-relative quality judgment
+with iteration control. Router: lightweight sequencer with authority boundaries.
+iterative_refine brain tool wires the full MoE pipeline with refinement loops.
 
-### MoE Phases 2-5: Specialist Agents + Router
-**Goal:** Intent Agent, Verify Agent, Router, iterative_refine loop.
-See `MOE_ARCHITECTURE.md` for full blueprint.
+1124 tests. 77 tools.
 
 ### Phase 5B: Demo Polish
 **Goal:** Demo scenarios, metadata integration, ecosystem completion.
