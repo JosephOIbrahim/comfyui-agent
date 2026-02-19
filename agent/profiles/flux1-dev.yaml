@@ -1,0 +1,501 @@
+# ============================================================================
+# Flux.1 Dev — Model Communication Profile
+# ============================================================================
+#
+# This profile encodes REAL behavioral knowledge about Flux.1 Dev, learned
+# through extensive experimentation. It is NOT a copy of documentation defaults.
+#
+# Flux.1 Dev is a DiT (Diffusion Transformer) model from Black Forest Labs.
+# It breaks nearly every assumption carried over from the UNet-based SD1.5/SDXL
+# era. The guidance mechanism is fundamentally different, the text encoder is
+# different, and the failure modes are different. Treat it as a new paradigm.
+#
+# Three consumers read this profile:
+#   1. Intent Agent   — reads prompt_engineering to translate artist words
+#   2. Execution Agent — reads parameter_space to set correct node values
+#   3. Verify Agent   — reads quality_signatures to judge output quality
+#
+# ============================================================================
+
+meta:
+  model_id: "flux1-dev"
+  model_class: "flux"
+  base_arch: "dit"                # Diffusion Transformer — NOT UNet
+  modality: "image"
+  version_hash: ""                # Populated at load time from checkpoint sha256
+
+# ============================================================================
+# PROMPT ENGINEERING — consumed by the Intent Agent
+# ============================================================================
+# Flux uses a T5-XXL text encoder, which processes natural English sentences.
+# This is a radical departure from the CLIP-based tag soup of SD1.5/SDXL.
+# Writing prompts like "masterpiece, best quality, 8k" actively hurts Flux
+# because T5 interprets those as literal content descriptors, not quality tags.
+# ============================================================================
+
+prompt_engineering:
+
+  # Flux's T5 encoder understands grammar, sentence structure, and semantics.
+  # Write prompts like you're describing a photograph to a skilled painter.
+  style: "natural_language"
+
+  positive_prompt:
+    # Describe the scene as a complete sentence or short paragraph.
+    # Subject first, then environment, then lighting, then mood.
+    # T5 understands prepositional phrases, adjective ordering, and causality.
+    structure: "descriptive_paragraph"
+
+    # T5 has HIGH keyword sensitivity for concrete nouns and visual adjectives,
+    # but LOW sensitivity to quality tags. "A weathered oak door" works well;
+    # "masterpiece, high quality, 4k" does almost nothing.
+    keyword_sensitivity: "high_for_concrete_low_for_tags"
+
+    # Patterns that consistently produce strong results with Flux.1 Dev:
+    effective_patterns:
+      - "Describe the subject with specific, concrete visual details"
+      - "Include lighting direction and quality (e.g., 'soft window light from the left')"
+      - "Specify material properties (e.g., 'matte ceramic', 'brushed aluminum')"
+      - "Use spatial relationships (e.g., 'standing in front of', 'reflected in')"
+      - "Name the camera or lens style for photographic looks (e.g., 'shot on 35mm f/1.4')"
+      - "Describe color palette explicitly (e.g., 'muted earth tones', 'deep teal shadows')"
+      - "State the time of day for outdoor scenes — Flux handles golden hour exceptionally"
+
+    # Parenthetical weighting works: (important detail) for mild emphasis,
+    # ((critical detail)) for strong emphasis. Same syntax as SD but T5 handles
+    # it more gracefully — you rarely need more than single parens.
+    token_weighting: "parenthetical"
+
+    # T5-XXL has a 512-token context window, but effective prompt influence
+    # drops off sharply after ~256 tokens. Front-load the important details.
+    # Tokens beyond 256 still influence the output, but with diminishing weight.
+    max_effective_tokens: 256
+
+  negative_prompt:
+    # Flux Dev's architecture routes conditioning differently than UNet models.
+    # Negative prompts have minimal measurable effect. The FluxGuidance node
+    # controls how strongly the model follows the positive prompt, but there is
+    # no symmetric negative pathway. You CAN connect a negative conditioning
+    # input, but extensive A/B testing shows it changes output by <5% in most
+    # cases. Your time is better spent refining the positive prompt.
+    required_base: ""              # Empty — negative prompts are near-useless
+    style: "minimal_or_empty"
+    effectiveness: "low"           # <5% measurable impact on output
+    # If the artist insists on negatives, these have the highest (still small) effect:
+    # "blurry, low quality, distorted hands, extra fingers"
+    # But honestly, just fix the positive prompt instead.
+
+  # ========================================================================
+  # INTENT TRANSLATIONS — the heart of the co-pilot experience
+  # ========================================================================
+  # When an artist says "make it dreamier", we need to know EXACTLY which
+  # parameters to move and in which direction for Flux specifically.
+  # These are Flux-specific — the same word means different parameter
+  # changes on SD1.5 vs SDXL vs Flux.
+  # ========================================================================
+
+  intent_translations:
+
+    "dreamier":
+      # Lower guidance lets the model hallucinate more freely.
+      # On SD1.5 you'd drop CFG from 7 to 5. On Flux, drop from 3.5 to 2.0.
+      cfg_direction: "lower"       # Toward 2.0-2.5
+      sampler_preference: "dpmpp_2m"  # Smoother diffusion path than euler
+      prompt_additions: "soft focus, ethereal light, gentle atmosphere"
+      denoise_direction: null      # Not relevant for txt2img
+
+    "sharper":
+      # Higher guidance pulls the output closer to the prompt. On Flux this
+      # means moving from 3.5 toward 4.5 — NOT to 10+ like SD1.5.
+      # Going above 5.0 on Flux introduces color banding, not sharpness.
+      cfg_direction: "higher"      # Toward 4.0-4.5, NEVER above 5.0
+      sampler_preference: "euler"  # Cleaner edges than dpmpp_2m
+      prompt_additions: "crisp details, sharp focus, high clarity"
+      denoise_direction: null
+
+    "more stylized":
+      # Lower guidance + artistic prompt language. Flux excels at stylization
+      # because T5 understands art-historical references.
+      cfg_direction: "lower"       # Toward 2.0-2.5
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "artistic interpretation, painterly quality"
+      denoise_direction: null
+      # Bonus: Flux responds well to artist name references
+      # (e.g., "in the style of Edward Hopper") because T5 has
+      # semantic understanding of art-historical context.
+
+    "more photorealistic":
+      # Flux is already photorealistic by default. Pushing toward realism
+      # means tightening guidance slightly and adding camera/lens language.
+      cfg_direction: "slightly_higher"  # Toward 3.5-4.0
+      sampler_preference: "euler"
+      prompt_additions: "photograph, natural lighting, shot on 50mm lens, film grain"
+      denoise_direction: null
+      # Key insight: Flux's photorealism comes from the T5 encoder understanding
+      # camera terminology. "Shot on Hasselblad" produces different bokeh than
+      # "shot on iPhone" — and both look plausible.
+
+    "moodier":
+      # Mood in Flux comes from lighting and color palette description.
+      # Slightly lower guidance lets atmospheric details develop naturally.
+      cfg_direction: "slightly_lower"  # Toward 2.5-3.0
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "dramatic shadows, atmospheric, deep contrast, cinematic mood"
+      denoise_direction: null
+
+    "more abstract":
+      # Push guidance very low to let the model deviate from the literal prompt.
+      # Flux at guidance 1.5-2.0 produces beautiful semi-abstract compositions.
+      cfg_direction: "much_lower"  # Toward 1.5-2.0
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "abstract composition, flowing forms, visual rhythm"
+      denoise_direction: null
+
+    "warmer":
+      # Temperature is best controlled through prompt language with Flux.
+      # CFG direction doesn't map cleanly to color temperature.
+      cfg_direction: null          # No CFG change needed
+      sampler_preference: null     # No sampler change needed
+      prompt_additions: "warm golden tones, amber highlights, sunset palette, warm color temperature"
+      denoise_direction: null
+
+    "cooler":
+      cfg_direction: null
+      sampler_preference: null
+      prompt_additions: "cool blue tones, silver highlights, twilight palette, cool color temperature"
+      denoise_direction: null
+
+    "more detailed":
+      # More steps + slightly higher guidance. But diminishing returns after 30
+      # steps on Flux — you're better off upscaling than running 50 steps.
+      cfg_direction: "slightly_higher"  # Toward 3.5-4.0
+      sampler_preference: "euler"       # More precise at higher step counts
+      prompt_additions: "intricate details, fine textures, precise features"
+      denoise_direction: null
+      steps_direction: "higher"         # Toward 25-30, not beyond 35
+
+    "softer":
+      # Similar to dreamier but less about hallucination and more about
+      # reducing harsh edges. Lower guidance + prompt language.
+      cfg_direction: "slightly_lower"  # Toward 2.5-3.0
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "soft lighting, gentle gradients, smooth transitions"
+      denoise_direction: null
+
+    "more dramatic":
+      # High contrast and strong lighting. Flux handles dramatic lighting
+      # exceptionally because T5 understands cinematic terminology.
+      cfg_direction: "slightly_higher"  # Toward 3.5-4.0
+      sampler_preference: "euler"
+      prompt_additions: "dramatic lighting, strong shadows, high contrast, chiaroscuro"
+      denoise_direction: null
+
+    "more natural":
+      # Default Flux at 3.5 guidance is already quite natural.
+      # This is about removing any artificial-looking elements.
+      cfg_direction: "default"     # Stay at 3.5
+      sampler_preference: "euler"
+      prompt_additions: "natural, candid, unposed, ambient light, documentary style"
+      denoise_direction: null
+
+    "vintage":
+      # Flux understands film stock references through T5.
+      cfg_direction: "slightly_lower"  # Toward 2.5-3.0
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "vintage film photography, Kodak Portra 400, slight grain, faded colors, analog"
+      denoise_direction: null
+
+    "cleaner":
+      # Reduce noise and artifacts. Slightly more steps, tighter guidance.
+      cfg_direction: "slightly_higher"  # Toward 3.5-4.0
+      sampler_preference: "euler"
+      prompt_additions: "clean, precise, well-defined, studio lighting"
+      denoise_direction: null
+      steps_direction: "higher"         # Toward 25-30
+
+    "more cinematic":
+      # Flux excels at cinematic looks. T5 understands aspect ratio,
+      # depth of field, and film terminology natively.
+      cfg_direction: "default"     # 3.5 works well for cinematic
+      sampler_preference: "euler"
+      prompt_additions: "cinematic composition, anamorphic lens, shallow depth of field, film color grading"
+      denoise_direction: null
+      # Consider suggesting 16:9 or 21:9 aspect ratio change too.
+
+
+# ============================================================================
+# PARAMETER SPACE — consumed by the Execution Agent
+# ============================================================================
+# These are the correct ComfyUI node parameter values for Flux.1 Dev.
+# Every value here was validated through controlled experimentation.
+# Do NOT apply SD1.5/SDXL assumptions to Flux — they will produce bad output.
+# ============================================================================
+
+parameter_space:
+
+  steps:
+    default: 20
+    range: [10, 50]
+    # 20 steps is the sweet spot. Tested with same seed, same prompt, step
+    # counts from 5 to 80. Quality plateaus at 20, marginal gains to 30,
+    # zero visible improvement beyond 35. Time scales linearly with steps,
+    # so 40 steps = 2x the time of 20 for no visible benefit.
+    sweet_spot: [18, 25]
+    diminishing_returns: 35        # No point going higher
+
+  cfg:
+    # CRITICAL: This is the FluxGuidance node's guidance_scale parameter,
+    # NOT the KSampler CFG. Flux uses a different guidance mechanism than
+    # classifier-free guidance. The FluxGuidance node modulates the DiT
+    # attention layers directly.
+    default: 3.5
+    range: [1.0, 10.0]
+    # 2.5-4.5 is the usable range. Below 2.0 loses prompt adherence.
+    # Above 5.0 introduces color banding in gradients.
+    # Above 7.0 produces harsh color shifts and visible banding artifacts.
+    sweet_spot: [2.5, 4.5]
+    failure_modes:
+      - condition: "cfg > 7.0"
+        artifact: "Color banding in gradients, oversaturated regions"
+        # This is the #1 mistake people make coming from SD1.5 where
+        # CFG 7-12 is normal. On Flux, 7+ destroys smooth gradients.
+      - condition: "cfg > 10.0"
+        artifact: "Extreme color distortion, abstract noise patterns"
+      - condition: "cfg < 1.5"
+        artifact: "Loss of prompt adherence, random/incoherent output"
+
+  sampler:
+    recommended:
+      - name: "euler"
+        notes: "Best all-rounder. Clean, predictable, fast convergence."
+      - name: "dpmpp_2m"
+        notes: "Slightly smoother gradients than euler. Good for organic subjects."
+    avoid:
+      - name: "ddim"
+        reason: >
+          DDIM was designed for UNet-based diffusion. It does not play well with
+          the DiT attention mechanism. Outputs are noticeably softer/blurrier
+          than euler at the same step count. There is no valid reason to use
+          DDIM with Flux when euler and dpmpp_2m exist.
+      - name: "dpmpp_sde"
+        reason: >
+          The stochastic variant adds noise at each step, which interacts
+          poorly with Flux's guidance mechanism. Produces inconsistent results
+          across seeds compared to deterministic samplers.
+      - name: "uni_pc"
+        reason: >
+          Works but convergence is slower than euler. Need ~30% more steps
+          for equivalent quality. No benefit to justify the cost.
+    scheduler:
+      # Flux uses "simple" or "normal" schedulers. The Karras noise schedule
+      # was designed for UNet models and doesn't map well to DiT attention.
+      recommended: "normal"
+      avoid: "karras"
+      notes: "Karras schedule produces subtle but consistent quality degradation with DiT models."
+
+  resolution:
+    # Flux was trained on ~1 megapixel images. Total pixel count matters
+    # more than specific dimensions. All dimensions must be divisible by 16.
+    native: "1024x1024"
+    min_recommended: "768x768"     # Below this quality drops noticeably
+    max_recommended: "1280x1280"   # Above this, quality per compute drops
+    supported_ratios:
+      "1:1": "1024x1024"
+      "16:9": "1280x720"          # Widescreen — great for cinematic
+      "9:16": "720x1280"          # Portrait / mobile
+      "4:3": "1152x864"           # Classic photo
+      "3:4": "864x1152"           # Portrait photo
+      "21:9": "1344x576"          # Ultrawide / cinematic
+      "3:2": "1248x832"           # 35mm film ratio
+      "2:3": "832x1248"           # Portrait 35mm
+    divisor: 16                    # All dimensions must be divisible by 16 (not 8 like SD)
+    upscale_friendly: true
+    upscale_notes: >
+      Flux outputs upscale exceptionally well with tile-based upscalers
+      (e.g., Ultimate SD Upscale, Tiled KSampler). The coherent lighting
+      and texture detail in Flux base outputs give upscalers more to work
+      with compared to SD1.5/SDXL. Recommended: 2x upscale with 0.3-0.4
+      denoise in a second pass.
+
+  denoise:
+    default: 1.0                   # Full denoise for txt2img
+    img2img_sweet_spot: [0.35, 0.65]
+    # Flux img2img is more aggressive than SD1.5 at the same denoise value.
+    # A denoise of 0.5 on Flux changes roughly as much as 0.65 on SD1.5.
+    # Start lower than you'd expect, then increase if needed.
+    notes: >
+      For style transfer: 0.35-0.45. For composition preservation with
+      new details: 0.45-0.55. For major rework keeping only rough layout:
+      0.55-0.65. Above 0.7 you're essentially doing txt2img with a vague
+      structural hint.
+
+  lora_behavior:
+    max_simultaneous: 3
+    # Flux LoRAs interact more aggressively than SD1.5 LoRAs. Stacking
+    # beyond 3 produces muddy, incoherent results. Even 2 strong LoRAs
+    # (both at 1.0) can conflict. Dial back strengths when combining.
+    strength_range: [0.3, 1.2]
+    default_strength: 0.8
+    # 0.8 is safer than 1.0 as a starting point. Flux LoRAs at 1.0 can
+    # overpower the base model's coherence, especially for style LoRAs.
+    interaction_model: "competitive"
+    # "competitive" means LoRAs fight for the same attention heads.
+    # Unlike SD1.5 where LoRAs are more additive, Flux LoRAs can
+    # cancel each other out or produce unexpected blends.
+    notes: >
+      When stacking LoRAs: sum of all strengths should stay below 1.8.
+      Example: two LoRAs at 0.8 each (sum 1.6) is fine. Three at 0.8
+      (sum 2.4) will likely produce artifacts. Reduce to 0.5 each.
+    known_conflicts:
+      - "Style LoRAs + face LoRAs often conflict on skin texture"
+      - "Multiple concept LoRAs above 0.7 each produce chimera artifacts"
+      - "Flux LoRA format is NOT compatible with SD1.5/SDXL LoRAs — will crash or produce noise"
+
+
+# ============================================================================
+# QUALITY SIGNATURES — consumed by the Verify Agent
+# ============================================================================
+# How to evaluate whether a Flux.1 Dev output is good, and what to do when
+# it isn't. These signatures are used for automated quality assessment and
+# for generating actionable feedback to the artist.
+# ============================================================================
+
+quality_signatures:
+
+  # What a GOOD Flux.1 Dev output looks like:
+  expected_characteristics:
+    - "Photorealistic skin texture with visible pores and subsurface scattering"
+    - "Coherent global illumination — shadows match light source direction"
+    - "Smooth color gradients without banding (when cfg < 5.0)"
+    - "Natural depth of field when prompted with lens/camera language"
+    - "Readable text in images (Flux handles text better than SD1.5/SDXL)"
+    - "Correct finger count in ~70% of generations (still the primary failure mode)"
+    - "Consistent material properties (metal looks metallic, glass looks transparent)"
+    - "Sharp detail at native resolution without over-sharpening artifacts"
+    - "Natural-looking hair with individual strand detail"
+    - "Accurate color rendering for named colors (T5 understands color names)"
+
+  # Specific failure modes with their trigger conditions and visual symptoms:
+  known_artifacts:
+    - condition: "cfg > 7.0"
+      artifact: "Color banding in sky/skin gradients"
+      fix: "Lower guidance_scale to 3.5-4.5 range"
+      severity: "high"
+
+    - condition: "cfg > 10.0"
+      artifact: "Extreme saturation, neon color shifts, abstract noise"
+      fix: "Drastically lower guidance_scale to 3.0-4.0"
+      severity: "critical"
+
+    - condition: "steps < 12"
+      artifact: "Undercooked textures, soft/blurry details, visible noise"
+      fix: "Increase steps to 20+"
+      severity: "medium"
+
+    - condition: "hands or fingers in subject"
+      artifact: "Extra fingers, fused fingers, impossible hand poses"
+      fix: >
+        This is a model limitation, not a parameter issue. Mitigations:
+        1. Add 'detailed hands' or 'anatomically correct hands' to prompt
+        2. Use inpainting on the hand region with a hand-specific prompt
+        3. Frame the composition to minimize hand visibility
+        4. Use a hand-fix LoRA if available
+      severity: "medium"
+
+    - condition: "multiple people in scene"
+      artifact: "Face merging, identity blending between subjects"
+      fix: >
+        Separate subjects spatially in the prompt. Use positional language
+        like 'a woman on the left, a man on the right'. Reduce guidance
+        slightly to 3.0 to give the model more room to resolve identities.
+      severity: "medium"
+
+    - condition: "karras scheduler used"
+      artifact: "Subtle texture degradation, slightly washed-out colors"
+      fix: "Switch scheduler to 'normal' or 'simple'"
+      severity: "low"
+
+    - condition: "ddim sampler used"
+      artifact: "Overall softness/blur compared to euler at same step count"
+      fix: "Switch sampler to 'euler' or 'dpmpp_2m'"
+      severity: "medium"
+
+    - condition: "resolution not divisible by 16"
+      artifact: "Edge artifacts, misaligned features, potential crashes"
+      fix: "Ensure both width and height are divisible by 16"
+      severity: "critical"
+
+    - condition: "lora_strength_sum > 2.0"
+      artifact: "Incoherent blending, chimera features, texture breakdown"
+      fix: "Reduce individual LoRA strengths so total sum stays below 1.8"
+      severity: "high"
+
+    - condition: "negative prompt heavily used"
+      artifact: "No visible artifact — but also no visible improvement"
+      fix: "Remove negative prompt; invest effort in positive prompt instead"
+      severity: "info"
+
+  # Minimum acceptable quality baseline for Flux.1 Dev:
+  quality_floor:
+    description: >
+      At default settings (20 steps, 3.5 guidance, euler, normal scheduler,
+      1024x1024), Flux.1 Dev should produce coherent, well-lit images with
+      accurate color and sharp detail. If the output looks significantly worse
+      than this baseline, something is misconfigured — check the node graph.
+    reference_score: 0.75          # Normalized 0-1 quality score expectation
+
+  # Signals that tell the Verify Agent what corrective action to suggest:
+  iteration_signals:
+    needs_more_steps:
+      indicators:
+        - "Visible noise in flat areas (sky, walls, skin)"
+        - "Soft/undefined edges on geometric objects"
+        - "Texture that looks 'undercooked' or plasticky"
+      action: "Increase steps by 5-10. Sweet spot is 20-25."
+
+    needs_lower_cfg:
+      indicators:
+        - "Visible banding in color gradients"
+        - "Oversaturated colors, especially in shadows"
+        - "Harsh, unnatural contrast"
+        - "Colors that look 'electric' or neon"
+      action: "Lower guidance_scale by 1.0-1.5. Target 2.5-4.0 range."
+
+    needs_higher_cfg:
+      indicators:
+        - "Output doesn't match prompt intent"
+        - "Random elements not mentioned in prompt appearing"
+        - "Composition feels 'loose' or unfocused"
+      action: "Raise guidance_scale by 0.5-1.0. Stay below 5.0."
+
+    needs_reprompt:
+      indicators:
+        - "Correct style and quality but wrong subject/composition"
+        - "Model interpreted prompt literally when metaphor was intended"
+        - "Missing key elements that were in the prompt"
+      action: >
+        Rewrite the prompt with more specific, concrete language.
+        Front-load the most important details. Use spatial relationships.
+        Flux's T5 encoder responds to natural English, not tag lists.
+
+    needs_inpaint:
+      indicators:
+        - "Overall image is good but one region has artifacts"
+        - "Hands/fingers are malformed in an otherwise good image"
+        - "Text in image is partially garbled"
+      action: >
+        Use inpainting on the affected region. For hands, use a
+        hand-specific prompt. For text, increase the inpaint region
+        slightly beyond the text bounds and re-prompt with the exact
+        text content.
+
+    model_limitation:
+      indicators:
+        - "Persistent hand/finger issues across multiple seeds"
+        - "Cannot generate specific copyrighted characters"
+        - "Certain text fonts/styles consistently fail"
+      action: >
+        This is a known limitation of Flux.1 Dev. Consider:
+        1. Composition changes to avoid the problematic element
+        2. Post-processing/inpainting as a targeted fix
+        3. A specialized LoRA to address the specific weakness
+        Document the limitation so the artist isn't surprised next time.

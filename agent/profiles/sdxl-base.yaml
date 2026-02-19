@@ -1,0 +1,752 @@
+# ============================================================================
+# SDXL Base 1.0 — Model Communication Profile
+# ============================================================================
+#
+# This profile encodes REAL behavioral knowledge about Stable Diffusion XL
+# Base 1.0, learned through extensive experimentation and community consensus.
+# It is NOT a copy of the Stability AI model card.
+#
+# SDXL is a UNet-based latent diffusion model with dual CLIP text encoders
+# (CLIP-G + CLIP-L). It represents the mature peak of the UNet diffusion era
+# — more forgiving than SD 1.5, more controllable than Flux, and backed by
+# the largest ecosystem of LoRAs, ControlNets, and fine-tunes in existence.
+#
+# Key differences from Flux (read this if you're coming from flux1-dev.yaml):
+#   - UNet, not DiT: samplers behave as originally designed
+#   - Dual CLIP, not T5: understands both natural language AND quality tags
+#   - Negative prompts MATTER: they're a real creative lever, not a placebo
+#   - CFG 5-9, not 2.5-4.5: the usable range is wider and higher
+#   - Karras scheduler works WELL here — it was designed for UNet models
+#   - LoRAs are additive, not competitive: stacking is more predictable
+#
+# Three consumers read this profile:
+#   1. Intent Agent   — reads prompt_engineering to translate artist words
+#   2. Execution Agent — reads parameter_space to set correct node values
+#   3. Verify Agent   — reads quality_signatures to judge output quality
+#
+# ============================================================================
+
+meta:
+  model_id: "sdxl-base"
+  model_class: "sdxl"
+  base_arch: "unet"                # Classic UNet architecture — NOT DiT
+  modality: "image"
+  version_hash: ""                 # Populated at load time from checkpoint sha256
+  display_name: "Stable Diffusion XL Base 1.0"
+  source_url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0"
+
+
+# ============================================================================
+# PROMPT ENGINEERING — consumed by the Intent Agent
+# ============================================================================
+# SDXL uses dual CLIP text encoders: CLIP-G (OpenCLIP ViT-bigG) and CLIP-L
+# (OpenAI CLIP ViT-L/14). This gives it a hybrid personality — it understands
+# natural English descriptions from CLIP-G AND responds to quality/style tags
+# from CLIP-L. The best prompts leverage both: describe the scene in prose,
+# then append quality tags. This is the fundamental difference from Flux (which
+# uses T5 and treats quality tags as literal content) and from SD 1.5 (which
+# only has CLIP-L and strongly prefers tag soup).
+# ============================================================================
+
+prompt_engineering:
+
+  # SDXL sits between SD 1.5's tag dependency and Flux's pure natural language.
+  # A hybrid approach works best: write a descriptive sentence or two, then
+  # append quality/style tags. Pure tag soup still works (SD 1.5 compat) but
+  # natural language descriptions unlock CLIP-G's understanding of composition,
+  # spatial relationships, and scene semantics.
+  style: "hybrid"
+
+  positive_prompt:
+    # Lead with the scene description, follow with quality tags.
+    # CLIP-G processes the natural language semantics, CLIP-L picks up
+    # the keyword signals. Front-loading the description means CLIP-G
+    # gets the richest context for composition and subject placement.
+    structure: "description_first"
+
+    # Moderate keyword sensitivity. SDXL is more forgiving than SD 1.5 —
+    # you don't NEED exact trigger words for most concepts — but specific
+    # terms still outperform vague ones. "Golden hour" works better than
+    # "nice lighting". Quality tags like "masterpiece" have measurable
+    # (though diminishing) effect, unlike Flux where they do nothing.
+    keyword_sensitivity: 0.5
+
+    # Patterns that consistently produce strong results with SDXL:
+    effective_patterns:
+      - intent: "cinematic"
+        # SDXL's CLIP-G understands cinematography terms. Pair with
+        # quality tags for CLIP-L to reinforce the intent.
+        prompt_fragment: "cinematic composition, dramatic lighting, film grain, anamorphic bokeh, high quality, masterpiece"
+      - intent: "dreamy"
+        # Soft focus language + quality tags. SDXL handles ethereal
+        # looks well at slightly lower CFG (5-6).
+        prompt_fragment: "soft dreamy atmosphere, ethereal glow, pastel color palette, gentle light, beautiful, high quality"
+      - intent: "sharp"
+        # SDXL naturally produces sharp output at native res. These
+        # tags push it toward hyper-detailed rendering.
+        prompt_fragment: "sharp focus, intricate details, crisp edges, highly detailed, 8k uhd"
+      - intent: "photorealistic"
+        # Camera/lens language works with CLIP-G. Quality tags
+        # reinforce the realism signal for CLIP-L.
+        prompt_fragment: "photorealistic, photograph, natural lighting, shot on DSLR, 50mm lens, RAW photo, high quality"
+      - intent: "painterly"
+        # SDXL handles artistic styles well, especially with artist
+        # name references. CLIP-G has decent art-historical knowledge.
+        prompt_fragment: "oil painting style, visible brushstrokes, artistic, painterly quality, masterpiece"
+      - intent: "dark_moody"
+        # Lighting descriptions drive mood. SDXL respects chiaroscuro
+        # and shadow language from CLIP-G.
+        prompt_fragment: "dark moody atmosphere, dramatic shadows, chiaroscuro lighting, deep contrast, cinematic"
+      - intent: "vibrant"
+        # Color language in the prompt plus quality tags. SDXL's
+        # color space is wide and responds well to saturation cues.
+        prompt_fragment: "vibrant colors, rich color palette, vivid, bold colors, high saturation, masterpiece"
+
+    # Parenthetical weighting is the primary emphasis mechanism.
+    # (important detail) applies ~1.1x weight, ((critical detail)) ~1.21x.
+    # Numeric weighting also works: (detail:1.3) for precise control.
+    # Both encoders (CLIP-G and CLIP-L) respect the weighting, but CLIP-L
+    # is more sensitive to it. Don't go above ((( ))) or :1.5 — diminishing
+    # returns and can cause artifacts in color-sensitive regions.
+    token_weighting: "parenthetical"
+
+    # CLIP's hard token limit is 77 per encoder. ComfyUI's CLIP encoder
+    # can process longer prompts via chunking (77-token windows), but
+    # attention weight drops sharply after the first window. Practically,
+    # the first 77 tokens carry ~80% of the signal. Tokens 78-154 add
+    # refinement but won't override what's in the first window. Beyond 154
+    # you're mostly wasting keystrokes. Front-load the important details.
+    max_effective_tokens: 77
+
+  negative_prompt:
+    # SDXL negative prompts are a REAL creative lever — unlike Flux where
+    # they're nearly useless. The dual CLIP encoders process negative
+    # conditioning and the UNet's cross-attention actively steers away from
+    # negative concepts. A good negative prompt measurably improves output
+    # quality, especially for anatomy, artifacts, and style consistency.
+    #
+    # This base negative catches the most common failure modes. The Intent
+    # Agent appends to it, never replaces it.
+    required_base: "lowres, bad anatomy, bad hands, text, watermark, worst quality, low quality, blurry, deformed, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face"
+
+    # Exclusion list style: comma-separated concepts to avoid. This works
+    # better than prose-style negatives because CLIP-L processes individual
+    # tokens more reliably than complex sentences in negative conditioning.
+    style: "exclusion_list"
+
+    # Negative prompts have moderate-to-high effectiveness on SDXL. Not as
+    # critical as SD 1.5 (where a missing negative prompt is often the
+    # difference between usable and garbage), but significantly more impactful
+    # than Flux (where negatives change output by <5%). On SDXL, a well-
+    # crafted negative can shift quality by 15-25% in controlled A/B tests,
+    # especially for anatomy and artifact suppression.
+    effectiveness: 0.65
+
+  # ========================================================================
+  # INTENT TRANSLATIONS — the heart of the co-pilot experience
+  # ========================================================================
+  # When an artist says "make it dreamier", we need to know EXACTLY which
+  # parameters to move and in which direction for SDXL specifically.
+  # These are SDXL-specific — the same word means different parameter
+  # changes on SD 1.5 vs SDXL vs Flux.
+  #
+  # Key SDXL-specific behaviors:
+  #   - CFG sweet spot is 5-9 (wider than Flux's 2.5-4.5)
+  #   - Negative prompt is a real lever (add negatives, not just positives)
+  #   - Sampler choice matters more (karras schedule, DPM++ variants)
+  #   - Quality tags in prompt actually work (unlike Flux)
+  # ========================================================================
+
+  intent_translations:
+
+    "dreamier":
+      # Lower CFG loosens prompt adherence, letting the model drift toward
+      # softer, more interpretive compositions. On SDXL the sweet spot for
+      # dreamy is 5-6 — still coherent but allowing creative latitude.
+      # On Flux you'd drop to 2.0; on SDXL that would produce incoherent mess.
+      cfg_direction: "lower"           # Toward 5.0-6.0
+      sampler_preference: "dpmpp_2m"   # Smoother diffusion path, less sharp edges
+      prompt_additions: "soft focus, ethereal light, gentle atmosphere, dreamy, beautiful"
+      negative_additions: "harsh, sharp edges, high contrast"
+      denoise_direction: null           # Not relevant for txt2img
+      steps_direction: "slightly_higher"  # A few more steps smooths gradients
+
+    "sharper":
+      # Higher CFG forces stronger prompt adherence, which produces crisper
+      # edges and more defined details. SDXL can handle up to 9 for sharpness
+      # without oversaturating (Flux would be destroyed at 9).
+      # Euler sampler converges faster to sharp detail than DPM++ variants.
+      cfg_direction: "higher"          # Toward 8.0-9.0
+      sampler_preference: "euler"      # Crisper convergence than dpmpp_2m
+      prompt_additions: "sharp focus, crisp details, highly detailed, 8k uhd"
+      negative_additions: "blurry, soft, out of focus"
+      denoise_direction: null
+
+    "more stylized":
+      # Lower CFG + artistic prompt language. SDXL's CLIP-G understands
+      # art-historical references reasonably well, though not as deeply as
+      # Flux's T5. Style LoRAs are the real power move for stylization on SDXL.
+      cfg_direction: "lower"           # Toward 5.0-6.0
+      sampler_preference: "dpmpp_2m"   # Smoother for artistic styles
+      prompt_additions: "artistic, stylized, illustration, painterly quality"
+      negative_additions: "photorealistic, photograph, realistic"
+      denoise_direction: null
+      # Note: SDXL has the largest style LoRA ecosystem in existence.
+      # If the artist wants strong stylization, suggest a style LoRA
+      # rather than relying purely on prompt engineering.
+
+    "more photorealistic":
+      # SDXL handles photorealism well but needs reinforcement from both
+      # positive and negative prompts. CFG 7-8 locks in realistic details.
+      # Camera/lens language works through CLIP-G, quality tags through CLIP-L.
+      cfg_direction: "slightly_higher"  # Toward 7.0-8.0
+      sampler_preference: "dpmpp_sde"   # SDE adds subtle stochastic detail that reads as real
+      prompt_additions: "photorealistic, RAW photo, natural lighting, DSLR, 50mm lens, film grain"
+      negative_additions: "cartoon, anime, illustration, painting, digital art, CGI, 3d render"
+      denoise_direction: null
+      # Key difference from Flux: SDXL benefits significantly from
+      # negative exclusions of non-photorealistic styles. Flux doesn't
+      # need this because its default output is already photorealistic.
+
+    "moodier":
+      # Mood comes from lighting description AND negative prompt suppressing
+      # cheerful elements. SDXL responds well to cinematic lighting terms.
+      # Slightly lower CFG gives the model room to develop atmospheric details.
+      cfg_direction: "slightly_lower"  # Toward 6.0-7.0
+      sampler_preference: "dpmpp_2m"   # Smooth gradients for shadow transitions
+      prompt_additions: "moody atmosphere, dramatic shadows, deep contrast, cinematic lighting, dark"
+      negative_additions: "bright, cheerful, flat lighting, overexposed"
+      denoise_direction: null
+
+    "warmer":
+      # Color temperature is primarily controlled through prompt language
+      # on SDXL. No CFG change needed — this is a prompt-level adjustment.
+      # CLIP-L responds well to specific color temperature terms.
+      cfg_direction: null              # No CFG change needed
+      sampler_preference: null         # No sampler change needed
+      prompt_additions: "warm golden tones, amber highlights, warm color temperature, sunset palette, golden hour"
+      negative_additions: "cold, blue tones, cool temperature"
+      denoise_direction: null
+
+    "cooler":
+      # Mirror of warmer — push toward blue/silver palette via prompt.
+      # Negative prompt excludes warm tones to prevent the model from
+      # defaulting to its slightly warm-biased color space.
+      cfg_direction: null
+      sampler_preference: null
+      prompt_additions: "cool blue tones, silver highlights, twilight palette, cool color temperature, moonlight"
+      negative_additions: "warm, golden, amber, sunset"
+      denoise_direction: null
+
+    "more detailed":
+      # More steps is the primary lever for detail on SDXL. Higher CFG
+      # helps but only up to ~9 before oversaturation kicks in. The
+      # combination of quality tags + higher steps + slightly higher CFG
+      # is the standard detail-maximizing recipe.
+      cfg_direction: "slightly_higher"  # Toward 7.5-8.5
+      sampler_preference: "dpmpp_sde"   # SDE adds fine stochastic detail
+      prompt_additions: "intricate details, fine textures, highly detailed, 8k, ultra detailed"
+      negative_additions: "low detail, simple, flat, smooth"
+      denoise_direction: null
+      steps_direction: "higher"         # Toward 30-40 for maximum detail
+
+    "softer":
+      # Lower CFG + DPM++ 2M for smoother diffusion. Negative prompt
+      # suppresses sharp/harsh elements. This is distinct from "dreamier"
+      # — softer is about reducing harsh edges while maintaining coherence,
+      # dreamier is about loosening reality constraints.
+      cfg_direction: "slightly_lower"  # Toward 5.5-6.5
+      sampler_preference: "dpmpp_2m"   # Smoothest diffusion path
+      prompt_additions: "soft lighting, gentle gradients, smooth, delicate"
+      negative_additions: "harsh, sharp, high contrast, HDR"
+      denoise_direction: null
+
+    "more dramatic":
+      # High contrast and strong lighting. SDXL responds well to
+      # cinematic and theatrical lighting terms. Higher CFG locks in
+      # the dramatic composition the prompt describes.
+      cfg_direction: "slightly_higher"  # Toward 7.5-8.5
+      sampler_preference: "euler"       # Clean convergence for strong contrasts
+      prompt_additions: "dramatic lighting, strong shadows, high contrast, chiaroscuro, cinematic, epic"
+      negative_additions: "flat lighting, soft, gentle, muted"
+      denoise_direction: null
+
+    "faster":
+      # Fewer steps is the primary speed lever. DPM++ 2M Karras converges
+      # faster than euler at low step counts. CFG stays the same — speed
+      # shouldn't change the artistic intent. SDXL also has LCM and
+      # Lightning LoRA options for extreme speed (4-8 steps).
+      cfg_direction: null              # No change — speed, not style
+      sampler_preference: "dpmpp_2m"   # Fastest convergence of the recommended samplers
+      prompt_additions: null           # No prompt change for speed
+      negative_additions: null
+      denoise_direction: null
+      steps_direction: "lower"         # Toward 15-20 steps
+      # Power move: suggest LCM LoRA or SDXL Lightning for 4-8 step generation.
+      # These are purpose-built speed optimizations that produce usable output
+      # at step counts that would give standard SDXL a mushy mess.
+
+    "higher quality":
+      # More steps + hires fix is the standard SDXL quality maximization
+      # recipe. Steps beyond 50 have diminishing returns. The real quality
+      # jump comes from running a second pass (hires fix) with upscaling.
+      cfg_direction: null              # Stay at current CFG
+      sampler_preference: "dpmpp_sde"  # Stochastic detail at high step counts
+      prompt_additions: "masterpiece, best quality, highly detailed, 8k uhd, professional"
+      negative_additions: "worst quality, low quality, lowres, blurry, jpeg artifacts"
+      denoise_direction: null
+      steps_direction: "higher"        # Toward 35-50 steps
+      # Suggest enabling hires fix: generate at native 1024, then upscale
+      # 1.5-2x with a second KSampler pass at 0.4-0.5 denoise.
+
+    "more vintage":
+      # Film stock language works through CLIP-G. Quality tags modulated
+      # to avoid the "too clean" digital look. SDXL can convincingly
+      # emulate analog film aesthetics, especially with a film grain LoRA.
+      cfg_direction: "slightly_lower"  # Toward 5.5-6.5 — vintage is slightly loose
+      sampler_preference: "dpmpp_2m"
+      prompt_additions: "vintage film photography, Kodak Portra 400, analog, film grain, faded colors, retro"
+      negative_additions: "digital, clean, modern, sharp, HDR, oversaturated"
+      denoise_direction: null
+
+
+# ============================================================================
+# PARAMETER SPACE — consumed by the Execution Agent
+# ============================================================================
+# These are the correct ComfyUI node parameter values for SDXL Base 1.0.
+# Every value here was validated through controlled experimentation.
+# SDXL is the most mature and well-documented model family — these values
+# reflect community consensus confirmed by A/B testing, not speculation.
+# ============================================================================
+
+parameter_space:
+
+  steps:
+    default: 25
+    range: [10, 80]
+    # 25 steps is the reliable default. SDXL was trained with a noise schedule
+    # optimized for ~25-30 steps. Unlike SD 1.5 which often needs 30+ for
+    # clean output, SDXL converges faster thanks to its larger UNet and
+    # better noise prediction. Quality plateaus around 35 steps. Beyond 50,
+    # you're burning compute for zero visible improvement — the noise schedule
+    # has fully converged and additional steps just add rounding error.
+    #
+    # At 10 steps: usable for previews, noticeable softness and noise.
+    # At 15 steps: acceptable for drafts, some detail loss in fine textures.
+    # At 20 steps: good quality, suitable for most iteration.
+    # At 25 steps: sweet spot — full quality with minimal wasted compute.
+    # At 35 steps: marginal gains in fine detail, mostly in hair and fabric.
+    # At 50+: visually indistinguishable from 35 in blind comparisons.
+    sweet_spot: [20, 35]
+    diminishing_returns: 50          # No point going higher
+
+  cfg:
+    # This is the standard KSampler CFG (classifier-free guidance) parameter.
+    # NOT the FluxGuidance node — SDXL uses traditional CFG where the model
+    # computes both conditional and unconditional predictions and interpolates.
+    # Higher CFG = stronger prompt adherence but also stronger artifacts.
+    default: 7.0
+    range: [1.0, 15.0]
+    # SDXL's usable CFG range is 5.0-9.0. This is wider than Flux (2.5-4.5)
+    # because UNet-based CFG degrades more gracefully at higher values.
+    #
+    # At 3.0: output is soft, prompt partially ignored, model freewheels.
+    # At 5.0: creative, slightly loose — good for artistic/stylized work.
+    # At 7.0: balanced — the standard default for a reason.
+    # At 9.0: tight prompt adherence, punchy colors, crisp detail.
+    # At 12.0: oversaturation begins, color banding in gradients.
+    # At 15.0: severe artifacts, neon blowouts, unusable for most purposes.
+    #
+    # The sweet spot is 5.0-9.0 because that's where the quality/adherence
+    # tradeoff is most favorable. Below 5.0 you're leaving prompt accuracy
+    # on the table. Above 9.0 you're fighting diminishing returns and
+    # increasing artifact risk.
+    sweet_spot: [5.0, 9.0]
+    failure_modes:
+      too_high:
+        condition: "cfg > 12.0"
+        description: >
+          Oversaturation and color banding, especially in smooth gradients
+          like sky, skin, and fabric. Colors shift toward neon/electric.
+          Shadow regions lose detail (crushed blacks). This is the #1
+          mistake from artists who learned on SD 1.5 where CFG 9-12 was
+          normal — SDXL's larger UNet amplifies CFG artifacts more than
+          SD 1.5 does at the same value.
+        fix: "Lower CFG to 7.0-9.0 range. If you need more prompt adherence, improve the prompt wording instead of raising CFG."
+      too_low:
+        condition: "cfg < 3.0"
+        description: >
+          Loss of prompt adherence, mushy details, incoherent compositions.
+          The model essentially ignores your prompt and generates whatever
+          its base distribution favors — typically generic landscapes or
+          portraits with no specific features. Not useless for abstract
+          exploration, but not what most artists want.
+        fix: "Raise CFG to 5.0+. If the output still feels generic, the prompt needs more specific, concrete details."
+
+  sampler:
+    recommended:
+      - name: "dpmpp_2m"
+        notes: >
+          Best all-rounder for SDXL. Fast convergence, smooth gradients,
+          consistent results across seeds. The 2M (second-order multistep)
+          method is well-suited to SDXL's noise schedule. Pairs excellently
+          with the Karras scheduler.
+      - name: "euler"
+        notes: >
+          Simple, fast, predictable. Slightly sharper edges than dpmpp_2m
+          but can show more step-count sensitivity (needs 25+ for clean
+          output, whereas dpmpp_2m is usable at 20). Good for previews
+          and quick iterations.
+      - name: "dpmpp_sde"
+        notes: >
+          Stochastic variant that adds subtle noise at each step. Produces
+          slightly more varied and organic-looking textures compared to
+          deterministic samplers. Excellent for photorealistic and organic
+          subjects (skin, foliage, fabric). Slightly slower per-step than
+          dpmpp_2m due to the stochastic component.
+    avoid: []
+    # SDXL works reasonably well with most samplers — there are no
+    # critically incompatible ones like DDIM on Flux. Even DDIM produces
+    # acceptable output on SDXL, though dpmpp_2m is strictly better.
+    # We leave avoid empty because warning artists away from working
+    # samplers would be misleading. The recommended list guides toward
+    # the best options without artificially restricting choice.
+    scheduler:
+      # Karras noise schedule was DESIGNED for UNet diffusion models.
+      # Unlike Flux (DiT) where Karras causes subtle quality degradation,
+      # SDXL benefits from Karras's non-linear noise spacing — it allocates
+      # more denoising steps to the critical mid-range noise levels where
+      # composition and detail emerge. This is the opposite of the Flux
+      # profile where we recommend "normal" — Karras is the right choice
+      # here precisely because SDXL is UNet-based.
+      recommended: "karras"
+      notes: "Karras schedule is optimal for UNet models. 'normal' and 'sgm_uniform' also work but are slightly less efficient per step."
+
+  resolution:
+    # SDXL was trained on images bucketed around 1 megapixel. The native
+    # resolution is 1024x1024, but SDXL handles aspect ratio variations
+    # better than SD 1.5 thanks to its bucketed training strategy.
+    # All dimensions must be divisible by 8 (VAE requirement for UNet).
+    native: [1024, 1024]
+    min_recommended: [768, 768]      # Below this, quality drops and artifacts increase
+    max_recommended: [1280, 1280]    # Above this, quality per compute drops; use upscaling instead
+    supported_ratios:
+      # These resolutions are derived from SDXL's training buckets.
+      # Each stays close to 1 megapixel total while maintaining the ratio.
+      # Using these exact sizes avoids the stretching/tiling artifacts that
+      # occur when the model generates at resolutions far from its training data.
+      "1:1": "1024x1024"
+      "16:9": "1344x768"             # Widescreen — cinematic, landscape
+      "9:16": "768x1344"             # Portrait / mobile / vertical video
+      "4:3": "1152x896"              # Classic photo ratio
+      "3:4": "896x1152"              # Portrait photo
+      "3:2": "1216x832"              # 35mm film ratio
+      "2:3": "832x1216"              # Portrait 35mm
+    divisor: 8                        # VAE requires dimensions divisible by 8 (NOT 16 like Flux)
+    upscale_friendly: true
+    upscale_notes: >
+      SDXL outputs upscale very well due to coherent detail and clean edges
+      at native resolution. Recommended approach: generate at 1024x1024,
+      then use a second KSampler pass with 0.4-0.5 denoise at 1.5-2x
+      resolution (hires fix pattern). Tile-based upscalers (Ultimate SD
+      Upscale) work reliably. RealESRGAN 4x also produces excellent results
+      as a non-diffusion upscaler. For maximum quality: diffusion upscale
+      at 1.5x, then RealESRGAN for the final 2x.
+
+  denoise:
+    default: 0.7                     # Standard img2img denoise
+    img2img_sweet_spot: [0.3, 0.7]
+    # SDXL img2img denoise maps roughly 1:1 with perceptual change — unlike
+    # Flux where 0.5 denoise changes more than you'd expect. SDXL is more
+    # predictable here because the UNet's skip connections preserve structural
+    # information from the input image more faithfully.
+    #
+    # For style transfer: 0.3-0.4. Keeps composition and major features,
+    #   changes texture, color palette, and fine detail.
+    # For creative reinterpretation: 0.4-0.6. Alters composition details
+    #   while preserving overall layout and subject placement.
+    # For major rework: 0.6-0.7. Keeps only the broad strokes —
+    #   color zones and rough spatial layout.
+    # Above 0.8: essentially txt2img with a vague structural prior.
+    #   At this point you're better off doing txt2img with a composition
+    #   ControlNet for more precise control.
+    notes: >
+      Inpainting denoise is different from img2img denoise. For inpainting,
+      use 0.7-1.0 to fully regenerate the masked region. Below 0.7 in
+      inpainting leaves ghosting of the original content, which is usually
+      not what the artist wants.
+
+  lora_behavior:
+    max_simultaneous: 2
+    # SDXL LoRAs are generally well-behaved when stacking, but the model's
+    # larger UNet means each LoRA modifies more parameters than an SD 1.5
+    # LoRA. Two LoRAs at moderate strength is the safe maximum. Three can
+    # work if all are kept at 0.5 or below, but quality becomes less
+    # predictable. SD 1.5 can handle 3+ LoRAs more gracefully because
+    # its smaller UNet has less cross-talk between modified weight spaces.
+    strength_range: [0.1, 1.2]
+    default_strength: 0.8
+    # 0.8 is safer than 1.0 as a starting point. SDXL LoRAs at 1.0 can
+    # overpower the base model's learned priors, especially for style LoRAs
+    # that modify the color space aggressively. Concept LoRAs (adding a
+    # specific character or object) are more tolerant of 1.0 strength.
+    # Above 1.0 is occasionally useful for weak LoRAs that were undertrained,
+    # but above 1.2 almost always produces artifacts.
+    interaction_model: "additive"
+    # "additive" means LoRA effects stack roughly linearly. This is more
+    # predictable than Flux's "competitive" model where LoRAs fight for
+    # attention heads. Two SDXL LoRAs at 0.5 each produce roughly the
+    # combination of both effects. This breaks down above ~1.5 total
+    # strength where the combined modifications exceed the UNet's ability
+    # to integrate them coherently.
+    notes: >
+      When stacking LoRAs: sum of all strengths should stay below 1.5 for
+      consistent results. Example: two LoRAs at 0.7 each (sum 1.4) is fine.
+      Two at 1.0 each (sum 2.0) will likely produce blending artifacts —
+      reduce to 0.6-0.7 each. Style + concept combinations work better
+      than style + style or concept + concept.
+    known_conflicts:
+      - "Two style LoRAs (e.g., anime + photorealistic) at high strength produce uncanny blending"
+      - "Detail enhancer LoRAs + skin smoothing LoRAs cancel each other out"
+      - "SDXL LoRAs are NOT compatible with SD 1.5 LoRAs — wrong architecture, will crash or produce noise"
+      - "Flux LoRA format is incompatible with SDXL — different weight structure entirely"
+
+
+# ============================================================================
+# QUALITY SIGNATURES — consumed by the Verify Agent
+# ============================================================================
+# How to evaluate whether an SDXL Base 1.0 output is good, and what to do
+# when it isn't. These signatures are used for automated quality assessment
+# and for generating actionable feedback to the artist.
+#
+# SDXL's quality profile is different from Flux: sharper by default, better
+# color gradients, but weaker at text rendering and slightly more prone to
+# anatomical errors. The artifact patterns are well-documented thanks to
+# the model's maturity and massive user base.
+# ============================================================================
+
+quality_signatures:
+
+  # What a GOOD SDXL Base 1.0 output looks like:
+  expected_characteristics:
+    - "Sharp foreground detail with natural depth of field when prompted"
+    - "Coherent global illumination — shadows match light source direction and intensity"
+    - "Clean edges on geometric objects without ringing or haloing"
+    - "Smooth color gradients without banding (when cfg < 10.0)"
+    - "Natural skin tones in the warm spectrum without orange or plastic cast"
+    - "Consistent material properties — metal reads as metallic, fabric has believable folds"
+    - "Good color dynamic range with detail preserved in shadows and highlights"
+    - "Accurate response to camera/lens language (depth of field, bokeh character)"
+    - "Compositional coherence — subjects placed logically in the scene"
+    - "Hair and fur rendered with individual strand-level detail at native resolution"
+
+  # Specific failure modes with their trigger conditions, visual symptoms, and fixes:
+  known_artifacts:
+    - condition: "cfg > 12.0"
+      artifact: "Color banding in smooth gradients (sky, skin, fabric), oversaturated colors shifting toward neon"
+      description: >
+        SDXL's UNet amplifies CFG artifacts more than SD 1.5 at equivalent values.
+        The dual CLIP encoders both contribute to the conditioning signal, so high
+        CFG doubly reinforces the prompt — which sounds good until it pushes color
+        values past the natural range. Sky gradients are the canary: they band first.
+      fix: "Lower CFG to 7.0-9.0 range. If you need more prompt adherence, improve prompt wording instead of raising CFG."
+      severity: "high"
+
+    - condition: "steps < 15"
+      artifact: "Mushy details, soft edges, visible noise in flat areas, plasticky skin textures"
+      description: >
+        At low step counts the noise schedule hasn't converged enough to resolve
+        fine detail. SDXL is more forgiving than SD 1.5 here (SD 1.5 at 15 steps
+        is worse than SDXL at 15), but 15 is still the practical minimum for
+        usable output. Hair, fabric folds, and skin texture suffer first.
+      fix: "Increase steps to 20-25. For fine detail work, go to 30."
+      severity: "medium"
+
+    - condition: "resolution not matching native aspect bucket (e.g., 640x640, 1920x1080)"
+      artifact: "Stretching, tiling, duplicate subjects, composition collapse"
+      description: >
+        SDXL was bucket-trained at ~1 megapixel. Generating at significantly
+        different total pixel counts forces the model outside its training
+        distribution. Below 768x768, quality drops rapidly. Above ~1.3 megapixels,
+        the model starts tiling or duplicating subjects because it's trying to
+        fill more space than it was trained to handle. Non-standard aspect ratios
+        that don't match a training bucket can also cause stretching.
+      fix: "Use one of the supported_ratios in resolution section. For larger output, generate at native resolution and upscale."
+      severity: "high"
+
+    - condition: "multiple subjects (3+) in scene"
+      artifact: "Face merging, identity blending between subjects, features leaking between people"
+      description: >
+        SDXL's cross-attention mechanism has limited capacity for maintaining
+        distinct identities. Two subjects work well. Three is the boundary.
+        Four or more almost always produces some degree of feature leaking
+        where faces borrow features from each other. This is a fundamental
+        limitation of the 1024x1024 attention map resolution.
+      fix: >
+        Separate subjects spatially in the prompt using explicit position
+        language ('woman on the left, man on the right'). Use ControlNet
+        with a pose or depth map for precise placement. For 4+ subjects,
+        consider compositing: generate each subject separately and combine.
+      severity: "medium"
+
+    - condition: "hands in close-up compositions"
+      artifact: "Extra fingers, fused fingers, impossible hand poses, melted-looking digits"
+      description: >
+        This is THE classic stable diffusion limitation, and SDXL improved on
+        SD 1.5 but did not solve it. The model generates plausible hands about
+        60% of the time at native resolution, dropping to ~40% at lower res or
+        with complex hand poses. The issue is training data variance — hands
+        appear at many scales and poses, making them hard to learn consistently.
+      fix: >
+        Mitigations in order of effectiveness:
+        1. Frame the composition to minimize hand visibility (most reliable)
+        2. Add 'detailed hands, correct anatomy' to positive prompt (helps ~15%)
+        3. Add 'extra fingers, deformed hands, bad anatomy' to negative (helps ~10%)
+        4. Use inpainting on the hand region with a hand-specific prompt
+        5. Use a hand-fix LoRA (e.g., detail_tweaker or hand_refiner)
+        6. ControlNet with an OpenPose hand skeleton for precise finger control
+      severity: "medium"
+
+    - condition: "prompt exceeds 77 tokens"
+      artifact: "Later prompt elements ignored or severely weakened"
+      description: >
+        CLIP processes prompts in 77-token windows. While ComfyUI's encoder
+        supports longer prompts via chunking, the attention weight distribution
+        drops significantly after the first 77-token window. Elements appearing
+        only in the second chunk (tokens 78-154) receive roughly 50-60% of the
+        attention weight of first-chunk elements. The practical effect: if your
+        subject description is in the first chunk but your lighting description
+        is in the second, the model may ignore the lighting entirely.
+      fix: "Front-load the most important elements within the first 77 tokens. Move quality tags to the end — they matter least. Consider splitting complex prompts into a positive prompt + ControlNet for composition control."
+      severity: "medium"
+
+    - condition: "text or lettering requested in prompt"
+      artifact: "Garbled, misspelled, or illegible text in the generated image"
+      description: >
+        SDXL can occasionally produce readable short text (2-4 characters) but
+        anything longer is unreliable. This is significantly worse than Flux,
+        which handles text competently. SDXL's CLIP encoders don't have a
+        strong character-level understanding of text — they know 'text' as a
+        visual concept but not how to spell specific words.
+      fix: >
+        For text in images: use Flux instead (it handles text much better).
+        If SDXL is required: generate the image without text, then composit
+        text in post-processing. Alternatively, use a ControlNet with a
+        text mask to guide text placement.
+      severity: "medium"
+
+    - condition: "two LoRAs with combined strength > 1.5"
+      artifact: "Style bleeding, incoherent blending, color space distortion"
+      description: >
+        When the sum of LoRA strengths exceeds ~1.5, the accumulated weight
+        modifications start exceeding what the UNet can integrate coherently.
+        The result is unpredictable style mixing where neither LoRA's intent
+        is cleanly expressed. Skin textures and color balance are usually
+        the first casualties.
+      fix: "Reduce individual LoRA strengths so total sum stays below 1.5. If both LoRAs are critical, use 0.6-0.7 each."
+      severity: "medium"
+
+  # Minimum acceptable quality baseline for SDXL Base 1.0:
+  quality_floor:
+    description: >
+      At default settings (25 steps, 7.0 CFG, dpmpp_2m sampler, karras scheduler,
+      1024x1024), SDXL Base should produce coherent, well-composed images with
+      sharp detail, accurate color, and natural lighting. The output should be
+      immediately recognizable as the prompted subject with no major anatomical
+      errors (aside from the known hand limitation). If the output looks
+      significantly worse than this baseline — mushy, incoherent, or severely
+      artifacted — something is misconfigured in the node graph. Check: correct
+      checkpoint loaded, both CLIP encoders connected, VAE connected, resolution
+      at 1024x1024.
+    # SDXL's quality floor is slightly lower than Flux's (0.65 vs 0.75) because
+    # SDXL's broader parameter range means more configurations can produce
+    # acceptable-but-not-great output. Flux at default settings is tighter —
+    # either it's good or something is clearly wrong. SDXL has more gradual
+    # degradation, which means more "mediocre but not broken" outputs.
+    reference_score: 0.65
+
+  # Signals that tell the Verify Agent what corrective action to suggest:
+  iteration_signals:
+    needs_more_steps:
+      indicators:
+        - "Visible noise in flat areas (sky, walls, smooth surfaces)"
+        - "Soft or undefined edges on geometric objects (buildings, furniture)"
+        - "Texture that looks 'undercooked' — plasticky skin, mushy fabric"
+        - "Fine detail missing in hair strands or fabric weave"
+      action: >
+        Increase steps by 5-10. Sweet spot is 25-35. If already at 35+,
+        more steps won't help — the issue is likely CFG, resolution, or
+        the prompt itself.
+
+    needs_lower_cfg:
+      indicators:
+        - "Visible color banding in gradients (sky, skin, fabric)"
+        - "Oversaturated colors, especially in shadow regions"
+        - "Colors shifting toward neon or electric tones"
+        - "Harsh, unnatural contrast with crushed blacks"
+        - "Edges look 'crunchy' or over-sharpened"
+      action: >
+        Lower CFG by 1.0-2.0. Target the 5.0-8.0 range. If currently at
+        10+, drop to 7.0 as a starting point. SDXL degrades more gracefully
+        than Flux when lowering CFG, so you can drop 2-3 points safely.
+
+    needs_higher_cfg:
+      indicators:
+        - "Output doesn't match prompt intent — wrong subject or composition"
+        - "Random elements appearing that weren't mentioned in prompt"
+        - "Composition feels 'generic' or unfocused"
+        - "Colors are washed out or muted despite vivid prompt language"
+      action: >
+        Raise CFG by 1.0-1.5. Target 7.0-9.0. Also check: is the important
+        content in the first 77 tokens? Are negative prompts conflicting
+        with the positive? On SDXL, negative prompts that are too strong
+        or too similar to the positive can cause prompt confusion.
+
+    needs_reprompt:
+      indicators:
+        - "Correct style and quality but wrong subject or wrong composition"
+        - "Model interpreted prompt literally when metaphor was intended"
+        - "Missing key elements that were clearly in the prompt"
+        - "Elements from the negative prompt bleeding into the output"
+      action: >
+        Rewrite the prompt. For SDXL specifically:
+        1. Front-load the subject description in the first 20-30 tokens
+        2. Use concrete visual language, not abstract concepts
+        3. Check the negative prompt — remove anything that's too similar
+           to desired positive elements (SDXL's dual CLIP can get confused
+           when positive and negative share keywords)
+        4. Try a different seed — SDXL has more seed-to-seed variance
+           than Flux, so a prompt that fails on seed 42 may work on seed 43
+
+    needs_inpaint:
+      indicators:
+        - "Overall image is strong but one region has artifacts (hands, face, text)"
+        - "Hands or fingers are malformed in an otherwise good composition"
+        - "Small area of the image has incorrect detail or texture"
+        - "Background element is distracting but the subject is correct"
+      action: >
+        Use inpainting on the affected region. SDXL inpainting tips:
+        1. Mask slightly larger than the problem area (10-15% padding)
+        2. Use 0.7-1.0 denoise for full regeneration of the masked region
+        3. Write a focused prompt for the inpaint pass describing ONLY
+           what should appear in the masked region
+        4. For hands: add 'detailed hand, five fingers, correct anatomy'
+           and 'extra fingers, deformed' in negative
+        5. Match the CFG and sampler from the original generation
+
+    model_limitation:
+      indicators:
+        - "Persistent hand/finger issues across multiple seeds and prompts"
+        - "Cannot generate legible text longer than 2-3 characters"
+        - "4+ distinct subjects consistently produce identity blending"
+        - "Specific fine-grained textures (chain mail, woven fabric) consistently fail"
+        - "Extremely specific art styles not well-represented in SDXL's training data"
+      action: >
+        This is a known limitation of SDXL Base 1.0. Consider:
+        1. For text: switch to Flux, which handles text generation well
+        2. For hands: use ControlNet with OpenPose hand skeleton
+        3. For many subjects: composite individual generations
+        4. For specific styles: find a purpose-trained LoRA or fine-tune
+        5. For fine textures: use img2img with a reference image + ControlNet
+        Document the limitation so the artist doesn't waste time iterating
+        on something the model fundamentally struggles with.

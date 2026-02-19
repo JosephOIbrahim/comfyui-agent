@@ -1,0 +1,301 @@
+# ============================================================================
+# Default DiT (Diffusion Transformer) — Architecture Fallback Profile
+# ============================================================================
+#
+# PURPOSE: Conservative fallback for ANY unknown DiT-architecture model.
+# Used when a loaded checkpoint is identified as DiT-based but has no
+# exact profile match in the registry.
+#
+# DESIGN PHILOSOPHY: Every value in this profile errs on the SAFE side.
+# We would rather produce a slightly suboptimal but coherent image than
+# risk artifacts from aggressive defaults. Once the artist sees output,
+# they can iterate — but a broken first impression wastes trust.
+#
+# WHY DiT NEEDS ITS OWN FALLBACK:
+# DiT models (Flux, SD3, AuraFlow, PixArt, etc.) break UNet assumptions:
+#   - Guidance mechanism is different (not classifier-free in the UNet sense)
+#   - Text encoder is usually T5-based (natural language, not tags)
+#   - Negative prompts have low or zero effect
+#   - Lower CFG values are normal (3-5 vs 7-12 for UNet)
+#   - Karras scheduler can degrade output quality
+# Applying UNet defaults to a DiT model is the #1 cause of "why does this
+# model look terrible?" questions from artists switching architectures.
+#
+# Three consumers read this profile:
+#   1. Intent Agent   — reads prompt_engineering
+#   2. Execution Agent — reads parameter_space
+#   3. Verify Agent   — reads quality_signatures
+#
+# ============================================================================
+
+
+meta:
+  model_id: "default_dit"
+  model_class: "unknown_dit"       # Not a known family — generic DiT
+  base_arch: "dit"                 # Diffusion Transformer architecture
+  modality: "image"
+  display_name: "Unknown DiT Model (Fallback)"
+
+  # Flag consumed by the profile loader to indicate this is a fallback,
+  # not a model-specific profile. Agents should mention this to the artist:
+  # "I'm using generic DiT defaults — output may improve with a model-specific profile."
+  _is_fallback: true
+
+
+# ============================================================================
+# PROMPT ENGINEERING — consumed by the Intent Agent
+# ============================================================================
+# DiT models overwhelmingly use T5-family text encoders, which understand
+# natural language far better than CLIP-style tag lists. We default to
+# natural language prompting as the safest assumption.
+#
+# If the actual model uses CLIP (unlikely for DiT but possible), natural
+# language still works — it just won't leverage tag-specific training.
+# The reverse (tags on a T5 model) actively hurts output quality.
+# ============================================================================
+
+prompt_engineering:
+
+  # Natural language is the safe default for DiT. T5 encoders parse grammar
+  # and sentence structure. Tag-soup prompts ("masterpiece, best quality, 8k")
+  # are interpreted literally by T5, not as quality modifiers.
+  style: "natural_language"
+
+  positive_prompt:
+    # Description-first is the most universally effective structure for T5.
+    # Subject -> environment -> lighting -> mood. This ordering works whether
+    # the T5 context window is 256 tokens or 512.
+    structure: "description_first"
+
+    # Moderate sensitivity — we can't know if this model has trigger words
+    # or fine-tuned concept tokens. 0.5 means the agent will use concrete
+    # nouns but won't assume specific keywords are required.
+    keyword_sensitivity: 0.5
+
+    # No model-specific patterns for a fallback. The agent will use generic
+    # best practices (concrete details, spatial relationships, lighting cues).
+    effective_patterns: []
+
+    # We can't assume parenthetical weighting works on an unknown model.
+    # Some DiT models handle it fine (Flux does), others ignore or break on it.
+    # "none" means the agent will rely on word ordering for emphasis instead.
+    token_weighting: "none"
+
+    # Conservative T5 assumption. Most T5-XXL models have 512-token windows
+    # but effective influence drops off well before that. 200 is a safe middle
+    # ground — long enough for detailed descriptions, short enough to avoid
+    # the tail where tokens become noise.
+    max_effective_tokens: 200
+
+  negative_prompt:
+    # Many DiT models have no effective negative conditioning pathway.
+    # Flux ignores negatives. SD3 uses them weakly. We default to empty
+    # because sending negatives to a model that ignores them is harmless,
+    # but sending aggressive negatives to a model that misinterprets them
+    # (e.g., treating them as positive conditioning) can be destructive.
+    required_base: ""
+
+    # Minimal style — if the artist provides negatives, keep them short.
+    style: "minimal"
+
+    # Low effectiveness is the safe assumption. If negatives actually work
+    # well on this model, the artist will notice and can increase reliance.
+    # If they don't work and we assumed high effectiveness, the agent would
+    # waste time crafting negatives instead of improving the positive prompt.
+    effectiveness: 0.2
+
+  # No model-specific intent translations for a fallback.
+  # The agent will use generic direction mappings (e.g., "dreamier" -> lower CFG).
+  # Model-specific profiles can override with precise parameter targets.
+  intent_translations: {}
+
+
+# ============================================================================
+# PARAMETER SPACE — consumed by the Execution Agent
+# ============================================================================
+# Conservative ranges derived from the commonalities across known DiT models
+# (Flux, SD3, PixArt-alpha, AuraFlow). When in doubt, we pick the value
+# that is least likely to produce artifacts on any DiT model.
+# ============================================================================
+
+parameter_space:
+
+  steps:
+    # 20 steps is the consensus sweet spot across DiT models.
+    # Flux converges at 20. SD3 converges at 20-25. PixArt at 20.
+    # Starting here is safe for any DiT architecture.
+    default: 20
+
+    # 8 is the absolute floor — some accelerated DiT models (turbo/lightning
+    # variants) can produce coherent output in 4-8 steps, but we can't assume
+    # this unknown model supports that. 50 is a generous ceiling.
+    range: [8, 50]
+
+    # 15-30 covers the productive range for all known DiT models.
+    # Below 15 risks undercooked output. Above 30 is diminishing returns
+    # for most DiT architectures.
+    sweet_spot: [15, 30]
+
+    # Beyond 40 steps, no known DiT model shows meaningful improvement.
+    # The agent should cap "highest quality" requests at this value.
+    diminishing_returns: 40
+
+  cfg:
+    # 3.5 is the safe center for DiT guidance. This is the Flux default
+    # and works reasonably for SD3 and other DiT models.
+    # DiT guidance operates differently from UNet CFG — the scale is
+    # compressed. A "7" on UNet might correspond to "3.5" on DiT.
+    default: 3.5
+
+    # 1.0-10.0 is the full range. Below 1.0 produces incoherent output
+    # on any DiT model. Above 10.0 risks severe artifacts (color banding,
+    # saturation clipping) on most DiT architectures.
+    range: [1.0, 10.0]
+
+    # 2.0-5.0 is where most DiT models produce their best output.
+    # This is deliberately wider than any single model's sweet spot
+    # because we're covering the entire DiT family.
+    sweet_spot: [2.0, 5.0]
+
+    failure_modes:
+      # DiT models are more sensitive to high guidance than UNet models.
+      # The most common mistake is applying SD1.5-era CFG values (7-12)
+      # to a DiT model, producing oversaturated, banded output.
+      too_high: "Oversaturation and artifacts likely above 7 for most DiT models"
+
+      # Below 1.5, even the most flexible DiT model loses prompt adherence.
+      too_low: "Incoherent output below 1.5"
+
+  sampler:
+    # Euler and DPM++ 2M are safe across all known DiT models.
+    # Euler is the most predictable; DPM++ 2M produces smoother gradients.
+    # We don't recommend more exotic samplers because they may not be
+    # compatible with an unknown DiT architecture.
+    recommended: ["euler", "dpmpp_2m"]
+
+    # No samplers are categorically avoided for ALL DiT models. Some models
+    # struggle with specific samplers (Flux + DDIM), but we can't generalize.
+    # An empty avoid list is safer than a false positive that blocks a
+    # sampler the model actually works well with.
+    avoid: []
+
+    # "normal" scheduler is the safe default for DiT. Karras was designed
+    # for UNet noise schedules and can degrade DiT output (confirmed for
+    # Flux, suspected for others). "normal" is never wrong; "karras" can be.
+    scheduler: "normal"
+
+  resolution:
+    # 1024x1024 is the training resolution for most modern DiT models.
+    # If the actual model was trained at 512 or 2048, this will still
+    # produce usable (if not optimal) output — 1024 is the safest guess.
+    native: [1024, 1024]
+
+    # Standard aspect ratios that any 1-megapixel-class model handles.
+    supported_ratios: ["1:1", "16:9", "9:16", "4:3", "3:4"]
+
+    # Most DiT models upscale well because their base output has good
+    # coherence and detail. Safe to assume true.
+    upscale_friendly: true
+
+  denoise:
+    # 1.0 = full denoise for txt2img. This is universal.
+    default: 1.0
+
+    # Conservative img2img range. DiT models tend to be more aggressive
+    # than UNet at the same denoise value (a 0.5 on DiT changes more than
+    # a 0.5 on UNet). Starting at 0.3 preserves more of the input image.
+    img2img_sweet_spot: [0.3, 0.7]
+
+  lora_behavior:
+    # Conservative LoRA stacking limit. DiT LoRAs can interfere with each
+    # other more aggressively than UNet LoRAs because they modify attention
+    # heads directly. 2 simultaneous LoRAs is a safe ceiling for unknowns.
+    max_simultaneous: 2
+
+    # Standard LoRA strength range. Below 0.1 has no visible effect.
+    # Above 1.0 may overpower the base model on an unknown architecture.
+    strength_range: [0.1, 1.0]
+
+    # 0.7 is conservative — lower than the typical 0.8 default because
+    # we don't know how this model reacts to LoRA injection. Better to
+    # start gentle and let the artist increase than to start hot and
+    # produce artifacts on the first generation.
+    default_strength: 0.7
+
+    # Additive is the safest assumption. Competitive interaction (like Flux)
+    # requires more careful strength management, but assuming additive won't
+    # cause problems even if the model is actually competitive — it just
+    # means the agent might suggest slightly higher strengths than optimal.
+    interaction_model: "additive"
+
+    # No known conflicts for an unknown model.
+    known_conflicts: []
+
+
+# ============================================================================
+# QUALITY SIGNATURES — consumed by the Verify Agent
+# ============================================================================
+# Generic quality expectations for DiT output. These are the minimum bar
+# that any functional DiT model should clear at default settings. If the
+# output fails these checks, something is misconfigured — not just
+# suboptimal.
+# ============================================================================
+
+quality_signatures:
+
+  # Baseline expectations for any working DiT model at default settings.
+  # These are deliberately modest — we're checking "is the model working?"
+  # not "is the output publication-ready?"
+  expected_characteristics:
+    - "Coherent composition with recognizable subject"
+    - "Consistent lighting direction"
+    - "Smooth color gradients"
+
+  # No model-specific artifacts for a fallback. The Verify Agent will
+  # still check for universal issues (noise, banding, saturation) but
+  # won't flag model-specific patterns it hasn't been trained on.
+  known_artifacts: []
+
+  quality_floor:
+    # The absolute minimum: if you can recognize the subject and the lighting
+    # is consistent, the model is working. Anything below this means the
+    # parameters or node graph are misconfigured, not that the prompt needs work.
+    description: "Coherent output with recognizable subject matter"
+
+    # 0.5 = recognizable but flawed. This is a low bar deliberately —
+    # we'd rather not raise false alarms on an unknown model whose
+    # "normal" output we haven't characterized.
+    reference_score: 0.5
+
+  iteration_signals:
+    # Generic signals that apply across all DiT models.
+    # Model-specific profiles can add more precise indicators.
+
+    needs_more_steps:
+      - "mushy details"
+      - "noise visible"
+      - "incomplete structures"
+
+    needs_lower_cfg:
+      - "oversaturated"
+      - "harsh edges"
+      - "color banding"
+
+    needs_higher_cfg:
+      - "incoherent"
+      - "prompt not reflected"
+      - "random"
+
+    needs_reprompt:
+      - "wrong subject"
+      - "missing elements"
+
+    needs_inpaint:
+      - "localized defects"
+
+    # No model-specific limitations to flag for an unknown model.
+    # The agent should suggest parameter tuning first, and only flag
+    # "model limitation" if the same issue persists across 3+ attempts
+    # with different parameters.
+    model_limitation:
+      - "consistent failure across parameter ranges"

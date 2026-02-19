@@ -1,0 +1,323 @@
+# ============================================================================
+# Default Video — Architecture Fallback Profile
+# ============================================================================
+#
+# PURPOSE: Conservative fallback for ANY unknown video generation model.
+# Used when a loaded checkpoint produces video output but has no exact
+# profile match in the registry.
+#
+# DESIGN PHILOSOPHY: Video models are the most fragile family. A bad
+# parameter choice doesn't just produce a bad image — it produces 16-48
+# bad frames, wasting significant compute time. Every default here is
+# chosen to MINIMIZE wasted render time on an unknown model.
+#
+# VIDEO MODEL LANDSCAPE (as of early 2026):
+# Most video models in the ComfyUI ecosystem are UNet-based:
+#   - AnimateDiff (SD1.5 + temporal layers, 512x512 native)
+#   - Stable Video Diffusion (SVD, image-to-video)
+#   - ModelScope (text-to-video, older)
+#   - CogVideoX, Mochi, Hunyuan Video (newer, higher res)
+# A few use DiT architecture (CogVideoX-5B), but the majority are UNet.
+# We default to UNet assumptions with video-specific overlays.
+#
+# KEY DIFFERENCE FROM IMAGE MODELS:
+# Video adds a temporal dimension. Parameters that are "fine" for a single
+# frame can cause flickering, jitter, or temporal incoherence across a
+# sequence. Video-specific quality signals (motion smoothness, temporal
+# consistency) are more important than per-frame sharpness.
+#
+# Three consumers read this profile:
+#   1. Intent Agent   — reads prompt_engineering
+#   2. Execution Agent — reads parameter_space
+#   3. Verify Agent   — reads quality_signatures
+#
+# ============================================================================
+
+
+meta:
+  model_id: "default_video"
+  model_class: "unknown_video"    # Not a known family — generic video model
+  base_arch: "unet"               # Most current video models are UNet-based
+  modality: "video"               # Video output — temporal quality matters
+  display_name: "Unknown Video Model (Fallback)"
+
+  # Flag consumed by the profile loader to indicate this is a fallback.
+  # Agents should note: "Using generic video defaults — identifying your
+  # specific video model (AnimateDiff, SVD, CogVideoX) would let me give
+  # much better parameter suggestions."
+  _is_fallback: true
+
+
+# ============================================================================
+# PROMPT ENGINEERING — consumed by the Intent Agent
+# ============================================================================
+# Most video models in ComfyUI are AnimateDiff-based (SD1.5 backbone with
+# temporal layers). These respond best to tag-based prompts — the same
+# style used for the underlying SD1.5 checkpoint.
+#
+# For newer video models (CogVideoX, Mochi), natural language works better,
+# but tag-based prompts still produce usable results. The reverse (tags on
+# natural language models) works poorly. Tag-based is the safer default.
+# ============================================================================
+
+prompt_engineering:
+
+  # Tag-based is the safe default because AnimateDiff (the most common
+  # video model in ComfyUI) uses SD1.5 checkpoints which were trained
+  # on tag-style captions. Tags also keep prompts short, which is
+  # important given the 77-token CLIP limit.
+  style: "tag_based"
+
+  positive_prompt:
+    # Description first even with tags. The subject and motion description
+    # should come before quality tags because CLIP's 77-token limit means
+    # quality tags might get truncated — better to lose "8k" than "running".
+    structure: "description_first"
+
+    # Moderate sensitivity — unknown video model may or may not have
+    # motion-specific trigger words.
+    keyword_sensitivity: 0.5
+
+    # Video-specific prompting patterns that help across most models.
+    effective_patterns:
+      - "Include motion description (e.g., 'walking slowly', 'camera panning left')"
+      - "Keep prompts short — video models benefit from focused, clear descriptions"
+      - "Specify camera motion separately from subject motion when possible"
+
+    # Parenthetical weighting works for UNet-based video models (AnimateDiff,
+    # SVD). Safe default for the majority case.
+    token_weighting: "parenthetical"
+
+    # 77-token CLIP limit for UNet-based video models. Even for newer
+    # models with T5 encoders, keeping prompts concise helps temporal
+    # coherence — complex prompts can cause per-frame reinterpretation.
+    max_effective_tokens: 77
+
+  negative_prompt:
+    # Negative prompts matter for UNet-based video models, plus video
+    # has its own set of artifacts to suppress (morphing, flickering).
+    required_base: "lowres, bad anatomy, bad hands, text, watermark, blurry, morphing, flickering"
+
+    # Exclusion list style — standard for UNet-based models.
+    style: "exclusion_list"
+
+    # Moderate effectiveness — negatives help with AnimateDiff but less
+    # so with newer architectures. 0.5 is a safe middle ground.
+    effectiveness: 0.5
+
+  # No model-specific intent translations for a fallback.
+  intent_translations: {}
+
+
+# ============================================================================
+# PARAMETER SPACE — consumed by the Execution Agent
+# ============================================================================
+# Video generation is compute-intensive. Bad parameters don't just produce
+# a bad frame — they waste minutes or hours rendering an entire sequence.
+# These defaults prioritize "safe first run" over "optimal output."
+# ============================================================================
+
+parameter_space:
+
+  steps:
+    # 25 steps is slightly higher than the image default (20) because
+    # video models need more denoising steps for temporal coherence.
+    # Under-stepping a video model produces flickering between frames —
+    # a much worse artifact than the "soft details" you get from
+    # under-stepping an image model.
+    default: 25
+
+    # 10 is the floor — video turbo models exist but we can't assume
+    # compatibility. 60 is a generous ceiling for quality-critical renders.
+    range: [10, 60]
+
+    # 20-35 covers the productive range. AnimateDiff works well at 20-25.
+    # SVD and CogVideoX benefit from 25-35 for smoother temporal output.
+    sweet_spot: [20, 35]
+
+    # Beyond 45 steps, diminishing returns for video models.
+    # The compute cost of extra steps is multiplied by frame count,
+    # making over-stepping especially wasteful for video.
+    diminishing_returns: 45
+
+  cfg:
+    # 7.0 is the safe UNet default. Most AnimateDiff workflows use 7-8.
+    # SVD uses a different guidance mechanism but 7.0 won't break it.
+    default: 7.0
+
+    # 1.0-15.0 mirrors the UNet range. Video models are slightly more
+    # sensitive to high CFG (it causes temporal flickering in addition
+    # to the usual oversaturation).
+    range: [1.0, 15.0]
+
+    # Slightly narrower than image UNet because high CFG causes
+    # temporal artifacts (flickering, jitter) in addition to the
+    # usual spatial artifacts.
+    sweet_spot: [5.0, 9.0]
+
+    failure_modes:
+      # High CFG on video models causes frame-to-frame color shifts
+      # in addition to the usual oversaturation.
+      too_high: "Oversaturation plus temporal flickering and color jitter above 10"
+
+      # Low CFG on video models causes per-frame reinterpretation of
+      # the prompt, leading to morphing and identity shifts.
+      too_low: "Temporal incoherence, subject morphing, prompt drift below 3"
+
+  sampler:
+    # DPM++ 2M and Euler are safe for UNet-based video models.
+    # DPM++ 2M produces slightly smoother temporal transitions.
+    recommended: ["dpmpp_2m", "euler"]
+
+    # Stochastic samplers (DPM++ SDE, ancestral variants) should be
+    # avoided for video because they inject per-step noise that can
+    # cause temporal flickering. However, some video models are trained
+    # with stochastic samplers, so we don't hard-block them — just
+    # don't recommend them by default.
+    avoid: ["dpmpp_sde", "euler_ancestral"]
+
+    # Karras is the standard for UNet-based video models.
+    scheduler: "karras"
+
+  resolution:
+    # 512x512 is the safe minimum — AnimateDiff native resolution.
+    # Generating at 512 on a higher-res video model (CogVideoX at 720p)
+    # produces a small but coherent video. The reverse (720p on AnimateDiff)
+    # produces severe artifacts and often crashes due to VRAM.
+    #
+    # Video VRAM usage scales with resolution AND frame count. Starting
+    # small is especially important for video to avoid OOM crashes.
+    native: [512, 512]
+
+    # Conservative ratio selection. Video at non-standard ratios can
+    # cause aspect-dependent artifacts on some models.
+    supported_ratios: ["1:1", "16:9", "9:16", "4:3", "3:4"]
+
+    # Video upscaling is possible but more complex than image upscaling.
+    # Temporal consistency must be maintained across frames. Some upscalers
+    # process frames independently and introduce flickering.
+    # Safe to mark true but agents should warn about temporal consistency.
+    upscale_friendly: true
+
+  denoise:
+    # 1.0 for text-to-video generation.
+    default: 1.0
+
+    # Video-to-video (e.g., style transfer on existing footage) uses
+    # a narrower denoise range than image img2img. Higher denoise causes
+    # temporal instability — each frame deviates differently from the source.
+    # 0.3-0.6 is the safe range that preserves source motion.
+    img2img_sweet_spot: [0.3, 0.6]
+
+  lora_behavior:
+    # Video models are more sensitive to LoRA interference because
+    # artifacts compound across frames. Limit to 2 simultaneous LoRAs
+    # to reduce risk of temporal artifacts.
+    max_simultaneous: 2
+
+    # Slightly more conservative strength range for video. High LoRA
+    # strength can cause per-frame style variation (flickering).
+    strength_range: [0.1, 1.0]
+
+    # 0.7 is conservative — lower than the 0.8 image default because
+    # LoRA-induced artifacts are more noticeable in video (they flicker).
+    default_strength: 0.7
+
+    # Additive interaction — same as UNet image models.
+    interaction_model: "additive"
+
+    # No known conflicts for an unknown model.
+    known_conflicts: []
+
+
+# ============================================================================
+# QUALITY SIGNATURES — consumed by the Verify Agent
+# ============================================================================
+# Video quality has TWO dimensions: per-frame spatial quality (same as
+# image models) AND temporal quality (coherence across frames). Temporal
+# quality is often MORE important — a slightly soft but temporally stable
+# video looks better than a sharp but flickering one.
+# ============================================================================
+
+quality_signatures:
+
+  # Video-specific quality expectations. Note the emphasis on temporal
+  # characteristics that have no equivalent in image profiles.
+  expected_characteristics:
+    - "Temporal coherence: subject identity consistent across frames"
+    - "Motion smoothness: no sudden jumps or jitter between frames"
+    - "Consistent lighting across the sequence"
+    - "Recognizable subject with coherent composition per frame"
+    - "Camera motion (if any) is smooth and deliberate"
+    - "Background stability: static elements don't morph or shift"
+
+  # Video-specific artifacts that the Verify Agent should watch for.
+  known_artifacts:
+    - condition: "any video generation"
+      artifact: "Temporal flickering — brightness or color shifts between adjacent frames"
+      severity: "high"
+
+    - condition: "long sequences (>24 frames)"
+      artifact: "Subject drift — gradual identity change over time"
+      severity: "medium"
+
+    - condition: "complex motion or multiple subjects"
+      artifact: "Morphing — subjects blending into each other or background"
+      severity: "high"
+
+    - condition: "high CFG (>10)"
+      artifact: "Per-frame color jitter amplified by high guidance"
+      severity: "high"
+
+    - condition: "stochastic samplers (SDE, ancestral)"
+      artifact: "Random noise injection causing frame-to-frame inconsistency"
+      severity: "medium"
+
+    - condition: "resolution above model native"
+      artifact: "VRAM overflow, generation failure, or severe quality degradation"
+      severity: "critical"
+
+  quality_floor:
+    # Video quality floor emphasizes temporal stability over per-frame detail.
+    # A soft but stable video is acceptable. A sharp but flickering video is not.
+    description: "Temporally coherent output with recognizable subject maintained across frames"
+
+    # 0.5 = recognizable subject with basic temporal coherence.
+    # Video models have higher variance than image models, so we keep
+    # the floor modest to avoid false alarms.
+    reference_score: 0.5
+
+  iteration_signals:
+    # Video-specific diagnostic signals. Temporal issues come first because
+    # they're more important (and more common) than spatial issues.
+
+    needs_more_steps:
+      - "per-frame noise visible"
+      - "soft or incomplete details that vary between frames"
+      - "temporal flickering from incomplete denoising"
+
+    needs_lower_cfg:
+      - "oversaturated colors that shift between frames"
+      - "harsh edges with temporal jitter"
+      - "color banding visible in motion"
+
+    needs_higher_cfg:
+      - "subject doesn't match prompt"
+      - "random motion unrelated to description"
+      - "composition changes between frames"
+
+    needs_reprompt:
+      - "wrong type of motion"
+      - "missing described elements"
+      - "camera motion when subject motion was requested (or vice versa)"
+
+    needs_inpaint:
+      - "isolated frame with localized defect in otherwise good sequence"
+      - "single-frame flash or glitch"
+
+    model_limitation:
+      - "consistent temporal flickering regardless of parameters"
+      - "cannot maintain identity beyond 16 frames"
+      - "motion range limited to small movements"
+      - "background always morphs regardless of prompt"
+      - "hands and faces degrade severely in motion"

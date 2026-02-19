@@ -1,0 +1,299 @@
+# ============================================================================
+# Default UNet — Architecture Fallback Profile
+# ============================================================================
+#
+# PURPOSE: Conservative fallback for ANY unknown UNet-architecture model.
+# Used when a loaded checkpoint is identified as UNet-based (SD1.5/SDXL-like)
+# but has no exact profile match in the registry.
+#
+# DESIGN PHILOSOPHY: Every value errs on the safe side. UNet models are the
+# most diverse family — thousands of fine-tunes, merges, and community
+# checkpoints exist. This profile must be safe for ALL of them, from vanilla
+# SD1.5 to heavily merged SDXL derivatives.
+#
+# WHY UNET DEFAULTS DIFFER FROM DiT:
+#   - Text encoder is CLIP-based (77-token limit, tag-sensitive)
+#   - Negative prompts are critical for output quality
+#   - CFG operates in the 5-12 range (vs 2-5 for DiT)
+#   - Karras scheduler is the standard (vs normal for DiT)
+#   - Parenthetical token weighting is well-supported
+#   - LoRAs interact additively and stack more predictably
+#
+# RESOLUTION CHOICE: We default to 512x512 (SD1.5 native) rather than
+# 1024x1024 (SDXL native) because generating a 512px image on an SDXL
+# model produces a small but usable image, while generating 1024px on an
+# SD1.5 model produces tiled/duplicated compositions — a much worse failure
+# mode. The artist can always increase resolution after seeing the first output.
+#
+# Three consumers read this profile:
+#   1. Intent Agent   — reads prompt_engineering
+#   2. Execution Agent — reads parameter_space
+#   3. Verify Agent   — reads quality_signatures
+#
+# ============================================================================
+
+
+meta:
+  model_id: "default_unet"
+  model_class: "unknown_unet"     # Not a known family — generic UNet
+  base_arch: "unet"               # UNet-based diffusion (SD1.5/SDXL lineage)
+  modality: "image"
+  display_name: "Unknown UNet Model (Fallback)"
+
+  # Flag consumed by the profile loader to indicate this is a fallback.
+  # Agents should note: "Using generic UNet defaults — I recommend identifying
+  # your model family (SD1.5 vs SDXL) for better parameter suggestions."
+  _is_fallback: true
+
+
+# ============================================================================
+# PROMPT ENGINEERING — consumed by the Intent Agent
+# ============================================================================
+# UNet models use CLIP text encoders (ViT-L for SD1.5, ViT-G + ViT-L for
+# SDXL). CLIP was trained on image-caption pairs, so it responds to both
+# natural descriptions and tag-style keywords. "Hybrid" style covers both.
+#
+# CLIP has a hard 77-token limit per encoder. Tokens beyond 77 are silently
+# dropped by most ComfyUI CLIP implementations (some support BREAK for
+# multi-chunk encoding, but we can't assume that for an unknown model).
+# ============================================================================
+
+prompt_engineering:
+
+  # Hybrid style (description + quality tags) is the safest default for UNet.
+  # Pure natural language undersells SD1.5 fine-tunes that were trained on
+  # booru-style tags. Pure tags undersell SDXL which handles sentences well.
+  # Hybrid covers both: "a serene lake at sunset, golden light, 8k, masterpiece"
+  style: "hybrid"
+
+  positive_prompt:
+    # Description first is safer than tags first. If the model is SDXL,
+    # this is optimal. If it's an SD1.5 fine-tune that prefers tags, the
+    # content still comes through — just slightly less efficiently.
+    structure: "description_first"
+
+    # Moderate keyword sensitivity. Many UNet fine-tunes have trained
+    # trigger words, but we can't know them for an unknown model.
+    keyword_sensitivity: 0.5
+
+    # No model-specific patterns for a fallback.
+    effective_patterns: []
+
+    # Parenthetical weighting ((word)) is universally supported by CLIP
+    # encoders in ComfyUI. This is safe for SD1.5 and SDXL alike.
+    token_weighting: "parenthetical"
+
+    # Hard CLIP limit is 77 tokens. Some ComfyUI implementations support
+    # multi-chunk encoding (BREAK keyword), but we can't assume that.
+    # 77 is the safe maximum — front-load important content.
+    max_effective_tokens: 77
+
+  negative_prompt:
+    # Negative prompts are critical for UNet models. SD1.5 in particular
+    # relies heavily on negatives to suppress common artifacts.
+    # This base set covers the most universal quality issues.
+    required_base: "lowres, bad anatomy, bad hands, text, watermark"
+
+    # Exclusion list style — comma-separated terms to avoid.
+    # This is the standard format for both SD1.5 and SDXL.
+    style: "exclusion_list"
+
+    # 0.6 is a moderate effectiveness rating. SD1.5 would be 0.8+,
+    # SDXL would be 0.5. Since we don't know which family this is,
+    # 0.6 means the agent will invest effort in negatives but won't
+    # over-rely on them at the expense of positive prompt quality.
+    effectiveness: 0.6
+
+  # No model-specific intent translations for a fallback.
+  intent_translations: {}
+
+
+# ============================================================================
+# PARAMETER SPACE — consumed by the Execution Agent
+# ============================================================================
+# These ranges cover the safe operating window for all UNet-based models.
+# SD1.5 and SDXL have different optimal points within these ranges, but
+# both produce usable output at these conservative defaults.
+# ============================================================================
+
+parameter_space:
+
+  steps:
+    # 20 steps is universally safe for UNet models. SD1.5 fine-tunes
+    # often converge at 20-25. SDXL converges at 20-30. Starting at 20
+    # gives a clean result without wasting time.
+    default: 20
+
+    # 8 is the floor (turbo/lightning variants can go lower, but we can't
+    # assume support). 50 is a generous ceiling — useful for complex scenes
+    # on SD1.5 where extra steps help resolve detail.
+    range: [8, 50]
+
+    # 15-30 is the productive range for all UNet models.
+    sweet_spot: [15, 30]
+
+    # Beyond 40 steps, diminishing returns for all UNet architectures.
+    diminishing_returns: 40
+
+  cfg:
+    # 7.0 is the classic UNet default. It works for SD1.5 (where the sweet
+    # spot is 7-9) and produces acceptable (if slightly over-guided) output
+    # on SDXL (where 5-7 is more typical). 7.0 is never catastrophically wrong.
+    default: 7.0
+
+    # 1.0-15.0 covers the full usable range. Below 1.0 is incoherent.
+    # Above 15.0 produces extreme artifacts on any UNet model.
+    range: [1.0, 15.0]
+
+    # 5.0-9.0 covers both SD1.5 (7-9) and SDXL (5-7) sweet spots.
+    sweet_spot: [5.0, 9.0]
+
+    failure_modes:
+      # High CFG on UNet produces the classic "fried" look — oversaturated
+      # colors, crunchy textures, and harsh contrast.
+      too_high: "Oversaturation, crunchy textures, burned highlights above 12"
+
+      # Low CFG on UNet causes the model to ignore the prompt and produce
+      # generic, blurry compositions.
+      too_low: "Mushy details, prompt ignored, generic composition below 3"
+
+  sampler:
+    # DPM++ 2M is the best all-rounder for UNet models. It produces clean,
+    # consistent results on both SD1.5 and SDXL. Euler is the safe backup.
+    recommended: ["dpmpp_2m", "euler"]
+
+    # No samplers are categorically avoided for all UNet models.
+    # DDIM works fine on UNet (unlike DiT). We leave the avoid list empty
+    # to avoid false positives on an unknown model.
+    avoid: []
+
+    # Karras is the standard noise schedule for UNet models. Unlike DiT
+    # where karras can degrade output, UNet models were typically trained
+    # with or tested against karras schedules.
+    scheduler: "karras"
+
+  resolution:
+    # 512x512 is the SAFE minimum. This is SD1.5 native resolution.
+    # If the model is actually SDXL (1024x1024 native), generating at 512
+    # produces a small but coherent image. The reverse — generating 1024
+    # on SD1.5 — produces tiled, duplicated compositions, which is a much
+    # worse failure mode. We default to the safe floor.
+    #
+    # The agent should suggest the artist try 1024x1024 if output looks
+    # clean but small, indicating the model may be SDXL-class.
+    native: [512, 512]
+
+    # Standard ratios. All UNet models handle these at appropriate resolutions.
+    supported_ratios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]
+
+    # Most UNet models upscale well, especially with tile-based upscalers.
+    upscale_friendly: true
+
+  denoise:
+    # 1.0 for txt2img — universal.
+    default: 1.0
+
+    # UNet models are somewhat less aggressive than DiT at the same denoise
+    # value. 0.4-0.7 is a productive range for img2img on most UNet models.
+    img2img_sweet_spot: [0.4, 0.7]
+
+  lora_behavior:
+    # UNet LoRAs stack more predictably than DiT LoRAs. 3 simultaneous
+    # LoRAs is safe for most UNet models, especially SD1.5 which has the
+    # most mature LoRA ecosystem.
+    max_simultaneous: 3
+
+    # Standard LoRA strength range for UNet.
+    strength_range: [0.1, 1.2]
+
+    # 0.8 is the community standard default for UNet LoRAs.
+    default_strength: 0.8
+
+    # Additive interaction is the standard for UNet LoRAs.
+    # Effects stack roughly linearly — two LoRAs at 0.5 each produce
+    # approximately the sum of their individual effects.
+    interaction_model: "additive"
+
+    # No known conflicts for an unknown model.
+    known_conflicts: []
+
+
+# ============================================================================
+# QUALITY SIGNATURES — consumed by the Verify Agent
+# ============================================================================
+# Generic quality expectations for UNet output. UNet models have well-known
+# failure modes (hands, faces, text) that apply across the entire family.
+# ============================================================================
+
+quality_signatures:
+
+  # Baseline expectations for any working UNet model at default settings.
+  expected_characteristics:
+    - "Coherent composition with recognizable subject"
+    - "Color palette consistent with prompt intent"
+    - "Lighting direction consistent across the scene"
+    - "Textures appropriate to described materials"
+
+  # Universal UNet artifacts that the Verify Agent should watch for.
+  # These apply to both SD1.5 and SDXL to varying degrees.
+  known_artifacts:
+    - condition: "hands or fingers in subject"
+      artifact: "Extra fingers, fused digits, impossible hand geometry"
+      severity: "medium"
+
+    - condition: "small faces or multiple people"
+      artifact: "Distorted facial features, identity blending"
+      severity: "medium"
+
+    - condition: "text requested in image"
+      artifact: "Garbled or misspelled text (UNet models struggle with legible text)"
+      severity: "high"
+
+    - condition: "resolution significantly above native training resolution"
+      artifact: "Tiled/duplicated compositions, repeated subjects"
+      severity: "high"
+
+  quality_floor:
+    # Minimum bar: the model is producing something recognizable.
+    # UNet models have a wider quality range than DiT (from terrible
+    # fine-tunes to excellent ones), so we keep the floor modest.
+    description: "Coherent output with recognizable subject and consistent lighting"
+
+    # 0.5 = recognizable but flawed. Same rationale as the DiT fallback —
+    # low bar to avoid false alarms on an unknown model.
+    reference_score: 0.5
+
+  iteration_signals:
+    # UNet-specific diagnostic signals.
+
+    needs_more_steps:
+      - "visible noise in smooth areas"
+      - "soft or undefined edges"
+      - "texture detail missing in hair, fabric, or skin"
+
+    needs_lower_cfg:
+      - "oversaturated colors"
+      - "crunchy or fried textures"
+      - "harsh unnatural contrast"
+      - "color banding in gradients"
+
+    needs_higher_cfg:
+      - "output doesn't match prompt"
+      - "blurry or generic composition"
+      - "missing requested elements"
+
+    needs_reprompt:
+      - "correct style but wrong subject"
+      - "conflicting prompt elements producing confusion"
+      - "quality tags being interpreted as content"
+
+    needs_inpaint:
+      - "good composition with deformed hands"
+      - "strong image with one distorted face"
+      - "localized text artifacts"
+
+    model_limitation:
+      - "persistent hand issues across seeds and parameters"
+      - "cannot produce legible text"
+      - "consistent face distortion at low resolution"
+      - "tiling at resolutions above training native"

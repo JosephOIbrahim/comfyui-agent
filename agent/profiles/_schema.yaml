@@ -1,0 +1,533 @@
+# _schema.yaml -- Canonical Model Profile Schema Reference
+# ============================================================
+#
+# Every model profile in the registry MUST follow this structure.
+# This file is the single source of truth for profile authors.
+#
+# Fields marked [REQUIRED] must be present in every profile.
+# Fields marked [OPTIONAL] may be omitted -- agents will use
+# sensible defaults or skip that behavior gracefully.
+#
+# Three agents consume model profiles, each reading a different
+# section. A well-authored profile makes all three agents smarter:
+#
+#   1. Intent Agent    -> reads `prompt_engineering`
+#      Translates artistic language ("dreamier", "sharper") into
+#      concrete prompt and parameter adjustments for this model.
+#
+#   2. Execution Agent -> reads `parameter_space`
+#      Knows the exact ranges, sweet spots, and failure modes
+#      so it never sends a parameter that wastes time or breaks.
+#
+#   3. Verify Agent    -> reads `quality_signatures`
+#      Knows what "good" looks like for this model, what artifacts
+#      to watch for, and what to suggest when output is off.
+#
+# ============================================================
+# HOW TO ADD A NEW PROFILE
+# ============================================================
+#
+#   1. Copy an existing profile from the same model_class family
+#   2. Update `meta` with the new model's identity
+#   3. Fill in `prompt_engineering` by testing prompt styles
+#   4. Fill in `parameter_space` from model card + experimentation
+#   5. Fill in `quality_signatures` from visual QA sessions
+#   6. Name the file: <model_id>.yaml  (must match meta.model_id)
+#
+# ============================================================
+
+
+# ------------------------------------------------------------------
+# meta: Model Identification
+# ------------------------------------------------------------------
+# [REQUIRED] Every profile must have this section.
+# This is how agents find and match profiles to loaded checkpoints.
+# ------------------------------------------------------------------
+meta:
+
+  # [REQUIRED] Unique key for this profile.
+  # Must match the ComfyUI model filename without extension.
+  # Example: "dreamshaper_8" for dreamshaper_8.safetensors
+  # This is the lookup key -- if it doesn't match, the profile
+  # won't be found.
+  model_id: string
+
+  # [REQUIRED] Model family. Determines which base assumptions
+  # agents make about architecture, prompt format, and capabilities.
+  # Values:
+  #   "flux"  -- Flux family (DiT architecture, no negative prompt)
+  #   "sdxl"  -- Stable Diffusion XL (dual CLIP, 1024px native)
+  #   "sd15"  -- Stable Diffusion 1.5 (single CLIP, 512px native)
+  #   "sd3"   -- Stable Diffusion 3 (triple text encoder)
+  #   "video" -- Video generation models (AnimateDiff, SVD, etc.)
+  model_class: string
+
+  # [REQUIRED] Core architecture type.
+  # Values:
+  #   "dit"  -- Diffusion Transformer (Flux, SD3)
+  #   "unet" -- UNet-based (SD 1.5, SDXL)
+  # Affects: sampler compatibility, LoRA format, memory footprint.
+  base_arch: string
+
+  # [REQUIRED] Output modality.
+  # Values: "image" | "video" | "audio"
+  # Determines which verify checks apply and which output nodes
+  # the execution agent expects in the workflow.
+  modality: string
+
+  # [OPTIONAL] SHA-256 hash prefix of the specific checkpoint file.
+  # When present, agents can warn if the loaded checkpoint doesn't
+  # match -- profile advice may not apply to a different version.
+  # Example: "a1b2c3d4"  (first 8 hex chars is sufficient)
+  version_hash: string
+
+  # [OPTIONAL] Human-readable display name.
+  # Shown in recommendations and logs. Falls back to model_id.
+  # Example: "DreamShaper 8"
+  display_name: string
+
+  # [OPTIONAL] URL to the model card or download page.
+  # Used by the discover layer for cross-referencing.
+  # Example: "https://civitai.com/models/4384"
+  source_url: string
+
+
+# ------------------------------------------------------------------
+# prompt_engineering: How the Intent Agent talks to this model
+# ------------------------------------------------------------------
+# [REQUIRED] The Intent Agent reads this section to translate
+# artistic language into effective prompts for this specific model.
+#
+# Different models respond very differently to the same prompt.
+# SD 1.5 needs careful negative prompts. Flux ignores them entirely.
+# SDXL responds well to natural language. Some fine-tunes need tags.
+# This section encodes that knowledge per-model.
+# ------------------------------------------------------------------
+prompt_engineering:
+
+  # [REQUIRED] Overall prompt style this model responds best to.
+  # Values:
+  #   "natural_language" -- Full sentences, descriptive prose
+  #                         Example: "a serene lake at sunset with golden reflections"
+  #   "tag_based"        -- Comma-separated keywords/tags (booru-style)
+  #                         Example: "lake, sunset, golden light, serene, 8k, masterpiece"
+  #   "hybrid"           -- Mix of both; sentence opener + quality tags
+  #                         Example: "a serene lake at sunset, golden light, 8k, masterpiece"
+  style: string
+
+  # ------------------------------------------------------------------
+  # positive_prompt: How to construct effective positive prompts
+  # ------------------------------------------------------------------
+  positive_prompt:
+
+    # [REQUIRED] What comes first in the prompt.
+    # Values:
+    #   "description_first" -- Subject and scene first, style tags after
+    #   "tags_first"        -- Quality/style tags first, content after
+    #   "weighted_blocks"   -- Structured blocks with explicit weighting
+    # Most models prefer "description_first". Some fine-tunes (especially
+    # anime-focused) work better with quality tags front-loaded.
+    structure: string
+
+    # [OPTIONAL] How sensitive this model is to exact keyword choice.
+    # Range: 0.0 to 1.0
+    #   0.0 = very forgiving, paraphrasing works fine
+    #   0.5 = moderate, key terms matter but synonyms usually work
+    #   1.0 = extremely sensitive, specific trigger words required
+    # Fine-tunes with trained trigger words score high here.
+    # Default: 0.5
+    keyword_sensitivity: float
+
+    # [OPTIONAL] Maps artistic language to prompt fragments that
+    # actually work well with this model. The Intent Agent uses these
+    # to translate what the artist says into what the model needs.
+    #
+    # Each entry is a mapping:
+    #   - intent: what the artist says (artistic language)
+    #     prompt_fragment: what actually works for this model
+    #
+    # Example:
+    #   - intent: "cinematic"
+    #     prompt_fragment: "cinematic lighting, film grain, anamorphic lens flare"
+    #   - intent: "dreamy"
+    #     prompt_fragment: "soft focus, ethereal glow, pastel color palette"
+    effective_patterns: list
+
+    # [OPTIONAL] How this model handles emphasis/weighting in prompts.
+    # Values:
+    #   "parenthetical" -- (word) for emphasis, ((word)) for stronger
+    #                      Standard for SD 1.5 and SDXL in ComfyUI
+    #   "numeric"       -- (word:1.3) with explicit float weight
+    #                      Supported by most ComfyUI CLIP encoders
+    #   "none"          -- Model ignores or mishandles weighting syntax
+    #                      Typical for Flux
+    # Default: "parenthetical"
+    token_weighting: string
+
+    # [OPTIONAL] Prompt token count beyond which quality degrades.
+    # The CLIP encoder has a hard limit (77 tokens for SD 1.5/SDXL,
+    # 256+ for T5 in Flux/SD3), but effective limits are often lower.
+    # Prompts past this length add noise, not signal.
+    # Example: 60 for SD 1.5, 150 for Flux
+    max_effective_tokens: int
+
+  # ------------------------------------------------------------------
+  # negative_prompt: What to avoid (some models ignore this entirely)
+  # ------------------------------------------------------------------
+  negative_prompt:
+
+    # [OPTIONAL] Minimum negative prompt that should always be present.
+    # This is the baseline -- the Intent Agent appends to it, never
+    # replaces it. Set to "" for models that don't use negatives (Flux).
+    # Example: "lowres, bad anatomy, bad hands, text, watermark"
+    required_base: string
+
+    # [OPTIONAL] Negative prompt authoring style.
+    # Values:
+    #   "exclusion_list" -- Comma-separated things to avoid
+    #                       Example: "blurry, deformed, ugly, duplicate"
+    #   "anti_description" -- Describe what you DON'T want as prose
+    #                         Example: "not photorealistic, avoid sharp edges"
+    #   "minimal"          -- Short or empty; model doesn't benefit much
+    # Default: "exclusion_list"
+    style: string
+
+    # [OPTIONAL] How much negative prompts actually matter for output.
+    # Range: 0.0 to 1.0
+    #   0.0 = negative prompt has no effect (Flux)
+    #   0.5 = moderate effect, helps with common artifacts
+    #   1.0 = critical, output quality depends heavily on negatives
+    # SD 1.5 is typically 0.8+. SDXL is 0.5-0.7. Flux is 0.0.
+    # Default: 0.5
+    effectiveness: float
+
+  # ------------------------------------------------------------------
+  # intent_translations: Artistic language -> parameter adjustments
+  # ------------------------------------------------------------------
+  # [OPTIONAL] Maps what the artist says to parameter changes.
+  # The Intent Agent uses this to adjust BOTH prompt and sampler
+  # settings in response to natural language requests.
+  #
+  # Each key is an artistic intent (what the artist says).
+  # Each value describes the parameter directions to move.
+  #
+  # Example:
+  #   dreamier:
+  #     cfg_direction: "lower"       # reduce CFG toward sweet_spot low end
+  #     steps_direction: "higher"    # more steps for smoother diffusion
+  #     sampler_hint: "dpm++ 2m"     # suggest a specific sampler
+  #     prompt_hint: "add soft focus, ethereal glow"
+  #   sharper:
+  #     cfg_direction: "higher"
+  #     steps_direction: "neutral"
+  #     sampler_hint: "euler"
+  #     prompt_hint: "add sharp details, high frequency textures"
+  #   faster:
+  #     steps_direction: "lower"
+  #     cfg_direction: "neutral"
+  #     sampler_hint: "lcm"          # if supported by this model
+  #     prompt_hint: null             # no prompt change needed
+  #
+  # The execution agent translates "lower"/"higher"/"neutral" into
+  # concrete values using the parameter_space ranges below.
+  intent_translations: mapping
+
+
+# ------------------------------------------------------------------
+# parameter_space: Concrete ranges for the Execution Agent
+# ------------------------------------------------------------------
+# [REQUIRED] The Execution Agent reads this section to set sampler
+# parameters. Every value here comes from testing, not guessing.
+#
+# The structure is designed so agents can:
+#   - Start at the sweet spot (not just the default)
+#   - Stay within safe ranges (never hit failure modes)
+#   - Know when they've hit diminishing returns (stop wasting time)
+# ------------------------------------------------------------------
+parameter_space:
+
+  # ------------------------------------------------------------------
+  # steps: Denoising step count
+  # ------------------------------------------------------------------
+  steps:
+
+    # [REQUIRED] Default step count for this model.
+    # This is the "just works" value for general use.
+    default: int
+
+    # [REQUIRED] Absolute min/max boundaries.
+    # Going outside this range either wastes time or produces garbage.
+    # Format: [minimum, maximum]
+    # Example: [10, 80]
+    range: list  # [min, max]
+
+    # [REQUIRED] The range where quality-per-step is highest.
+    # Agents should default to values within this range.
+    # Format: [low_end, high_end]
+    # Example: [20, 35] -- 20 for speed, 35 for quality
+    sweet_spot: list  # [low, high]
+
+    # [OPTIONAL] Step count beyond which more steps don't help.
+    # The Execution Agent uses this to cap step count when the
+    # artist asks for "highest quality" -- there's no point going
+    # past this number.
+    # Example: 50
+    diminishing_returns: int
+
+  # ------------------------------------------------------------------
+  # cfg: Classifier-Free Guidance scale
+  # ------------------------------------------------------------------
+  # Note: For Flux models, this maps to the FluxGuidance node's
+  # `guidance` parameter, not the standard CFG scale.
+  # ------------------------------------------------------------------
+  cfg:
+
+    # [REQUIRED] Default CFG for general use.
+    default: float
+
+    # [REQUIRED] Absolute min/max. Values outside produce artifacts.
+    # Format: [minimum, maximum]
+    # Example: [1.0, 15.0]
+    range: list  # [min, max]
+
+    # [REQUIRED] Best results live in this range.
+    # Format: [low_end, high_end]
+    # Example: [6.0, 9.0]
+    sweet_spot: list  # [low, high]
+
+    # [OPTIONAL] What goes wrong at the extremes.
+    # The Execution Agent checks proposed CFG values against these
+    # descriptions and warns the artist before applying.
+    failure_modes:
+
+      # What happens when CFG is too high for this model.
+      # Example: "Oversaturation, burned highlights, color banding"
+      too_high: string
+
+      # What happens when CFG is too low for this model.
+      # Example: "Mushy details, prompt ignored, random output"
+      too_low: string
+
+  # ------------------------------------------------------------------
+  # sampler: Sampling algorithm configuration
+  # ------------------------------------------------------------------
+  sampler:
+
+    # [REQUIRED] Samplers that work well with this model.
+    # Listed in preference order (first = best default).
+    # Use ComfyUI sampler names exactly as they appear in the node.
+    # Example: ["dpmpp_2m", "euler", "dpmpp_sde"]
+    recommended: list
+
+    # [OPTIONAL] Samplers known to produce bad results with this model.
+    # The Execution Agent will refuse to use these and explain why.
+    # Example: ["ddim"]  -- if the model was not trained with DDIM
+    avoid: list
+
+    # [OPTIONAL] Recommended noise scheduler.
+    # Use ComfyUI scheduler names exactly.
+    # Example: "karras", "normal", "sgm_uniform"
+    # Default: "karras" (safe default for most models)
+    scheduler: string
+
+  # ------------------------------------------------------------------
+  # resolution: Native and supported output sizes
+  # ------------------------------------------------------------------
+  resolution:
+
+    # [REQUIRED] The resolution the model was trained at.
+    # Format: [width, height]
+    # Example: [1024, 1024] for SDXL, [512, 512] for SD 1.5
+    # Generating at native resolution always produces the best results.
+    native: list  # [width, height]
+
+    # [OPTIONAL] Aspect ratios the model handles well.
+    # The Execution Agent picks the closest supported ratio when
+    # the artist requests a non-square output.
+    # Example: ["1:1", "3:2", "2:3", "16:9", "9:16"]
+    supported_ratios: list
+
+    # [OPTIONAL] Whether this model's output responds well to
+    # latent or pixel-space upscaling.
+    # true  = upscaling works great (most modern models)
+    # false = upscaling introduces artifacts (rare, but some
+    #         fine-tunes have trouble)
+    # Default: true
+    upscale_friendly: bool
+
+  # ------------------------------------------------------------------
+  # denoise: Denoising strength (img2img, inpaint, hires fix)
+  # ------------------------------------------------------------------
+  denoise:
+
+    # [OPTIONAL] Default denoise strength for img2img workflows.
+    # Range: 0.0 (no change) to 1.0 (full regeneration)
+    # Default: 0.7
+    default: float
+
+    # [OPTIONAL] Sweet spot range for img2img use cases.
+    # Format: [low_end, high_end]
+    #   low end  = subtle changes, preserves composition
+    #   high end = significant changes, may alter composition
+    # Example: [0.3, 0.7]
+    img2img_sweet_spot: list  # [low, high]
+
+  # ------------------------------------------------------------------
+  # lora_behavior: How this model interacts with LoRA adapters
+  # ------------------------------------------------------------------
+  lora_behavior:
+
+    # [OPTIONAL] Maximum LoRAs that can be stacked before quality
+    # degrades. More LoRAs = more interference between adapters.
+    # Example: 3 for SD 1.5, 2 for SDXL, 1 for Flux
+    # Default: 2
+    max_simultaneous: int
+
+    # [OPTIONAL] Safe range for LoRA strength (model_strength).
+    # Format: [minimum, maximum]
+    # Going above max causes artifacts. Going below min has no effect.
+    # Example: [0.1, 1.2]
+    # Default: [0.1, 1.0]
+    strength_range: list  # [min, max]
+
+    # [OPTIONAL] Default LoRA strength when the artist doesn't specify.
+    # Example: 0.8
+    # Default: 0.8
+    default_strength: float
+
+    # [OPTIONAL] How multiple LoRAs combine in this model.
+    # Values:
+    #   "additive"       -- Effects stack linearly (SD 1.5 typical)
+    #   "multiplicative"  -- Effects compound (can escalate quickly)
+    #   "complex"         -- Unpredictable interactions, test carefully
+    # Affects how the Execution Agent adjusts individual strengths
+    # when multiple LoRAs are active.
+    # Default: "additive"
+    interaction_model: string
+
+    # [OPTIONAL] LoRA combinations known to conflict.
+    # Each entry describes a pair (or set) that produces artifacts
+    # when used together, even at low strengths.
+    # Example:
+    #   - loras: ["detail_enhancer", "skin_smooth"]
+    #     symptom: "Cancels out, produces flat textures"
+    #   - loras: ["anime_style", "photorealistic"]
+    #     symptom: "Flickering between styles, uncanny valley"
+    known_conflicts: list
+
+
+# ------------------------------------------------------------------
+# quality_signatures: What the Verify Agent looks for
+# ------------------------------------------------------------------
+# [REQUIRED] The Verify Agent reads this section after every render
+# to evaluate output quality and suggest next steps.
+#
+# This is where model-specific visual knowledge lives. A generic
+# "is this image good?" check misses model-specific artifacts.
+# This section teaches the Verify Agent what to expect from THIS model.
+# ------------------------------------------------------------------
+quality_signatures:
+
+  # [REQUIRED] What good output from this model looks like.
+  # The Verify Agent compares actual output against these traits.
+  # If expected characteristics are missing, something is wrong.
+  # Example:
+  #   - "Sharp foreground details with natural depth of field"
+  #   - "Skin tones in the warm spectrum without orange cast"
+  #   - "Clean edges on architectural elements"
+  #   - "Natural fabric folds without melting artifacts"
+  expected_characteristics: list
+
+  # [OPTIONAL] Model-specific artifacts and their trigger conditions.
+  # Generic artifacts (blur, noise) don't belong here -- only things
+  # specific to this model or model family.
+  #
+  # Each entry:
+  #   condition: what parameter state or prompt triggers the artifact
+  #   artifact: what it looks like in the output
+  #
+  # Example:
+  #   - condition: "CFG above 12 with detailed prompts"
+  #     artifact: "Color banding in gradient areas, especially skies"
+  #   - condition: "Multiple subjects at low resolution"
+  #     artifact: "Face merging between subjects"
+  #   - condition: "Hands in close-up compositions"
+  #     artifact: "Extra fingers, fused digits (SD 1.5 limitation)"
+  known_artifacts: list
+
+  # ------------------------------------------------------------------
+  # quality_floor: Minimum acceptable quality baseline
+  # ------------------------------------------------------------------
+  quality_floor:
+
+    # [OPTIONAL] Human-readable description of the minimum acceptable
+    # output from this model. Below this, something is misconfigured.
+    # Example: "Coherent composition with recognizable subject matter,
+    #           no gross anatomical errors, consistent lighting"
+    description: string
+
+    # [OPTIONAL] Normalized quality score (0.0 to 1.0) representing
+    # the minimum acceptable baseline. The Verify Agent flags outputs
+    # scoring below this as "needs investigation".
+    #   0.0 = noise / completely broken
+    #   0.5 = recognizable but flawed
+    #   0.7 = acceptable for iteration
+    #   1.0 = publication quality
+    # Default: 0.5
+    reference_score: float
+
+  # ------------------------------------------------------------------
+  # iteration_signals: Visual problems -> actionable next steps
+  # ------------------------------------------------------------------
+  # [OPTIONAL] This is the most valuable part for the artist.
+  # Instead of "output is bad", the Verify Agent says "I see X,
+  # which usually means Y -- try Z".
+  #
+  # Each key is a diagnosis category. Each value is a list of
+  # visual symptoms that map to that diagnosis.
+  # ------------------------------------------------------------------
+  iteration_signals:
+
+    # Output is undercooked -- needs more denoising steps.
+    # Example:
+    #   - "Visible noise patterns in flat areas"
+    #   - "Soft/undefined edges on sharp objects"
+    #   - "Texture detail missing in fabric or hair"
+    needs_more_steps: list
+
+    # CFG is too high -- oversaturated or over-sharpened.
+    # Example:
+    #   - "Harsh color transitions"
+    #   - "Unnatural contrast, crushed shadows"
+    #   - "Fried/crunchy texture artifacts"
+    needs_lower_cfg: list
+
+    # CFG is too low -- prompt is being ignored.
+    # Example:
+    #   - "Subject doesn't match prompt description"
+    #   - "Vague, generic composition"
+    #   - "Missing requested elements"
+    needs_higher_cfg: list
+
+    # The prompt itself is the problem, not the parameters.
+    # Example:
+    #   - "Correct style but wrong subject"
+    #   - "Ambiguous composition from conflicting prompt elements"
+    #   - "Literal interpretation of figurative language"
+    needs_reprompt: list
+
+    # Mostly good output with localized defects.
+    # Example:
+    #   - "Good composition with one deformed hand"
+    #   - "Correct scene with text artifacts on a sign"
+    #   - "Strong image with one face lacking detail"
+    needs_inpaint: list
+
+    # Problems inherent to this model that cannot be fixed by
+    # parameter tuning or prompt changes. The artist needs to
+    # know so they don't waste time iterating.
+    # Example:
+    #   - "Consistent struggle with more than 3 subjects"
+    #   - "Cannot produce legible text regardless of prompt"
+    #   - "Hands always have anatomical issues at < 768px"
+    model_limitation: list
