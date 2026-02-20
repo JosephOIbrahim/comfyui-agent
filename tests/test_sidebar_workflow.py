@@ -154,6 +154,18 @@ class TestSummarizeWorkflowData:
 
 # -- Unchanged workflow skips reload ------------------------------------------
 
+def _can_import_routes():
+    try:
+        import aiohttp  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@pytest.mark.skipif(
+    not _can_import_routes(),
+    reason="UI tests require aiohttp (pip install aiohttp)",
+)
 class TestWorkflowChangeDetection:
     def test_unchanged_workflow_preserves_history(self):
         """If the same workflow is injected twice, undo history survives."""

@@ -8,6 +8,10 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+# UI tests require aiohttp — skip gracefully when it's not installed
+pytest.importorskip("aiohttp", reason="UI tests require aiohttp (pip install aiohttp)")
 
 # Ensure ui package is importable
 project_root = str(Path(__file__).resolve().parent.parent)

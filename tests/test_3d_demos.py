@@ -11,8 +11,6 @@ These tests validate the end-to-end integration of Grafts A-D:
 import json
 from pathlib import Path
 
-import pytest
-from unittest.mock import patch
 
 from agent.system_prompt import _detect_relevant_knowledge
 from agent.tools import workflow_parse, comfy_discover

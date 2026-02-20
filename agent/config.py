@@ -23,6 +23,8 @@ if ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
 # MCP auth token (optional — for future HTTP/SSE transport auth)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-4-20250514")
+# ^ Only affects CLI mode (agent run). MCP mode inherits the model from Claude Code.
+# Override in .env: AGENT_MODEL=claude-opus-4-6-20250929 for higher quality CLI sessions.
 MAX_TOKENS = 16384
 MAX_AGENT_TURNS = 30
 

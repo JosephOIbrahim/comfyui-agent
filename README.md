@@ -102,18 +102,18 @@ agent search "anime" --models --type lora   # Filter by model type
 
 ## How It Works
 
-The agent uses Claude (Anthropic's AI) with 65 specialized tools across two tiers:
+The agent uses Claude (Anthropic's AI) with 77 specialized tools across two tiers:
 
-**Intelligence Layer (44 tools)**
+**Intelligence Layer (50 tools)**
 
 | Layer | Tools | What they do |
 |-------|-------|-------------|
 | **UNDERSTAND** | 13 | Parse workflows, scan models/nodes, query ComfyUI API, detect format |
 | **DISCOVER** | 12 | Search ComfyUI Manager (31k+ nodes), HuggingFace, CivitAI, model compatibility, install instructions, GitHub releases |
-| **PILOT** | 13 | RFC6902 patch engine with undo, semantic node ops, session persistence |
-| **VERIFY** | 6 | Validate, execute, WebSocket progress monitoring, post-execution verification |
+| **PILOT** | 16 | RFC6902 patch engine with undo, semantic node ops, session persistence, pipeline execution |
+| **VERIFY** | 9 | Validate, execute, WebSocket progress monitoring, post-execution verification, creative metadata embedding |
 
-**Brain Layer (21 tools)**
+**Brain Layer (27 tools)**
 
 | Module | Tools | What they do |
 |--------|-------|-------------|
@@ -123,6 +123,8 @@ The agent uses Claude (Anthropic's AI) with 65 specialized tools across two tier
 | **Orchestrator** | 2 | Parallel sub-tasks with filtered tool access |
 | **Optimizer** | 4 | GPU profiling, TensorRT detection, auto-apply optimizations |
 | **Demo** | 2 | Guided walkthroughs for streams and podcasts |
+| **Intent** | 4 | Artistic intent capture, MoE pipeline with iterative refinement |
+| **Iteration** | 3 | Refinement journey tracking across generation cycles |
 
 When you ask a question, Claude decides which tools to use, calls them, reads the results, and responds. It streams text as it thinks, so you're never staring at a blank screen.
 
@@ -136,7 +138,7 @@ All settings go in your `.env` file:
 | `COMFYUI_HOST` | `127.0.0.1` | Where ComfyUI is running |
 | `COMFYUI_PORT` | `8188` | ComfyUI port |
 | `COMFYUI_DATABASE` | `G:/COMFYUI_Database` | Your ComfyUI installation folder |
-| `AGENT_MODEL` | `claude-opus-4-6-20250929` | Which Claude model to use |
+| `AGENT_MODEL` | `claude-sonnet-4-20250514` | Which Claude model to use (CLI mode only — MCP inherits from Claude Code) |
 
 ## Session Memory
 
@@ -163,11 +165,21 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 
 ## MCP Server (Primary Interface)
 
-All 65 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
+All 77 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
 
 ```bash
 pip install -e "."
 agent mcp
+```
+
+## Quick Start for Teams
+
+Sharing with coworkers? See [QUICKSTART.md](QUICKSTART.md) for a 5-minute setup guide.
+
+```bash
+python scripts/setup.py                   # Interactive first-time config
+python scripts/validate_project.py        # Verify everything is consistent
+scripts\comfyui_with_agent.bat            # Launch ComfyUI + agent together (Windows)
 ```
 
 ## Troubleshooting
@@ -184,7 +196,7 @@ Tests run without ComfyUI — everything is mocked:
 
 ```bash
 python -m pytest tests/ -v
-# 459 tests, all mocked, under 35 seconds
+# 1100+ tests, all mocked, under 30 seconds
 ```
 
 ## License

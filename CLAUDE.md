@@ -22,7 +22,7 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-76 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+77 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
 OPTIMIZER, DEMO, INTENT, ITERATION). Natural conversation drives workflow inspection,
 discovery, modification, execution, optimization, and learning. Built with the Anthropic
@@ -197,13 +197,13 @@ Some tools overlap with Claude Code's native capabilities. All are kept for doma
 
 ### Four Intelligence Layers
 
-The agent's 50 intelligence + 26 brain tools are organized into four layers, each solving
+The agent's 50 intelligence + 27 brain tools are organized into four layers, each solving
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
 ┌──────────────────── SUPER DUPER AGENT v0.4.0 ─────────────────────┐
 │                                                                    │
-│  BRAIN LAYER (26 tools)                                            │
+│  BRAIN LAYER (27 tools)                                            │
 │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ ┌───────┐ ┌───────┐ │
 │  │PLANNER │ │ VISION │ │ MEMORY │ │ ORCH  │ │OPTIM  │ │ DEMO  │ │
 │  │4 tools │ │4 tools │ │4 tools │ │2 tools│ │4 tools│ │2 tools│ │

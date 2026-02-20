@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "comfyui-agent": {
+      "command": "agent",
+      "args": ["mcp"]
+    }
+  }
+}
