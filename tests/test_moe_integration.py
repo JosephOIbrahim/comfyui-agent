@@ -1005,3 +1005,278 @@ class TestBrainRegistration:
     def test_iterative_refine_agent_exported(self):
         from agent.brain import IterativeRefineAgent as Exported
         assert Exported is IterativeRefineAgent
+
+
+# ---------------------------------------------------------------------------
+# TestMemoryRecording — Vision-to-Memory wire
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryRecording:
+    """Verify that iterative_refine records outcomes to memory."""
+
+    def test_accepted_records_to_memory(self):
+        """Accepted verification records outcome to memory."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_intent.translate.return_value = _make_intent_spec(
+            confidence=0.9,
+            mutations=[
+                ParameterMutation(
+                    target="KSampler.cfg",
+                    action="set",
+                    value=5.0,
+                    reason="dreamier",
+                ),
+            ],
+        )
+
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.return_value = _make_verification(
+            decision="accept",
+            overall_score=0.9,
+            diagnosed_issues=["minor_noise"],
+        )
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "make it dreamier",
+                "model_id": "sdxl-base",
+                "output_analysis": {
+                    "quality_score": 0.9,
+                    "matches_intent": True,
+                    "artifacts": [],
+                    "issues": [],
+                },
+            }))
+
+        assert result["status"] == "accepted"
+        mock_memory.assert_called_once()
+        call_args = mock_memory.call_args
+        assert call_args[0][0] == "record_outcome"
+        outcome = call_args[0][1]
+        assert outcome["quality_score"] == 0.9
+        assert outcome["model_combo"] == ["sdxl-base"]
+        assert "minor_noise" in outcome["vision_notes"]
+        assert "verify_decision: accept" in outcome["vision_notes"]
+        assert outcome["key_params"]["model"] == "sdxl-base"
+        assert outcome["key_params"]["cfg"] == 5.0  # extracted from "KSampler.cfg"
+
+    def test_escalated_records_to_memory(self):
+        """Escalated verification records outcome to memory."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_intent.translate.return_value = _make_intent_spec(confidence=0.9)
+
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.return_value = _make_verification(
+            decision="escalate",
+            overall_score=0.3,
+            intent_alignment=0.2,
+            diagnosed_issues=["wrong_subject", "style_mismatch"],
+        )
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "photorealistic portrait",
+                "model_id": "flux1-dev",
+                "output_analysis": {
+                    "quality_score": 0.3,
+                    "matches_intent": False,
+                    "artifacts": ["wrong_subject"],
+                    "issues": ["style_mismatch"],
+                },
+            }))
+
+        assert result["status"] == "escalated"
+        mock_memory.assert_called_once()
+        outcome = mock_memory.call_args[0][1]
+        assert outcome["quality_score"] == 0.3
+        assert "wrong_subject" in outcome["vision_notes"]
+        assert "style_mismatch" in outcome["vision_notes"]
+
+    def test_evaluated_records_to_memory(self):
+        """Evaluation-only path records outcome to memory."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.return_value = _make_verification(
+            decision="accept",
+            overall_score=0.85,
+        )
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "evaluate this output",
+                "model_id": "sdxl-base",
+                "workflow_state": {"state": "has_output"},
+                "output_analysis": {
+                    "quality_score": 0.85,
+                    "matches_intent": True,
+                    "artifacts": [],
+                    "issues": [],
+                },
+            }))
+
+        assert result["status"] == "evaluated"
+        mock_memory.assert_called_once()
+        outcome = mock_memory.call_args[0][1]
+        assert outcome["quality_score"] == 0.85
+
+    def test_planned_does_not_record_to_memory(self):
+        """Planned status (no verification) should NOT record to memory."""
+        with patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "make it dreamier",
+                "model_id": "sdxl-base",
+            }))
+
+        assert result["status"] == "planned"
+        mock_memory.assert_not_called()
+
+    def test_memory_failure_is_non_fatal(self):
+        """Memory recording failure should not break the pipeline."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_intent.translate.return_value = _make_intent_spec(confidence=0.9)
+
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.return_value = _make_verification(
+            decision="accept",
+            overall_score=0.9,
+        )
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+            side_effect=RuntimeError("disk full"),
+        ):
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "make it dreamier",
+                "model_id": "sdxl-base",
+                "output_analysis": {
+                    "quality_score": 0.9,
+                    "matches_intent": True,
+                    "artifacts": [],
+                    "issues": [],
+                },
+            }))
+
+        # Pipeline should still succeed despite memory failure
+        assert result["status"] == "accepted"
+        assert result["verification"]["overall_score"] == 0.9
+
+    def test_refine_loop_records_final_outcome(self):
+        """Multi-iteration refine loop records only the final outcome."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_intent.translate.return_value = _make_intent_spec(confidence=0.9)
+
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.side_effect = [
+            _make_verification(
+                decision="refine",
+                overall_score=0.5,
+                refinement_actions=[
+                    RefinementAction(
+                        type="adjust_params",
+                        target="cfg",
+                        reason="Lower CFG",
+                        priority=1,
+                    ),
+                ],
+            ),
+            _make_verification(
+                decision="accept",
+                overall_score=0.85,
+            ),
+        ]
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            result = _parse(handle("iterative_refine", {
+                "user_intent": "make it dreamier",
+                "model_id": "sdxl-base",
+                "output_analysis": {
+                    "quality_score": 0.5,
+                    "artifacts": ["oversaturated"],
+                    "issues": [],
+                },
+            }))
+
+        assert result["status"] == "accepted"
+        assert result["iterations"] == 2
+        # Memory should be called once (at the terminal accept)
+        mock_memory.assert_called_once()
+        outcome = mock_memory.call_args[0][1]
+        assert outcome["quality_score"] == 0.85
+        assert "2 iterations" in outcome["workflow_summary"]
+
+    def test_workflow_summary_includes_intent_and_model(self):
+        """Recorded workflow_summary captures user intent and model."""
+        mock_intent = MagicMock(spec=IntentAgent)
+        mock_intent.translate.return_value = _make_intent_spec(confidence=0.9)
+
+        mock_verify = MagicMock(spec=VerifyAgent)
+        mock_verify.evaluate.return_value = _make_verification(
+            decision="accept",
+            overall_score=0.8,
+        )
+
+        with patch(
+            "agent.brain.iterative_refine.Router",
+            return_value=Router(
+                intent_agent=mock_intent,
+                verify_agent=mock_verify,
+            ),
+        ), patch(
+            "agent.brain.iterative_refine.memory_handle",
+        ) as mock_memory:
+            handle("iterative_refine", {
+                "user_intent": "cinematic lighting",
+                "model_id": "flux1-dev",
+                "output_analysis": {
+                    "quality_score": 0.8,
+                    "matches_intent": True,
+                    "artifacts": [],
+                    "issues": [],
+                },
+            })
+
+        outcome = mock_memory.call_args[0][1]
+        assert "cinematic lighting" in outcome["workflow_summary"]
+        assert "flux1-dev" in outcome["workflow_summary"]
+        assert "accepted" in outcome["workflow_summary"]

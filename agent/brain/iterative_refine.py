@@ -11,12 +11,14 @@ Integration points:
   - VerifyAgent (agent.agents.verify_agent) — quality judgment
   - Profiles (agent.profiles) — model-specific parameters
   - Schemas (agent.schemas) — output validation
+  - Memory (agent.brain.memory) — outcome recording from verification results
 """
 
 import logging
 
 from ._sdk import BrainAgent
 from ..agents.router import Router
+from .memory import handle as memory_handle
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +116,73 @@ def _safe_to_json(obj: dict) -> str:
     except Exception:
         import json
         return json.dumps(obj, sort_keys=True)
+
+
+def _record_to_memory(
+    *,
+    status: str,
+    user_intent: str,
+    model_id: str,
+    verification: dict | None,
+    intent_spec: dict | None,
+    iterations: int,
+) -> None:
+    """Record MoE pipeline outcome to memory (fire-and-forget).
+
+    Bridges verification results into memory's record_outcome so the
+    learning loop can track quality scores, diagnosed issues, and
+    refinement patterns across sessions.
+    """
+    if verification is None:
+        return
+
+    try:
+        quality_score = verification.get("overall_score")
+        diagnosed = verification.get("diagnosed_issues", [])
+        decision = verification.get("decision", "")
+
+        # Build vision_notes from verification diagnostics
+        vision_notes = []
+        if diagnosed:
+            vision_notes.extend(diagnosed)
+        if verification.get("model_limitations"):
+            vision_notes.extend(
+                f"model_limitation: {lim}"
+                for lim in verification["model_limitations"]
+            )
+        if decision:
+            vision_notes.append(f"verify_decision: {decision}")
+
+        # Extract key_params from intent_spec mutations
+        key_params: dict = {"model": model_id}
+        if intent_spec and intent_spec.get("parameter_mutations"):
+            for mut in intent_spec["parameter_mutations"]:
+                target = mut.get("target", "")
+                value = mut.get("value")
+                if target and value is not None:
+                    # Use the leaf parameter name (e.g. "cfg" from "KSampler.cfg")
+                    param = target.rsplit(".", 1)[-1] if "." in target else target
+                    key_params[param] = value
+
+        outcome_input = {
+            "session": "default",
+            "workflow_summary": (
+                f"MoE {status}: \"{user_intent}\" on {model_id} "
+                f"({iterations} iteration{'s' if iterations != 1 else ''})"
+            ),
+            "key_params": key_params,
+            "model_combo": [model_id],
+            "quality_score": quality_score,
+            "vision_notes": vision_notes,
+        }
+
+        memory_handle("record_outcome", outcome_input)
+        log.debug(
+            "Recorded MoE outcome to memory: status=%s model=%s score=%s",
+            status, model_id, quality_score,
+        )
+    except Exception as exc:
+        log.warning("Failed to record MoE outcome to memory (non-fatal): %s", exc)
 
 
 def _handle_classify_intent(tool_input: dict) -> str:
@@ -313,13 +382,23 @@ def _handle_evaluation(
         max_iterations=context.max_iterations,
     )
 
+    v_dict = verification.to_dict()
+    _record_to_memory(
+        status="evaluated",
+        user_intent=user_intent,
+        model_id=model_id,
+        verification=v_dict,
+        intent_spec=None,
+        iterations=0,
+    )
+
     return _safe_to_json({
         "status": "evaluated",
         "intent_type": "evaluation",
         "delegation_sequence": delegation_sequence,
         "precondition_warnings": precondition_warnings,
         "intent_spec": None,
-        "verification": verification.to_dict(),
+        "verification": v_dict,
         "iterations": 0,
         "history": [],
         "schemas_used": schemas_used,
@@ -443,13 +522,23 @@ def _handle_generation_or_modification(
         loop_decision = router.should_continue(verification, context)
 
         if loop_decision["action"] == "accept":
+            i_dict = intent_spec.to_dict()
+            v_dict = verification.to_dict()
+            _record_to_memory(
+                status="accepted",
+                user_intent=user_intent,
+                model_id=model_id,
+                verification=v_dict,
+                intent_spec=i_dict,
+                iterations=iterations,
+            )
             return _safe_to_json({
                 "status": "accepted",
                 "intent_type": context.intent_type,
                 "delegation_sequence": delegation_sequence,
                 "precondition_warnings": precondition_warnings,
-                "intent_spec": intent_spec.to_dict(),
-                "verification": verification.to_dict(),
+                "intent_spec": i_dict,
+                "verification": v_dict,
                 "iterations": iterations,
                 "history": history,
                 "schemas_used": schemas_used,
@@ -457,13 +546,23 @@ def _handle_generation_or_modification(
 
         if not loop_decision["continue"]:
             # Escalated or max iterations
+            i_dict = intent_spec.to_dict()
+            v_dict = verification.to_dict()
+            _record_to_memory(
+                status="escalated",
+                user_intent=user_intent,
+                model_id=model_id,
+                verification=v_dict,
+                intent_spec=i_dict,
+                iterations=iterations,
+            )
             return _safe_to_json({
                 "status": "escalated",
                 "intent_type": context.intent_type,
                 "delegation_sequence": delegation_sequence,
                 "precondition_warnings": precondition_warnings,
-                "intent_spec": intent_spec.to_dict(),
-                "verification": verification.to_dict(),
+                "intent_spec": i_dict,
+                "verification": v_dict,
                 "iterations": iterations,
                 "history": history,
                 "schemas_used": schemas_used,
@@ -481,13 +580,23 @@ def _handle_generation_or_modification(
         )
 
     # If we get here, we exhausted max_iterations via the for loop
+    i_dict = intent_spec.to_dict()
+    v_dict = last_verification.to_dict() if last_verification else None
+    _record_to_memory(
+        status="refined",
+        user_intent=user_intent,
+        model_id=model_id,
+        verification=v_dict,
+        intent_spec=i_dict,
+        iterations=iterations,
+    )
     return _safe_to_json({
         "status": "refined",
         "intent_type": context.intent_type,
         "delegation_sequence": delegation_sequence,
         "precondition_warnings": precondition_warnings,
-        "intent_spec": intent_spec.to_dict(),
-        "verification": last_verification.to_dict() if last_verification else None,
+        "intent_spec": i_dict,
+        "verification": v_dict,
         "iterations": iterations,
         "history": history,
         "schemas_used": schemas_used,
