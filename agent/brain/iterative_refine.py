@@ -14,10 +14,12 @@ Integration points:
   - Memory (agent.brain.memory) — outcome recording from verification results
 """
 
+import json as _json
 import logging
 
 from ._sdk import BrainAgent
 from ..agents.router import Router
+from ..tools import handle as tools_handle
 from .memory import handle as memory_handle
 
 log = logging.getLogger(__name__)
@@ -223,6 +225,7 @@ def _handle_iterative_refine(tool_input: dict) -> str:
             "precondition_warnings": ["user_intent is required"],
             "intent_spec": None,
             "verification": None,
+            "validation": [],
             "iterations": 0,
             "history": [],
             "schemas_used": {},
@@ -236,6 +239,7 @@ def _handle_iterative_refine(tool_input: dict) -> str:
             "precondition_warnings": ["model_id is required"],
             "intent_spec": None,
             "verification": None,
+            "validation": [],
             "iterations": 0,
             "history": [],
             "schemas_used": {},
@@ -286,6 +290,7 @@ def _handle_iterative_refine(tool_input: dict) -> str:
             "precondition_warnings": precondition_warnings + [str(exc)],
             "intent_spec": None,
             "verification": None,
+            "validation": [],
             "iterations": 0,
             "history": [],
             "schemas_used": schemas_used,
@@ -314,6 +319,7 @@ def _dispatch_by_intent_type(
             context=context,
             user_intent=user_intent,
             model_id=model_id,
+            workflow_state=workflow_state,
             output_analysis=output_analysis,
             delegation_sequence=delegation_sequence,
             precondition_warnings=precondition_warnings,
@@ -353,6 +359,7 @@ def _handle_evaluation(
     context,
     user_intent: str,
     model_id: str,
+    workflow_state=None,
     output_analysis,
     delegation_sequence: list[str],
     precondition_warnings: list[str],
@@ -369,15 +376,20 @@ def _handle_evaluation(
             ],
             "intent_spec": None,
             "verification": None,
+            "validation": [],
             "iterations": 0,
             "history": [],
             "schemas_used": schemas_used,
         })
 
+    # Extract parameters from workflow for Verify Agent enrichment
+    parameters_used = _extract_parameters_from_workflow(workflow_state)
+
     verification = router.verify_agent.evaluate(
         output_analysis=output_analysis,
         original_intent=user_intent,
         model_id=model_id,
+        parameters_used=parameters_used,
         iteration_count=context.iteration_count,
         max_iterations=context.max_iterations,
     )
@@ -399,6 +411,7 @@ def _handle_evaluation(
         "precondition_warnings": precondition_warnings,
         "intent_spec": None,
         "verification": v_dict,
+        "validation": [],
         "iterations": 0,
         "history": [],
         "schemas_used": schemas_used,
@@ -425,6 +438,16 @@ def _handle_exploration(
         workflow_state=wf_params,
     )
 
+    # Validate mutations against live ComfyUI (non-blocking)
+    validation_results: list[dict] = []
+    if _is_comfyui_available():
+        validation_results = _validate_intent_mutations(intent_spec)
+        for vr in validation_results:
+            if vr.get("status") == "warning":
+                precondition_warnings.append(
+                    f"Validation: {vr.get('message', '')}"
+                )
+
     return _safe_to_json({
         "status": "planned",
         "intent_type": "exploration",
@@ -432,6 +455,7 @@ def _handle_exploration(
         "precondition_warnings": precondition_warnings,
         "intent_spec": intent_spec.to_dict(),
         "verification": None,
+        "validation": validation_results,
         "iterations": 0,
         "history": [],
         "schemas_used": schemas_used,
@@ -459,7 +483,6 @@ def _handle_generation_or_modification(
     # Query memory for learned patterns to inform Intent Agent
     learned_patterns = None
     try:
-        import json as _json
         raw = memory_handle("get_learned_patterns", {"session": "default", "model_filter": model_id})
         parsed = _json.loads(raw) if raw else {}
         if parsed and not parsed.get("error"):
@@ -486,6 +509,16 @@ def _handle_generation_or_modification(
         refinement_context=initial_refinement,
     )
 
+    # Validate mutations against live ComfyUI (non-blocking)
+    validation_results: list[dict] = []
+    if _is_comfyui_available():
+        validation_results = _validate_intent_mutations(intent_spec)
+        for vr in validation_results:
+            if vr.get("status") == "warning":
+                precondition_warnings.append(
+                    f"Validation: {vr.get('message', '')}"
+                )
+
     # Check confidence
     confidence_check = router.check_confidence(intent_spec)
     if not confidence_check["proceed"]:
@@ -496,6 +529,7 @@ def _handle_generation_or_modification(
             "precondition_warnings": precondition_warnings,
             "intent_spec": intent_spec.to_dict(),
             "verification": None,
+            "validation": validation_results,
             "iterations": 0,
             "history": [],
             "schemas_used": schemas_used,
@@ -510,10 +544,14 @@ def _handle_generation_or_modification(
             "precondition_warnings": precondition_warnings,
             "intent_spec": intent_spec.to_dict(),
             "verification": None,
+            "validation": validation_results,
             "iterations": 0,
             "history": [],
             "schemas_used": schemas_used,
         })
+
+    # Extract parameters from workflow for Verify Agent enrichment
+    parameters_used = _extract_parameters_from_workflow(workflow_state)
 
     # Output analysis provided — run verify + refinement loop
     refinement_context = None
@@ -527,6 +565,7 @@ def _handle_generation_or_modification(
             output_analysis=output_analysis,
             original_intent=user_intent,
             model_id=model_id,
+            parameters_used=parameters_used,
             iteration_count=context.iteration_count,
             max_iterations=context.max_iterations,
         )
@@ -562,6 +601,7 @@ def _handle_generation_or_modification(
                 "precondition_warnings": precondition_warnings,
                 "intent_spec": i_dict,
                 "verification": v_dict,
+                "validation": validation_results,
                 "iterations": iterations,
                 "history": history,
                 "schemas_used": schemas_used,
@@ -586,6 +626,7 @@ def _handle_generation_or_modification(
                 "precondition_warnings": precondition_warnings,
                 "intent_spec": i_dict,
                 "verification": v_dict,
+                "validation": validation_results,
                 "iterations": iterations,
                 "history": history,
                 "schemas_used": schemas_used,
@@ -620,6 +661,7 @@ def _handle_generation_or_modification(
         "precondition_warnings": precondition_warnings,
         "intent_spec": i_dict,
         "verification": v_dict,
+        "validation": validation_results,
         "iterations": iterations,
         "history": history,
         "schemas_used": schemas_used,
@@ -635,6 +677,138 @@ def _extract_workflow_params(workflow_state) -> dict | None:
         }
         return params or None
     return None
+
+
+# ---------------------------------------------------------------------------
+# Validation helpers (P4: MoE → Tools grounding)
+# ---------------------------------------------------------------------------
+
+_EXTRACTABLE_PARAMS = frozenset({
+    "cfg", "steps", "denoise", "sampler_name", "scheduler",
+})
+
+
+def _is_comfyui_available() -> bool:
+    """Check whether ComfyUI is reachable (fire-and-forget)."""
+    try:
+        raw = tools_handle("is_comfyui_running", {})
+        parsed = _json.loads(raw) if isinstance(raw, str) else raw
+        return bool(parsed.get("running"))
+    except Exception:
+        return False
+
+
+def _validate_intent_mutations(intent_spec) -> list[dict]:
+    """Validate Intent Agent mutations against real ComfyUI node info.
+
+    For each ParameterMutation.target (format ``NodeClass.input_name``),
+    checks that the node class exists and the input name is registered.
+    Caches ``get_node_info`` results per node class within a single call.
+
+    Returns a list of validation result dicts, one per mutation.
+    On any exception the function returns an empty list (non-blocking).
+    """
+    try:
+        mutations = intent_spec.parameter_mutations
+        if not mutations:
+            return []
+
+        node_cache: dict[str, dict | None] = {}
+        results: list[dict] = []
+
+        for m in mutations:
+            target = m.target
+            if "." not in target:
+                results.append({
+                    "target": target,
+                    "node_class": target,
+                    "input_name": "",
+                    "node_exists": False,
+                    "input_exists": False,
+                    "status": "warning",
+                    "message": f"Invalid target format (expected NodeClass.input): {target}",
+                })
+                continue
+
+            node_class, input_name = target.rsplit(".", 1)
+
+            # Fetch node info (cached per node_class)
+            if node_class not in node_cache:
+                try:
+                    raw = tools_handle("get_node_info", {"node_type": node_class})
+                    parsed = _json.loads(raw) if isinstance(raw, str) else raw
+                    node_cache[node_class] = parsed if not parsed.get("error") else None
+                except Exception:
+                    node_cache[node_class] = None
+
+            info = node_cache[node_class]
+            node_exists = info is not None
+
+            # Check input exists in required or optional
+            input_exists = False
+            if node_exists:
+                required = info.get("input", {}).get("required", {})
+                optional = info.get("input", {}).get("optional", {})
+                input_exists = input_name in required or input_name in optional
+
+            if not node_exists:
+                results.append({
+                    "target": target,
+                    "node_class": node_class,
+                    "input_name": input_name,
+                    "node_exists": False,
+                    "input_exists": False,
+                    "status": "warning",
+                    "message": f"Node class '{node_class}' not found in ComfyUI",
+                })
+            elif not input_exists:
+                results.append({
+                    "target": target,
+                    "node_class": node_class,
+                    "input_name": input_name,
+                    "node_exists": True,
+                    "input_exists": False,
+                    "status": "warning",
+                    "message": f"Input '{input_name}' not found on node '{node_class}'",
+                })
+            else:
+                results.append({
+                    "target": target,
+                    "node_class": node_class,
+                    "input_name": input_name,
+                    "node_exists": True,
+                    "input_exists": True,
+                    "status": "ok",
+                })
+
+        return results
+    except Exception as exc:
+        log.debug("Validation of intent mutations failed (non-fatal): %s", exc)
+        return []
+
+
+def _extract_parameters_from_workflow(workflow_state) -> dict | None:
+    """Walk workflow nodes and extract literal parameter values.
+
+    Looks for ``cfg``, ``steps``, ``denoise``, ``sampler_name``, and
+    ``scheduler`` inputs across all nodes.  Skips connection inputs
+    (``[node_id, idx]`` lists).  Returns a flat dict or ``None``.
+    """
+    if not isinstance(workflow_state, dict):
+        return None
+
+    params: dict = {}
+    for _node_id, node in sorted(workflow_state.items()):
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for key, val in inputs.items():
+            if key in _EXTRACTABLE_PARAMS and not isinstance(val, list):
+                params[key] = val
+
+    return params or None
 
 
 # ---------------------------------------------------------------------------
