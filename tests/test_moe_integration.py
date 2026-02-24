@@ -1058,10 +1058,10 @@ class TestMemoryRecording:
             }))
 
         assert result["status"] == "accepted"
-        mock_memory.assert_called_once()
-        call_args = mock_memory.call_args
-        assert call_args[0][0] == "record_outcome"
-        outcome = call_args[0][1]
+        # Filter for record_outcome calls (get_learned_patterns may also be called)
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 1
+        outcome = record_calls[0][0][1]
         assert outcome["quality_score"] == 0.9
         assert outcome["model_combo"] == ["sdxl-base"]
         assert "minor_noise" in outcome["vision_notes"]
@@ -1103,8 +1103,10 @@ class TestMemoryRecording:
             }))
 
         assert result["status"] == "escalated"
-        mock_memory.assert_called_once()
-        outcome = mock_memory.call_args[0][1]
+        # Filter for record_outcome calls (get_learned_patterns may also be called)
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 1
+        outcome = record_calls[0][0][1]
         assert outcome["quality_score"] == 0.3
         assert "wrong_subject" in outcome["vision_notes"]
         assert "style_mismatch" in outcome["vision_notes"]
@@ -1140,8 +1142,9 @@ class TestMemoryRecording:
             }))
 
         assert result["status"] == "evaluated"
-        mock_memory.assert_called_once()
-        outcome = mock_memory.call_args[0][1]
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 1
+        outcome = record_calls[0][0][1]
         assert outcome["quality_score"] == 0.85
 
     def test_planned_does_not_record_to_memory(self):
@@ -1155,7 +1158,10 @@ class TestMemoryRecording:
             }))
 
         assert result["status"] == "planned"
-        mock_memory.assert_not_called()
+        # get_learned_patterns may be called for pre-planning context,
+        # but record_outcome should NOT be called for planned-only status
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 0
 
     def test_memory_failure_is_non_fatal(self):
         """Memory recording failure should not break the pipeline."""
@@ -1239,9 +1245,10 @@ class TestMemoryRecording:
 
         assert result["status"] == "accepted"
         assert result["iterations"] == 2
-        # Memory should be called once (at the terminal accept)
-        mock_memory.assert_called_once()
-        outcome = mock_memory.call_args[0][1]
+        # Filter for record_outcome calls (get_learned_patterns may also be called)
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 1
+        outcome = record_calls[0][0][1]
         assert outcome["quality_score"] == 0.85
         assert "2 iterations" in outcome["workflow_summary"]
 
@@ -1276,7 +1283,9 @@ class TestMemoryRecording:
                 },
             })
 
-        outcome = mock_memory.call_args[0][1]
+        record_calls = [c for c in mock_memory.call_args_list if c[0][0] == "record_outcome"]
+        assert len(record_calls) == 1
+        outcome = record_calls[0][0][1]
         assert "cinematic lighting" in outcome["workflow_summary"]
         assert "flux1-dev" in outcome["workflow_summary"]
         assert "accepted" in outcome["workflow_summary"]

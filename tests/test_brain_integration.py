@@ -111,7 +111,8 @@ class TestPlanExecuteLearnLoop:
             "current_model": "sdxl_base",
             "current_params": {"steps": 20, "cfg": 7.0},
         }))
-        assert recs["based_on"] == 1
+        # 2 outcomes: planner auto-records goal completion + explicit record above
+        assert recs["based_on"] == 2
 
     def test_multiple_outcomes_improve_recommendations(self):
         # Record multiple outcomes with varying quality

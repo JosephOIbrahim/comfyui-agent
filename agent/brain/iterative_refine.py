@@ -456,11 +456,34 @@ def _handle_generation_or_modification(
     history: list[dict] = []
     iterations = 0
 
+    # Query memory for learned patterns to inform Intent Agent
+    learned_patterns = None
+    try:
+        import json as _json
+        raw = memory_handle("get_learned_patterns", {"session": "default", "model_filter": model_id})
+        parsed = _json.loads(raw) if raw else {}
+        if parsed and not parsed.get("error"):
+            learned_patterns = parsed
+            log.debug("Loaded learned patterns for model %s: %d entries", model_id,
+                      len(parsed.get("best_models", [])))
+    except Exception as exc:
+        log.debug("Could not load learned patterns for MoE: %s", exc)
+
+    # Build refinement context from learned patterns (negative patterns become hints)
+    initial_refinement = None
+    if learned_patterns and learned_patterns.get("negative_patterns"):
+        initial_refinement = [
+            {"type": "avoid_pattern", "target": p.get("param", ""),
+             "recommendation": p.get("issue", "")}
+            for p in learned_patterns["negative_patterns"][:2]
+        ]
+
     # First pass: run Intent Agent
     intent_spec = router.intent_agent.translate(
         user_intent=user_intent,
         model_id=model_id,
         workflow_state=wf_params,
+        refinement_context=initial_refinement,
     )
 
     # Check confidence

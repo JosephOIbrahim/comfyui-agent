@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ._protocol import make_id
 from ._sdk import BrainAgent
+from .memory import handle as memory_handle
 
 log = logging.getLogger(__name__)
 
@@ -366,9 +367,43 @@ class PlannerAgent(BrainAgent):
         else:
             return self.to_json({"error": f"Unknown planner tool: {name}"})
 
+    def _query_learned_patterns(self, session: str) -> dict | None:
+        """Query memory for learned patterns to inform planning."""
+        try:
+            import json as _json
+            raw = memory_handle("get_learned_patterns", {"session": session})
+            return _json.loads(raw) if raw else None
+        except Exception as e:
+            log.debug("Could not query learned patterns for planning: %s", e)
+            return None
+
+    def _record_goal_completion(self, plan: dict) -> None:
+        """Record goal completion to memory for cross-session learning."""
+        try:
+            completed_steps = [s for s in plan["steps"] if s["status"] == "done"]
+            memory_handle("record_outcome", {
+                "session": plan.get("session", "default"),
+                "workflow_summary": (
+                    f"Goal completed: {plan['goal']} "
+                    f"({len(completed_steps)} steps, pattern: {plan['pattern']})"
+                ),
+                "goal_id": plan.get("goal_id"),
+                "key_params": {
+                    "pattern": plan["pattern"],
+                    "steps_completed": len(completed_steps),
+                    "replans": len(plan.get("replan_history", [])),
+                },
+            })
+            log.debug("Recorded goal completion to memory: %s", plan.get("goal_id"))
+        except Exception as e:
+            log.warning("Failed to record goal completion to memory: %s", e)
+
     def _handle_plan_goal(self, tool_input: dict) -> str:
         goal = tool_input["goal"]
         session = tool_input.get("session", "default")
+
+        # Query memory for learned patterns to inform planning
+        learned = self._query_learned_patterns(session)
 
         pattern_name, pattern = self._match_pattern(goal)
 
@@ -402,7 +437,7 @@ class PlannerAgent(BrainAgent):
 
         self._save_plan(session, plan)
 
-        return self.to_json({
+        result = {
             "planned": True,
             "goal_id": goal_id,
             "goal": goal,
@@ -411,7 +446,17 @@ class PlannerAgent(BrainAgent):
             "current_step": steps[0]["id"] if steps else None,
             "steps": [{"id": s["id"], "action": s["action"], "status": s["status"]} for s in steps],
             "message": f"Plan created with {len(steps)} steps using '{pattern_name}' pattern. First step: {steps[0]['action'] if steps else 'none'}",
-        })
+        }
+
+        # Attach learned patterns if available (helps agent make smarter choices)
+        if learned and not learned.get("error"):
+            result["learned_context"] = {
+                "best_models": learned.get("best_models", [])[:3],
+                "optimal_params": learned.get("optimal_params", {}),
+                "negative_patterns": learned.get("negative_patterns", [])[:3],
+            }
+
+        return self.to_json(result)
 
     def _handle_get_plan(self, tool_input: dict) -> str:
         session = tool_input.get("session", "default")
@@ -469,6 +514,7 @@ class PlannerAgent(BrainAgent):
         all_done = all(s["status"] == "done" for s in plan["steps"])
         if all_done:
             plan["status"] = "completed"
+            self._record_goal_completion(plan)
 
         plan["updated_at"] = time.time()
         self._save_plan(session, plan)
