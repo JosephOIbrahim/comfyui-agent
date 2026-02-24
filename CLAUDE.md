@@ -45,7 +45,7 @@ pip install -e ".[dev]"
 agent run
 agent run --session my-project --verbose
 
-# Tests (1124 tests, all mocked, <25s)
+# Tests (1241 tests, all mocked, <25s)
 python -m pytest tests/ -v
 python -m pytest tests/test_workflow_patch.py -v                              # single file
 python -m pytest tests/test_session.py::TestSaveSession -v                    # single class
@@ -303,7 +303,7 @@ BUILT (v0.4.0 — working today):
   ✅ Schema System (loader, validator, generator, inheritance, 3 default schemas)
   ✅ MoE Agents: Intent (artistic→params), Verify (model-relative quality), Router (sequencer)
   ✅ iterative_refine MoE pipeline (Intent→Execute→Verify loop with refinement feedback)
-  ✅ 1124 tests, all mocked, <25s, 0 lint warnings
+  ✅ 1241 tests, all mocked, <25s, 0 lint warnings
 
 NEXT:
   🔲 Demo scenarios run start-to-finish without errors
@@ -613,7 +613,7 @@ mutations with conflict resolution. Verify Agent: model-relative quality judgmen
 with iteration control. Router: lightweight sequencer with authority boundaries.
 iterative_refine brain tool wires the full MoE pipeline with refinement loops.
 
-1124 tests. 80 tools.
+1241 tests. 80 tools.
 
 ### Phase 5B: Demo Polish
 **Goal:** Demo scenarios, metadata integration, ecosystem completion.
