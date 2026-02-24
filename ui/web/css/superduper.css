@@ -1,6 +1,7 @@
 /* ── SUPER DUPER Design System ──────────────────────────────────────
- *  Brand: #00BB81 (Jade Green)
- *  Surfaces: layered depth, no borders/shadows
+ *  Native skin: ComfyUI dark theme palette
+ *  Accent: #4e9bcd (ComfyUI native blue)
+ *  Surfaces: neutral grey depth layers
  *  Typography: Inter (sans) + JetBrains Mono (mono)
  *  Slot colors: official ComfyUI dark theme
  * ──────────────────────────────────────────────────────────────────── */
@@ -10,32 +11,30 @@
 /* ── Design Tokens ──────────────────────────────────────────────── */
 
 :root {
-  /* Brand */
-  --sd-brand: #00BB81;
-  --sd-brand-dim: #00BB8133;
-  --sd-brand-subtle: #00BB8118;
-  --sd-dark: #020410;
+  /* ComfyUI Native Surfaces */
+  --sd-canvas: #1e1e1e;
+  --sd-panel: #2b2b2b;
+  --sd-card: #353535;
+  --sd-card-hover: #3a3a3a;
+  --sd-elevated: #404040;
+  --sd-input: #1a1a1a;
 
-  /* Surfaces */
-  --sd-canvas: #0d0f14;
-  --sd-panel: #141620;
-  --sd-card: #1a1d2a;
-  --sd-card-hover: #1e2133;
-  --sd-elevated: #222538;
-  --sd-input: #12141e;
+  /* ComfyUI Native Text */
+  --sd-text-primary: #ddd;
+  --sd-text-secondary: #aaa;
+  --sd-text-muted: #888;
+  --sd-text-accent: #ccc;
 
-  /* Text */
-  --sd-text-primary: #e8e9ed;
-  --sd-text-secondary: #9a9caa;
-  --sd-text-muted: #5c5e6e;
-  --sd-text-accent: #c0c2ce;
-  --sd-text-brand: #00BB81;
+  /* ComfyUI Native Borders */
+  --sd-border: #4e4e4e;
+  --sd-border-subtle: #3a3a3a;
 
-  /* Borders */
-  --sd-border: #2a2d3a;
-  --sd-border-subtle: #1f2230;
+  /* Accent (ComfyUI native blue -- replaces jade green) */
+  --sd-accent: #4e9bcd;
+  --sd-accent-dim: #4e9bcd33;
+  --sd-accent-subtle: #4e9bcd18;
 
-  /* Slot Colors (ComfyUI dark theme) */
+  /* Keep ALL slot colors unchanged */
   --sd-slot-clip: #FFD500;
   --sd-slot-clip-vision: #A8DADC;
   --sd-slot-conditioning: #FFA931;
@@ -61,8 +60,11 @@
   --sd-space-md: 8px;
   --sd-space-lg: 12px;
   --sd-space-xl: 16px;
+  --sd-space-2xl: 24px;
+  --sd-space-3xl: 32px;
+  --sd-msg-gap: 20px;
+  --sd-para-gap: 12px;
 
-  /* Transitions */
   --sd-transition: 150ms ease;
 }
 
@@ -74,11 +76,11 @@
   justify-content: space-between;
   padding: var(--sd-space-lg) var(--sd-space-xl);
   font-family: var(--sd-font-sans);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--sd-text-brand);
-  border-bottom: 1px solid var(--sd-border);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--sd-text-primary);
+  border-bottom: 1px solid var(--sd-border-subtle);
   background: var(--sd-panel);
   flex-shrink: 0;
 }
@@ -97,11 +99,11 @@
 }
 
 .sd-header__status--connecting {
-  color: var(--sd-slot-conditioning);
+  color: #e6a23c;
 }
 
 .sd-header__status--disconnected {
-  color: var(--sd-slot-vae);
+  color: #f56c6c;
 }
 
 /* ── Stage Indicator ────────────────────────────────────────────── */
@@ -111,8 +113,8 @@
   align-items: center;
   gap: var(--sd-space-md);
   padding: var(--sd-space-sm) var(--sd-space-xl);
-  background: var(--sd-brand-subtle);
-  border-bottom: 1px solid var(--sd-border);
+  background: var(--sd-accent-subtle);
+  border-bottom: 1px solid var(--sd-border-subtle);
   flex-shrink: 0;
   font-size: 12px;
   animation: sd-pulse 1.5s ease-in-out infinite;
@@ -120,7 +122,7 @@
 
 .sd-stage__label {
   font-family: var(--sd-font-mono);
-  color: var(--sd-text-brand);
+  color: var(--sd-accent);
   font-weight: 600;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -143,10 +145,10 @@
 .sd-messages {
   flex: 1;
   overflow-y: auto;
-  padding: var(--sd-space-lg);
+  padding: var(--sd-space-xl) var(--sd-space-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--sd-space-md);
+  gap: var(--sd-msg-gap);
   background: var(--sd-canvas);
 }
 
@@ -155,12 +157,12 @@
 .sd-message {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--sd-space-md) 10px;
-  border-radius: 6px;
+  gap: var(--sd-space-sm);
+  padding: var(--sd-space-lg) var(--sd-space-xl);
+  border-radius: 8px;
   font-family: var(--sd-font-sans);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.7;
   word-wrap: break-word;
 }
 
@@ -168,12 +170,14 @@
   background: var(--sd-card);
   align-self: flex-end;
   max-width: 90%;
+  border: 1px solid var(--sd-border-subtle);
 }
 
 .sd-message--agent {
   background: var(--sd-panel);
   align-self: flex-start;
   max-width: 95%;
+  border-left: 2px solid var(--sd-accent-dim);
 }
 
 .sd-message--system {
@@ -186,11 +190,12 @@
 
 .sd-message__label {
   font-family: var(--sd-font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 400;
   color: var(--sd-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  margin-bottom: 2px;
 }
 
 .sd-message--user .sd-message__label {
@@ -198,7 +203,7 @@
 }
 
 .sd-message--agent .sd-message__label {
-  color: var(--sd-text-brand);
+  color: var(--sd-accent);
 }
 
 .sd-message__body {
@@ -213,17 +218,24 @@
   color: var(--sd-text-muted);
 }
 
+/* Visual breathing line between consecutive agent messages */
+.sd-message--agent + .sd-message--agent {
+  padding-top: var(--sd-space-xl);
+  border-top: 1px solid var(--sd-border-subtle);
+  margin-top: var(--sd-space-xs);
+}
+
 /* ── Text Rendering Classes ─────────────────────────────────────── */
 
 .sd-text-body {
   font-family: var(--sd-font-sans);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--sd-text-secondary);
-  line-height: 1.5;
+  line-height: 1.7;
 }
 
 .sd-text-body p {
-  margin: 0 0 var(--sd-space-md) 0;
+  margin: 0 0 var(--sd-para-gap) 0;
 }
 
 .sd-text-body p:last-child {
@@ -235,21 +247,21 @@
   font-size: 11px;
   background: var(--sd-elevated);
   color: var(--sd-text-accent);
-  padding: 1px 5px;
+  padding: 2px 7px;
   border-radius: 3px;
   letter-spacing: 0.01em;
 }
 
 .sd-code-block {
   font-family: var(--sd-font-mono);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.65;
   background: var(--sd-input);
   color: var(--sd-text-primary);
-  padding: var(--sd-space-md) var(--sd-space-lg);
+  padding: var(--sd-space-lg) var(--sd-space-xl);
   border-radius: 4px;
   border: 1px solid var(--sd-border-subtle);
-  margin: var(--sd-space-md) 0;
+  margin: var(--sd-space-lg) 0;
   overflow-x: auto;
   white-space: pre;
 }
@@ -272,7 +284,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--sd-brand);
+  background: var(--sd-accent);
   animation: sd-typing-pulse 1.2s ease-in-out infinite;
 }
 
@@ -294,7 +306,7 @@
 .sd-input-bar {
   display: flex;
   gap: var(--sd-space-sm);
-  padding: 10px var(--sd-space-lg);
+  padding: var(--sd-space-lg) var(--sd-space-xl);
   border-top: 1px solid var(--sd-border);
   background: var(--sd-panel);
   flex-shrink: 0;
@@ -314,7 +326,7 @@
 }
 
 .sd-input:focus {
-  border-color: var(--sd-brand);
+  border-color: var(--sd-accent);
 }
 
 .sd-input::placeholder {
@@ -322,8 +334,8 @@
 }
 
 .sd-send-btn {
-  background: var(--sd-brand);
-  color: var(--sd-dark);
+  background: var(--sd-accent);
+  color: #1a1a1a;
   border: none;
   border-radius: 6px;
   padding: var(--sd-space-md) 14px;
@@ -406,8 +418,8 @@
   font-family: var(--sd-font-mono);
   font-size: 10px;
   font-weight: 400;
-  color: var(--sd-text-brand);
-  background: var(--sd-brand-subtle);
+  color: var(--sd-accent);
+  background: var(--sd-accent-subtle);
   padding: 2px 8px;
   border-radius: 3px;
   letter-spacing: 0.01em;
@@ -687,9 +699,9 @@
 }
 
 .sd-btn--primary {
-  background: var(--sd-brand);
+  background: var(--sd-accent);
   border: none;
-  color: var(--sd-dark);
+  color: #1a1a1a;
   font-weight: 600;
 }
 
@@ -703,4 +715,76 @@
   flex-wrap: wrap;
   gap: var(--sd-space-xs);
   padding: var(--sd-space-xs) 0;
+}
+
+/* ── Node Pills (inline interactive node indicators) ─────────────── */
+
+.sd-node-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px 2px 7px;
+  border-radius: 10px;
+  font-family: var(--sd-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  background: color-mix(in srgb, var(--pill-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill-color) 25%, transparent);
+  color: var(--pill-color);
+  transition: background var(--sd-transition), border-color var(--sd-transition);
+  white-space: nowrap;
+  margin: 0 3px;
+  vertical-align: middle;
+}
+
+.sd-node-pill:hover {
+  background: color-mix(in srgb, var(--pill-color) 22%, transparent);
+  border-color: color-mix(in srgb, var(--pill-color) 45%, transparent);
+}
+
+.sd-node-pill[style*="cursor: pointer"]:active {
+  transform: scale(0.97);
+}
+
+.sd-node-pill__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--pill-color);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--pill-color) 55%, transparent);
+  flex-shrink: 0;
+}
+
+/* Node activity message (shown in chat when tools touch nodes) */
+.sd-message--node-activity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--sd-space-sm) var(--sd-space-xl);
+  background: transparent;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.sd-node-activity__label {
+  font-family: var(--sd-font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--sd-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+/* Node pills inside the stage bar */
+.sd-stage-bar .sd-node-pill {
+  font-size: 10px;
+  padding: 1px 7px 1px 5px;
+  margin-left: 4px;
+}
+
+/* Long paragraphs get extra bottom margin for scanability */
+.sd-para-long {
+  margin-bottom: var(--sd-space-xl) !important;
 }

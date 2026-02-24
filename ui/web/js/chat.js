@@ -67,6 +67,9 @@ export function renderText(rawText) {
 
         const p = document.createElement("p");
         _appendInlineMarkup(p, trimmed);
+        if (trimmed.length > 200) {
+          p.classList.add("sd-para-long");
+        }
         frag.appendChild(p);
       }
     }
@@ -150,6 +153,47 @@ export function createSlotTag(label, slotType) {
   tag.appendChild(txt);
 
   return tag;
+}
+
+/**
+ * Create an interactive node pill for inline display.
+ * Shows node class_type with slot-appropriate color.
+ * Data attributes enable canvas highlighting from sidebar.js.
+ *
+ * @param {string} classType - Node class_type (e.g., "KSampler")
+ * @param {string} slotType - Slot type key (e.g., "sampler")
+ * @param {string|null} nodeId - Node ID for canvas highlighting
+ */
+export function createNodePill(classType, slotType, nodeId) {
+  const color = _slotColor(slotType);
+  const pill = document.createElement("span");
+  pill.className = "sd-node-pill";
+  pill.style.setProperty("--pill-color", color);
+
+  // Data attributes for canvas interaction (wired in sidebar.js)
+  if (nodeId) {
+    pill.dataset.nodeId = nodeId;
+    pill.style.cursor = "pointer";
+    pill.title = `${classType} (node #${nodeId}) — click to select on canvas`;
+  } else {
+    pill.title = classType;
+  }
+  pill.dataset.classType = classType;
+
+  // Colored dot
+  const dot = document.createElement("span");
+  dot.className = "sd-node-pill__dot";
+  pill.appendChild(dot);
+
+  // Label — strip common verbose suffixes for readability
+  const shortName = classType
+    .replace(/Simple$/, "")
+    .replace(/Advanced$/, "")
+    .replace(/^ComfyUI_/, "");
+  const label = document.createTextNode(shortName);
+  pill.appendChild(label);
+
+  return pill;
 }
 
 /**

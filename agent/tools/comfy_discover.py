@@ -19,6 +19,28 @@ from ..config import COMFYUI_URL, CUSTOM_NODES_DIR, MODELS_DIR
 from ..rate_limiter import HUGGINGFACE_LIMITER
 from ._util import to_json
 
+
+def _check_deprecated(class_type: str) -> dict | None:
+    """Check if a node class_type has a known replacement.
+
+    Returns replacement info dict or None. Best-effort — does not
+    fail if node_replacement module isn't available or endpoint is down.
+    """
+    try:
+        from .node_replacement import _fetch_replacements
+        replacements = _fetch_replacements()
+        if class_type in replacements:
+            reps = replacements[class_type]
+            if reps:
+                return {
+                    "deprecated": True,
+                    "replacement": reps[0].get("new_node_id", "unknown"),
+                    "all_replacements": [r.get("new_node_id") for r in reps],
+                }
+    except Exception:
+        pass
+    return None
+
 # ---------------------------------------------------------------------------
 # Partner Node registry — officially supported by Comfy-Org + provider
 # Update quarterly or when new partnerships are announced.
@@ -683,7 +705,7 @@ def _search_by_node_type(query: str, max_results: int) -> str:
     # Exact match first
     if query in index:
         pack = index[query]
-        return to_json({
+        result = {
             "match": "exact",
             "node_type": query,
             "pack": {
@@ -692,7 +714,12 @@ def _search_by_node_type(query: str, max_results: int) -> str:
                 "node_count": pack["node_count"],
                 "installed": _is_pack_installed(pack["url"]),
             },
-        })
+        }
+        dep_info = _check_deprecated(query)
+        if dep_info:
+            result["deprecated"] = True
+            result["replacement_available"] = dep_info["replacement"]
+        return to_json(result)
 
     # Fuzzy match — case-insensitive substring, sorted for determinism
     query_lower = query.lower()
@@ -701,12 +728,17 @@ def _search_by_node_type(query: str, max_results: int) -> str:
     for nt, pack in sorted(index.items()):
         if query_lower in nt.lower() and pack["url"] not in seen_packs:
             seen_packs.add(pack["url"])
-            matches.append({
+            match_item = {
                 "node_type": nt,
                 "pack_title": pack["title"],
                 "pack_url": pack["url"],
                 "installed": _is_pack_installed(pack["url"]),
-            })
+            }
+            dep_info = _check_deprecated(nt)
+            if dep_info:
+                match_item["deprecated"] = True
+                match_item["replacement_available"] = dep_info["replacement"]
+            matches.append(match_item)
             if len(matches) >= max_results:
                 break
 
@@ -1019,19 +1051,29 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
                 }
             packs_needed[url]["missing_nodes"].append(node_type)
 
-            missing_report.append({
+            report_item = {
                 "node_type": node_type,
                 "pack_title": pack_info["title"],
                 "pack_url": url,
                 "pack_installed": _is_pack_installed(url),
-            })
+            }
+            dep_info = _check_deprecated(node_type)
+            if dep_info:
+                report_item["deprecated"] = True
+                report_item["replacement_available"] = dep_info["replacement"]
+            missing_report.append(report_item)
         else:
-            missing_report.append({
+            report_item = {
                 "node_type": node_type,
                 "pack_title": None,
                 "pack_url": None,
                 "message": "Not found in ComfyUI Manager registry.",
-            })
+            }
+            dep_info = _check_deprecated(node_type)
+            if dep_info:
+                report_item["deprecated"] = True
+                report_item["replacement_available"] = dep_info["replacement"]
+            missing_report.append(report_item)
 
     # Summary
     if not missing:

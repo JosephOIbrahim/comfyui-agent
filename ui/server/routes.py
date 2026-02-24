@@ -520,10 +520,12 @@ def _run_agent_sync(conv: ConversationState, user_text: str, msg_queue: queue.Qu
             def on_tool(name, inp):
                 # Infer stage from tool name
                 stage = _infer_stage(name)
+                nodes = _extract_nodes_touched(name, inp, conv)
                 msg_queue.put({
                     "type": "tool_call",
                     "tool": name,
                     "stage": stage,
+                    "nodes_touched": nodes,
                 })
 
             def on_result(name, inp, result_json):
@@ -590,6 +592,84 @@ def _infer_stage(tool_name: str) -> str:
         return "VERIFY"
     else:
         return "BRAIN"
+
+
+def _extract_nodes_touched(tool_name: str, tool_input: dict, conv: ConversationState) -> list[dict]:
+    """Extract which workflow nodes a tool call is interacting with.
+
+    Returns list of {"node_id": str|None, "class_type": str, "slot_type": str}.
+    """
+    nodes_touched = []
+
+    # Tools that directly reference nodes by ID or class_type
+    _NODE_TOOLS = {
+        "set_input": ["node_id"],
+        "connect_nodes": ["source_node_id", "target_node_id", "from_node", "to_node"],
+        "add_node": ["class_type"],
+        "get_node_info": ["class_type", "node_type"],
+    }
+
+    # Only process tools that interact with specific nodes
+    if tool_name not in _NODE_TOOLS and tool_name not in (
+        "apply_workflow_patch", "preview_workflow_patch",
+        "load_workflow", "validate_workflow",
+        "get_editable_fields", "validate_before_execute",
+    ):
+        return nodes_touched
+
+    # Get current workflow nodes from PILOT state (best-effort)
+    wf_nodes = {}
+    try:
+        from agent.tools.workflow_patch import _state
+        wf = _state.get("working")
+        if isinstance(wf, dict):
+            wf_nodes = wf
+    except Exception:
+        pass
+
+    # Extract node references from tool input parameters
+    node_id_keys = _NODE_TOOLS.get(tool_name, [])
+    for key in node_id_keys:
+        val = tool_input.get(key)
+        if val is None:
+            continue
+
+        if key == "class_type":
+            nodes_touched.append({
+                "node_id": None,
+                "class_type": str(val),
+                "slot_type": _classify_slot(str(val)),
+            })
+        else:
+            nid = str(val)
+            ndata = wf_nodes.get(nid, {})
+            ct = ndata.get("class_type", f"Node {nid}")
+            nodes_touched.append({
+                "node_id": nid,
+                "class_type": ct,
+                "slot_type": _classify_slot(ct),
+            })
+
+    # For patch tools, extract node_ids from RFC6902 paths
+    if tool_name in ("apply_workflow_patch", "preview_workflow_patch"):
+        patches = tool_input.get("patches") or tool_input.get("patch") or []
+        if isinstance(patches, list):
+            seen_ids = set()
+            for op in patches:
+                path = op.get("path", "")
+                parts = path.strip("/").split("/")
+                if parts and parts[0] and parts[0] not in seen_ids:
+                    nid = parts[0]
+                    seen_ids.add(nid)
+                    ndata = wf_nodes.get(nid, {})
+                    ct = ndata.get("class_type", f"Node {nid}")
+                    nodes_touched.append({
+                        "node_id": nid,
+                        "class_type": ct,
+                        "slot_type": _classify_slot(ct),
+                    })
+
+    return nodes_touched
 
 
 # ---------------------------------------------------------------------------
@@ -730,11 +810,15 @@ async def _forward_event(ws, event, accumulated_text):
         })
 
     elif etype == "tool_call":
-        await ws.send_json({
+        event_data = {
             "type": "stage",
             "stage": event.get("stage", "THINKING"),
             "detail": f"Using {event['tool']}...",
-        })
+        }
+        nodes = event.get("nodes_touched", [])
+        if nodes:
+            event_data["nodes_touched"] = nodes
+        await ws.send_json(event_data)
 
     elif etype == "panel":
         await ws.send_json({

@@ -22,13 +22,13 @@ PRINCIPLE:  Driver, not generator. Small validated changes, never full workflow 
 ## Project Summary
 
 ComfyUI SUPER DUPER Agent is an AI co-pilot for ComfyUI workflows. It uses Claude with
-77 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
+80 specialized tools organized into two tiers: four intelligence layers (UNDERSTAND,
 DISCOVER, PILOT, VERIFY) and a brain layer (VISION, PLANNER, MEMORY, ORCHESTRATOR,
 OPTIMIZER, DEMO, INTENT, ITERATION). Natural conversation drives workflow inspection,
 discovery, modification, execution, optimization, and learning. Built with the Anthropic
 SDK, httpx, and jsonpatch.
 
-The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 77 tools
+The primary interface is MCP (Model Context Protocol) via `agent mcp`, making all 80 tools
 available to Claude Code, Claude Desktop, or any MCP client. The CLI agent (`agent run`)
 serves as a standalone fallback. Our value lives in the intelligence and brain layers above
 the transport.
@@ -115,6 +115,7 @@ When using the ComfyUI agent tools via MCP, follow these rules:
 | **Discovery** | `discover`, `find_missing_nodes`, `check_registry_freshness`, `get_install_instructions` |
 | **CivitAI** | `get_civitai_model`, `get_trending_models` |
 | **Model Compat** | `identify_model_family`, `check_model_compatibility` |
+| **Node Replace** | `get_node_replacements`, `check_workflow_deprecations`, `migrate_deprecated_nodes` |
 | **Templates** | `list_workflow_templates`, `get_workflow_template` |
 | **Session** | `save_session`, `load_session`, `list_sessions`, `add_note` |
 | **Brain: Vision** | `analyze_image`, `compare_outputs`, `suggest_improvements`, `hash_compare_images` |
@@ -197,7 +198,7 @@ Some tools overlap with Claude Code's native capabilities. All are kept for doma
 
 ### Four Intelligence Layers
 
-The agent's 50 intelligence + 27 brain tools are organized into four layers, each solving
+The agent's 53 intelligence + 27 brain tools are organized into four layers, each solving
 a distinct problem for the artist. The transport underneath is commodity plumbing.
 
 ```
@@ -216,7 +217,7 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 │                   _protocol.py (BrainMessage)                     │
 │      ┌──────────────┬──┴───────┬──────────────┐                   │
 │                                                                    │
-│  INTELLIGENCE LAYERS (50 tools)                                    │
+│  INTELLIGENCE LAYERS (53 tools)                                    │
 │  ┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐    │
 │  │ UNDERSTAND│  │ DISCOVER  │  │  PILOT   │  │   VERIFY     │    │
 │  │ 13 tools  │  │  6 tools  │  │ 13 tools │  │  10 tools    │    │
@@ -244,6 +245,7 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **DISCOVER** | `tools/workflow_templates.py` | 2 | starter workflows in `agent/templates/` |
 | **DISCOVER** | `tools/civitai_api.py` | 2 | CivitAI model details, trending models + local cross-ref |
 | **DISCOVER** | `tools/model_compat.py` | 2 | model family identification (SD1.5/SDXL/Flux/SD3), compatibility checking |
+| **PILOT** | `tools/node_replacement.py` | 3 | `get_node_replacements`, `check_workflow_deprecations`, `migrate_deprecated_nodes` — deprecated node migration |
 | **PILOT** | `tools/workflow_patch.py` | 9 | RFC6902 patching (6) + semantic: `add_node`, `connect_nodes`, `set_input` (3) |
 | **PILOT** | `tools/session_tools.py` | 4 | save/load/list sessions via `memory/session.py` |
 | **VERIFY** | `tools/comfy_execute.py` | 4 | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` (WebSocket) |
@@ -258,13 +260,13 @@ a distinct problem for the artist. The transport underneath is commodity plumbin
 | **BRAIN:INTENT** | `brain/intent_collector.py` | 2 | `capture_intent`, `get_current_intent` — artistic intent capture for metadata |
 | **BRAIN:ITERATION** | `brain/iteration_accumulator.py` | 3 | `start_iteration_tracking`, `record_iteration_step`, `finalize_iterations` — refinement journey tracking |
 | **VERIFY** | `tools/image_metadata.py` | 3 | `write_image_metadata`, `read_image_metadata`, `reconstruct_context` — PNG creative metadata embedding |
-| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 77 tools via Model Context Protocol (primary interface) |
+| **TRANSPORT** | `mcp_server.py` | — | MCP server exposing all 80 tools via Model Context Protocol (primary interface) |
 
 ### What's Built vs What's Next
 
 ```
 BUILT (v0.4.0 — working today):
-  ✅ 77 tools: 50 intelligence layer + 27 brain layer
+  ✅ 80 tools: 53 intelligence layer + 27 brain layer
   ✅ MCP as primary interface (core dependency, not optional)
   ✅ Session isolation (WorkflowSession with per-session locking)
   ✅ CLAUDE.md knowledge layer (tool rules, artistic intent, model families)
@@ -530,7 +532,7 @@ Claude Code is the agent runtime; we provide the tool belt via MCP.
 
 ### MCP Server (`agent/mcp_server.py`)
 
-All 77 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
+All 80 tools are exposed via Model Context Protocol using `mcp.server.Server`. MCP is a
 core dependency (`pip install -e "."`). Run `agent mcp` to start the stdio transport.
 Schema conversion bridges Anthropic tool schemas to MCP JSON Schema format. Sync tool
 handlers are wrapped with `run_in_executor` for the async MCP runtime. Session isolation
@@ -611,7 +613,7 @@ mutations with conflict resolution. Verify Agent: model-relative quality judgmen
 with iteration control. Router: lightweight sequencer with authority boundaries.
 iterative_refine brain tool wires the full MoE pipeline with refinement loops.
 
-1124 tests. 77 tools.
+1124 tests. 80 tools.
 
 ### Phase 5B: Demo Polish
 **Goal:** Demo scenarios, metadata integration, ecosystem completion.

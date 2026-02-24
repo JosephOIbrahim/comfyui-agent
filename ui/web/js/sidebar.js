@@ -1,5 +1,5 @@
 import { app } from "../../../scripts/app.js";
-import { renderText, createTypingIndicator, createPanel } from "./chat.js";
+import { renderText, createTypingIndicator, createPanel, createNodePill } from "./chat.js";
 
 /* ── SUPER DUPER Sidebar ─────────────────────────────────────────────
  *  Registers a sidebar tab in ComfyUI's extension manager.
@@ -7,7 +7,7 @@ import { renderText, createTypingIndicator, createPanel } from "./chat.js";
  * ──────────────────────────────────────────────────────────────────── */
 
 const SIDEBAR_ID = "superduper";
-const SIDEBAR_TITLE = "SUPER DUPER";
+const SIDEBAR_TITLE = "Super Duper";
 
 /* ── Load stylesheet ──────────────────────────────────────────────── */
 
@@ -122,9 +122,9 @@ function buildSidebar(el) {
       <span class="sd-stage__label" id="sd-stage-label"></span>
       <span class="sd-stage__detail" id="sd-stage-detail"></span>
     </div>
-    <div class="sd-messages" id="sd-messages">
+    <div class="sd-messages" id="sd-messages" role="log" aria-live="polite" aria-label="Chat with Super Duper AI">
       <div class="sd-message sd-message--system">
-        <span class="sd-message__body">Ready. Type below.</span>
+        <span class="sd-message__body">What would you like to do with your workflow?</span>
       </div>
     </div>
     <div class="sd-input-bar">
@@ -135,7 +135,7 @@ function buildSidebar(el) {
         placeholder="Ask me anything about your workflow..."
         autocomplete="off"
       />
-      <button id="sd-send" class="sd-send-btn">Send</button>
+      <button id="sd-send" class="sd-send-btn" aria-label="Send message">Send</button>
     </div>
   `;
 
@@ -156,7 +156,7 @@ function buildSidebar(el) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  function setStage(stage, detail) {
+  function setStage(stage, detail, nodesTouched) {
     if (stage === "DONE" || !stage) {
       stageBar.style.display = "none";
       return;
@@ -164,6 +164,22 @@ function buildSidebar(el) {
     stageBar.style.display = "flex";
     stageLabel.textContent = stage;
     stageDetail.textContent = detail || "";
+
+    // Remove existing pills
+    const existingPills = stageBar.querySelectorAll(".sd-node-pill");
+    existingPills.forEach(p => p.remove());
+
+    // Render node pills if provided
+    if (nodesTouched && nodesTouched.length > 0) {
+      for (const node of nodesTouched) {
+        const pill = createNodePill(
+          node.class_type,
+          node.slot_type,
+          node.node_id
+        );
+        stageBar.appendChild(pill);
+      }
+    }
   }
 
   function setBusy(state) {
@@ -248,7 +264,31 @@ function buildSidebar(el) {
       }
 
       case "stage":
-        setStage(data.stage, data.detail);
+        setStage(data.stage, data.detail, data.nodes_touched);
+
+        // Show node interaction indicator in chat
+        if (data.nodes_touched && data.nodes_touched.length > 0 && data.stage !== "DONE") {
+          const nodeMsg = document.createElement("div");
+          nodeMsg.className = "sd-message sd-message--node-activity";
+
+          const activityLabel = document.createElement("span");
+          activityLabel.className = "sd-node-activity__label";
+          activityLabel.textContent = data.stage === "PILOT" ? "Modifying" : "Inspecting";
+          nodeMsg.appendChild(activityLabel);
+
+          for (const node of data.nodes_touched) {
+            const pill = createNodePill(
+              node.class_type,
+              node.slot_type,
+              node.node_id
+            );
+            nodeMsg.appendChild(pill);
+          }
+
+          messagesEl.appendChild(nodeMsg);
+          scrollToBottom();
+        }
+
         if (data.stage === "DONE") {
           // Clean up streaming state
           if (streamingEl && streamAccum) {
@@ -329,6 +369,63 @@ function buildSidebar(el) {
   }
 
   sendBtn.addEventListener("click", sendMessage);
+
+  // Node pill canvas interaction (event delegation)
+  messagesEl.addEventListener("click", (e) => {
+    const pill = e.target.closest(".sd-node-pill");
+    if (!pill || !pill.dataset.nodeId) return;
+
+    try {
+      const graph = app.graph;
+      if (graph) {
+        const node = graph.getNodeById(parseInt(pill.dataset.nodeId, 10));
+        if (node) {
+          app.canvas.deselectAllNodes();
+          app.canvas.selectNode(node);
+          app.canvas.centerOnNode(node);
+        }
+      }
+    } catch (err) {
+      console.warn("[Super Duper] Could not highlight node:", err);
+    }
+  });
+
+  // Node pill hover highlighting
+  messagesEl.addEventListener("mouseenter", (e) => {
+    const pill = e.target.closest(".sd-node-pill");
+    if (!pill || !pill.dataset.nodeId) return;
+
+    try {
+      const graph = app.graph;
+      if (graph) {
+        const node = graph.getNodeById(parseInt(pill.dataset.nodeId, 10));
+        if (node) {
+          node._sd_orig_color = node.color;
+          const color = getComputedStyle(pill).getPropertyValue("--pill-color").trim();
+          node.color = color;
+          app.canvas.setDirty(true, true);
+        }
+      }
+    } catch (err) { /* silent */ }
+  }, true);
+
+  messagesEl.addEventListener("mouseleave", (e) => {
+    const pill = e.target.closest(".sd-node-pill");
+    if (!pill || !pill.dataset.nodeId) return;
+
+    try {
+      const graph = app.graph;
+      if (graph) {
+        const node = graph.getNodeById(parseInt(pill.dataset.nodeId, 10));
+        if (node && node._sd_orig_color !== undefined) {
+          node.color = node._sd_orig_color;
+          delete node._sd_orig_color;
+          app.canvas.setDirty(true, true);
+        }
+      }
+    } catch (err) { /* silent */ }
+  }, true);
+
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -345,7 +442,7 @@ app.extensionManager.registerSidebarTab({
   id: SIDEBAR_ID,
   icon: "pi pi-bolt",
   title: SIDEBAR_TITLE,
-  tooltip: "SUPER DUPER AI Co-pilot",
+  tooltip: "Super Duper AI Co-pilot",
   type: "custom",
   render(el) {
     buildSidebar(el);
