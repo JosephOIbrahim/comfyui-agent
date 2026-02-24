@@ -116,8 +116,31 @@ class TestToolRegistry:
             "create_pipeline",
             "run_pipeline",
             "get_pipeline_status",
+            # Discovery (additional)
+            "get_install_instructions",
+            # Node replacement
+            "get_node_replacements",
+            "check_workflow_deprecations",
+            "migrate_deprecated_nodes",
+            # Image metadata
+            "write_image_metadata",
+            "read_image_metadata",
+            "reconstruct_context",
+            # Brain: Intent collector
+            "capture_intent",
+            "get_current_intent",
+            # Brain: Iteration tracking
+            "start_iteration_tracking",
+            "record_iteration_step",
+            "finalize_iterations",
+            # Brain: MoE classify
+            "classify_intent",
         }
-        assert expected.issubset(names), f"Missing tools: {expected - names}"
+        assert expected == names, (
+            f"Tool mismatch!\n"
+            f"  Missing from registry: {expected - names}\n"
+            f"  Missing from expected: {names - expected}"
+        )
 
     def test_total_tool_count(self):
         assert len(ALL_TOOLS) == 80, f"Expected 80 tools, got {len(ALL_TOOLS)}"

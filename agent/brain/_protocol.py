@@ -47,37 +47,60 @@ def serialize(msg: dict) -> str:
     return to_json(msg)
 
 
-def dispatch_brain_message(msg: dict) -> None:
+def dispatch_brain_message(msg: dict, *, max_retries: int = 3) -> bool:
     """Route a BrainMessage to its target module via the tools dispatcher.
 
-    Fire-and-forget: catches all exceptions, logs warning on failure.
+    Retries with exponential backoff on failure. Returns True on success
+    (or when no route matches), False when all retries are exhausted.
     Currently supports vision->memory routing (record_outcome).
     """
     import logging
 
     _log = logging.getLogger(__name__)
 
-    try:
-        source = msg.get("source", "")
-        target = msg.get("target", "")
-        payload = msg.get("payload", {})
+    source = msg.get("source", "")
+    target = msg.get("target", "")
+    payload = msg.get("payload", {})
 
-        if source == "vision" and target == "memory":
-            from ..tools import handle as dispatch_tool
+    if source == "vision" and target == "memory":
+        from ..tools import handle as dispatch_tool
 
-            action = payload.get("action", "")
-            outcome_input = {
-                "session": "default",
-                "action": action,
-                "result": "success",
-                "details": {
-                    k: v for k, v in sorted(payload.items())
-                    if k != "action"
-                },
-            }
-            dispatch_tool("record_outcome", outcome_input)
-            _log.debug("Dispatched brain message %s->%s (%s)", source, target, action)
-        else:
-            _log.debug("No dispatch route for %s->%s, skipping", source, target)
-    except Exception as e:
-        _log.warning("dispatch_brain_message failed (non-fatal): %s", e)
+        action = payload.get("action", "")
+        outcome_input = {
+            "session": "default",
+            "action": action,
+            "result": "success",
+            "details": {
+                k: v for k, v in sorted(payload.items())
+                if k != "action"
+            },
+        }
+
+        for attempt in range(max_retries):
+            try:
+                dispatch_tool("record_outcome", outcome_input)
+                _log.info(
+                    "Dispatched brain message %s->%s (%s)",
+                    source, target, action,
+                )
+                return True
+            except Exception as e:
+                delay = 0.1 * (2 ** attempt)
+                if attempt < max_retries - 1:
+                    _log.warning(
+                        "dispatch_brain_message attempt %d/%d failed: %s, "
+                        "retrying in %.1fs",
+                        attempt + 1, max_retries, e, delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    _log.error(
+                        "dispatch_brain_message exhausted %d retries for "
+                        "%s->%s (%s): %s | payload=%s",
+                        max_retries, source, target, action, e,
+                        serialize(msg),
+                    )
+        return False
+    else:
+        _log.debug("No dispatch route for %s->%s, skipping", source, target)
+        return True
