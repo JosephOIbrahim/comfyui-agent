@@ -7,54 +7,69 @@
     "branch": "master",
     "commit": "8bdf850"
   },
+  "current": {
+    "tests_passing": 1440,
+    "lint_errors": 0,
+    "new_tests": 150,
+    "new_files": 14,
+    "branch": "v2/main"
+  },
   "phases": {
     "P0_scaffold": {
-      "status": "in_progress",
+      "status": "complete",
       "owner": "PRODUCER",
-      "branch": "v2/main"
+      "branch": "v2/main",
+      "commit": "ae65c2b"
     },
     "P1_session_state": {
-      "status": "pending",
+      "status": "complete",
       "owner": "SYS_ENG",
       "reviewer": "COMFY_LEAD",
-      "branch": "v2/sys/session-scope"
+      "branch": "v2/main",
+      "commit": "80e842d",
+      "artifact": "docs/SESSION_CONTRACT.md"
     },
     "P2_authority": {
-      "status": "pending",
+      "status": "complete",
       "owner": "COMFY_LEAD",
       "reviewer": "SYS_ENG",
-      "branch": "v2/comfy/authority"
+      "branch": "v2/main",
+      "commit": "3b39b38",
+      "artifact": "docs/AUTHORITY_MAP.md"
     },
     "P3_coordination": {
-      "status": "pending",
+      "status": "complete",
       "owner": "COMFY_LEAD",
       "reviewer": "VFX_SUPER",
-      "branch": "v2/comfy/coordination"
+      "branch": "v2/main",
+      "commit": "141215c"
     },
     "P4_adversarial": {
-      "status": "pending",
+      "status": "complete",
       "owner": "SYS_ENG",
       "reviewer": "VFX_SUPER",
-      "branch": "v2/sys/adversarial"
+      "branch": "v2/main",
+      "commit": "35bf191"
     },
     "P5_ui": {
-      "status": "pending",
+      "status": "complete",
       "owner": "NUKE_COMP",
       "reviewer": "VFX_SUPER",
-      "branch": "v2/vfx/ui-refactor"
+      "branch": "v2/main",
+      "commit": "a765fd9"
     },
     "P6_integration": {
-      "status": "pending",
+      "status": "pending_gate",
       "owner": "PRODUCER",
       "reviewer": "ALL",
       "branch": "v2/main"
     }
   },
   "gates": {
-    "G0_scaffold": "pending",
-    "G1_session_contract": "pending",
-    "G2_coordination": "pending",
-    "G3_ui_review": "pending",
+    "G0_scaffold": "passed",
+    "G1_session_contract": "passed",
+    "G2_coordination": "passed",
+    "G3_ui_review": "awaiting_user",
     "G4_final": "pending"
   }
 }
