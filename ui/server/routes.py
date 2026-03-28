@@ -545,13 +545,62 @@ def _emit_agent_status(msg_queue: queue.Queue, agent_key: str, status: str,
 # Synchronous agent runner (called from thread)
 # ---------------------------------------------------------------------------
 
+class _QueueStreamHandler:
+    """StreamHandler that pushes events to a thread-safe queue.
+
+    Bridges the StreamHandler protocol (expected by run_agent_turn)
+    to the event queue consumed by the WebSocket/REST forwarder.
+    """
+
+    def __init__(self, msg_queue, conv, active_agents):
+        self._q = msg_queue
+        self._conv = conv
+        self._active = active_agents
+
+    def on_text(self, text):
+        self._q.put({"type": "text_delta", "text": text})
+
+    def on_thinking(self, text):
+        pass  # not forwarded to frontend
+
+    def on_tool_call(self, name, inp):
+        stage = _infer_stage(name)
+        agent_key = _STAGE_TO_AGENT.get(stage, "router")
+
+        if agent_key not in self._active:
+            for prev in list(self._active):
+                _emit_agent_status(self._q, prev, "complete")
+            self._active.clear()
+            self._active.add(agent_key)
+            _emit_agent_status(self._q, agent_key, "active",
+                               message=f"Using {name}...")
+
+        nodes = _extract_nodes_touched(name, inp, self._conv)
+        self._q.put({
+            "type": "tool_call",
+            "tool": name,
+            "stage": stage,
+            "nodes_touched": nodes,
+        })
+
+    def on_tool_result(self, name, inp, result_json):
+        panel = _build_panel_for_tool(name, inp, result_json)
+        if panel:
+            self._q.put({"type": "panel", "panel": panel})
+
+    def on_stream_end(self):
+        pass
+
+    def on_input(self):
+        return None  # non-interactive
+
+
 def _run_agent_sync(conv: ConversationState, user_text: str, msg_queue: queue.Queue):
     """Run the agent loop synchronously, pushing events to msg_queue.
 
     Events are dicts: {"type": "text_delta"|"tool_call"|"stage"|"done"|"error", ...}
     """
     from agent.main import run_agent_turn
-    from agent.tools import ALL_TOOLS
 
     conv._build_system()
     conv.messages.append({"role": "user", "content": user_text})
@@ -564,47 +613,15 @@ def _run_agent_sync(conv: ConversationState, user_text: str, msg_queue: queue.Qu
 
     max_turns = 15  # safety limit per user message
     _active_agents: set[str] = set()  # track which agents are currently active
+    handler = _QueueStreamHandler(msg_queue, conv, _active_agents)
 
     for turn in range(max_turns):
         try:
-            def on_text(text):
-                msg_queue.put({"type": "text_delta", "text": text})
-
-            def on_tool(name, inp):
-                # Infer stage from tool name
-                stage = _infer_stage(name)
-                agent_key = _STAGE_TO_AGENT.get(stage, "router")
-
-                # Transition agent status: mark active, complete previous
-                if agent_key not in _active_agents:
-                    # Complete any previously active agents
-                    for prev in list(_active_agents):
-                        _emit_agent_status(msg_queue, prev, "complete")
-                    _active_agents.clear()
-                    _active_agents.add(agent_key)
-                    _emit_agent_status(msg_queue, agent_key, "active",
-                                       message=f"Using {name}...")
-
-                nodes = _extract_nodes_touched(name, inp, conv)
-                msg_queue.put({
-                    "type": "tool_call",
-                    "tool": name,
-                    "stage": stage,
-                    "nodes_touched": nodes,
-                })
-
-            def on_result(name, inp, result_json):
-                panel = _build_panel_for_tool(name, inp, result_json)
-                if panel:
-                    msg_queue.put({"type": "panel", "panel": panel})
-
             conv.messages, done = run_agent_turn(
                 _client,
                 conv.messages,
                 conv.system_prompt,
-                on_text_delta=on_text,
-                on_tool_call=on_tool,
-                on_tool_result=on_result,
+                handler=handler,
             )
 
             if done:
