@@ -139,6 +139,33 @@ class TestToolRegistry:
             "finalize_iterations",
             # Brain: MoE classify
             "classify_intent",
+            # Stage: Provisioner tools
+            "provision_download",
+            "provision_verify",
+            "provision_status",
+            # Stage: Stage tools
+            "stage_read",
+            "stage_write",
+            "stage_add_delta",
+            "stage_rollback",
+            "stage_reconstruct_clean",
+            "stage_list_deltas",
+            # Stage: FORESIGHT tools
+            "predict_experiment",
+            "record_experience",
+            "get_experience_stats",
+            "list_counterfactuals",
+            "get_prediction_accuracy",
+            # Stage: Compositor tools
+            "compose_scene",
+            "validate_scene",
+            "extract_conditioning",
+            "export_scene",
+            # Stage: Hyperagent tools
+            "propose_improvement",
+            "check_evolution_tier",
+            "get_meta_history",
+            "get_calibration_stats",
         }
         assert expected == names, (
             f"Tool mismatch!\n"
@@ -147,7 +174,7 @@ class TestToolRegistry:
         )
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 81, f"Expected 81 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 103, f"Expected 103 tools, got {len(ALL_TOOLS)}"
 
     def test_brain_tool_error_returns_json(self):
         """Brain tool exceptions should be caught and returned as JSON errors."""

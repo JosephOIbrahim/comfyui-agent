@@ -4,7 +4,7 @@ Each tool module exports:
   TOOLS: list[dict]    -- Anthropic tool schemas
   handle(name, input)  -- Execute a tool call, return result string
 
-Intelligence layers (53 tools) + Brain layer (27 tools) = 80 tools total.
+Intelligence layers (53 tools) + Brain layer (27 tools) + Stage layer (22 tools) = 103 tools total.
 Brain tools are lazily imported to avoid circular dependencies
 (brain modules import _util from this package).
 """
@@ -13,10 +13,11 @@ import logging
 import threading
 
 from . import comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline, image_metadata, node_replacement
+from ..stage import provision_tools, stage_tools, foresight_tools, compositor_tools, hyperagent_tools
 
 log = logging.getLogger(__name__)
 
-_MODULES = (comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline, image_metadata, node_replacement)
+_MODULES = (comfy_api, comfy_inspect, workflow_parse, workflow_patch, comfy_execute, comfy_discover, session_tools, workflow_templates, civitai_api, model_compat, verify_execution, github_releases, pipeline, image_metadata, node_replacement, provision_tools, stage_tools, foresight_tools, compositor_tools, hyperagent_tools)
 
 # Intelligence layer tool schemas
 _LAYER_TOOLS: list[dict] = []

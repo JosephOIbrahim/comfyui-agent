@@ -36,6 +36,118 @@ class SessionContext:
     def __post_init__(self):
         if self.workflow is None:
             self.workflow = WorkflowSession(self.session_id)
+        self._stage = None  # Optional CognitiveWorkflowStage (lazy)
+        self._ratchet = None  # Optional Ratchet (lazy, requires stage)
+        self._cwm = None  # Optional CWM predict function (lazy)
+        self._arbiter = None  # Optional Arbiter instance (lazy)
+        self._workflow_signature = None  # Optional WorkflowSignature
+
+    @property
+    def stage(self):
+        """CognitiveWorkflowStage for this session, or None."""
+        return self._stage
+
+    @stage.setter
+    def stage(self, value):
+        """Set the stage (e.g., when loading from disk or creating fresh)."""
+        self._stage = value
+
+    def ensure_stage(self):
+        """Get or create the CognitiveWorkflowStage for this session.
+
+        Lazy-initialized: only creates the stage when first requested.
+        Returns None if usd-core is not installed.
+        """
+        if self._stage is None:
+            try:
+                from .stage import CognitiveWorkflowStage, HAS_USD
+                if HAS_USD:
+                    self._stage = CognitiveWorkflowStage()
+            except ImportError:
+                pass
+        return self._stage
+
+    @property
+    def ratchet(self):
+        """Ratchet for this session, or None."""
+        return self._ratchet
+
+    def ensure_ratchet(self, **kwargs):
+        """Get or create the Ratchet for this session.
+
+        Lazy-initialized: creates a Ratchet on first request. Requires
+        the stage to be available (calls ensure_stage internally).
+        If FORESIGHT components are available, wires them into the Ratchet.
+        Returns None if the stage cannot be initialized.
+
+        Args:
+            **kwargs: Forwarded to Ratchet constructor (weights, threshold).
+        """
+        if self._ratchet is None:
+            stage = self.ensure_stage()
+            if stage is not None:
+                try:
+                    from .stage.ratchet import Ratchet
+                    # Wire FORESIGHT if available (degradation cascade)
+                    cwm = self.ensure_cwm()
+                    arbiter = self.ensure_arbiter()
+                    self._ratchet = Ratchet(
+                        cws=stage,
+                        cwm=cwm,
+                        arbiter=arbiter,
+                        workflow_signature=self._workflow_signature,
+                        **kwargs,
+                    )
+                except ImportError:
+                    pass
+        return self._ratchet
+
+    @property
+    def cwm(self):
+        """CWM predict function for this session, or None."""
+        return self._cwm
+
+    def ensure_cwm(self):
+        """Get or initialize CWM predict function.
+
+        Lazy-initialized: imports cwm.predict on first request.
+        Returns None if the module is not available.
+        """
+        if self._cwm is None:
+            try:
+                from .stage.cwm import predict
+                self._cwm = predict
+            except ImportError:
+                pass
+        return self._cwm
+
+    @property
+    def arbiter(self):
+        """Arbiter instance for this session, or None."""
+        return self._arbiter
+
+    def ensure_arbiter(self):
+        """Get or create the Arbiter for this session.
+
+        Lazy-initialized on first request. Returns None if not available.
+        """
+        if self._arbiter is None:
+            try:
+                from .stage.arbiter import Arbiter
+                self._arbiter = Arbiter()
+            except ImportError:
+                pass
+        return self._arbiter
+
+    @property
+    def workflow_signature(self):
+        """Current WorkflowSignature, or None."""
+        return self._workflow_signature
+
+    @workflow_signature.setter
+    def workflow_signature(self, value):
+        """Set the workflow signature (e.g., after loading a workflow)."""
+        self._workflow_signature = value
 
     def touch(self):
         """Update last_activity timestamp."""

@@ -412,6 +412,329 @@ def search(
 
 
 @app.command()
+def orchestrate(
+    workflow: str = typer.Argument(..., help="Path to workflow JSON file"),
+    session: str = typer.Option(
+        None, "--session", "-s",
+        help="Named session for state persistence",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="Show debug logging",
+    ),
+):
+    """Autonomous pipeline: load → validate → execute → verify a workflow.
+
+    Loads a workflow, validates it against ComfyUI, executes it, and
+    verifies the output. Results are saved to the session if provided.
+    """
+    from pathlib import Path
+
+    setup_logging(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        log_file=LOG_DIR / "orchestrate.log",
+    )
+
+    path = Path(workflow)
+    if not path.exists():
+        console.print(f"[red]File not found: {workflow}[/red]")
+        raise typer.Exit(1)
+
+    from .tools import comfy_execute, workflow_parse
+
+    # Step 1: Load
+    console.print("[bold]Step 1/4:[/bold] Loading workflow...")
+    load_result = json.loads(
+        workflow_parse.handle("load_workflow", {"path": str(path)})
+    )
+    if "error" in load_result:
+        console.print(f"[red]Load failed: {load_result['error']}[/red]")
+        raise typer.Exit(1)
+    console.print(
+        f"  Loaded {load_result.get('node_count', '?')} nodes "
+        f"({load_result.get('format', '?')} format)"
+    )
+
+    # Step 2: Validate
+    console.print("[bold]Step 2/4:[/bold] Validating...")
+    val_result = json.loads(
+        comfy_execute.handle("validate_before_execute", {})
+    )
+    if "error" in val_result:
+        console.print(f"[red]Validation failed: {val_result['error']}[/red]")
+        raise typer.Exit(1)
+    if not val_result.get("valid", False):
+        issues = val_result.get("issues", [])
+        console.print(f"[yellow]Validation issues ({len(issues)}):[/yellow]")
+        for issue in issues[:5]:
+            console.print(f"  - {issue}")
+        raise typer.Exit(1)
+    console.print("  [green]Valid[/green]")
+
+    # Step 3: Execute
+    console.print("[bold]Step 3/4:[/bold] Executing...")
+    exec_result = json.loads(
+        comfy_execute.handle("execute_workflow", {})
+    )
+    if "error" in exec_result:
+        console.print(f"[red]Execution failed: {exec_result['error']}[/red]")
+        raise typer.Exit(1)
+    prompt_id = exec_result.get("prompt_id", "?")
+    console.print(f"  Queued as {prompt_id}")
+
+    # Step 4: Verify
+    console.print("[bold]Step 4/4:[/bold] Verifying output...")
+    from .tools import verify_execution
+    verify_result = json.loads(
+        verify_execution.handle("verify_execution", {"prompt_id": prompt_id})
+    )
+    if "error" in verify_result:
+        console.print(f"[yellow]Verify: {verify_result['error']}[/yellow]")
+    else:
+        status = verify_result.get("status", "unknown")
+        console.print(f"  Status: {status}")
+        outputs = verify_result.get("outputs", [])
+        if outputs:
+            for out in outputs[:3]:
+                console.print(f"  Output: {out}")
+
+    # Step 5: USD Scene Composition (if usd-core available)
+    scene_composed = False
+    try:
+        from .stage import HAS_USD
+        if HAS_USD:
+            from .session_context import get_session_context
+            ctx = get_session_context(session or "default")
+            stage = ctx.ensure_stage()
+            if stage is not None:
+                console.print("[bold]Step 5/6:[/bold] Composing USD scene...")
+                from .stage.compositor_tools import handle as comp_handle
+                comp_result = json.loads(
+                    comp_handle("compose_scene", {})
+                )
+                if "error" not in comp_result:
+                    console.print("  [green]Scene composed[/green]")
+                    scene_composed = True
+
+                    # Validate scene
+                    val = json.loads(comp_handle("validate_scene", {}))
+                    if "overall" in val:
+                        console.print(
+                            f"  Scene quality: {val['overall']:.2f} "
+                            f"(depth={val.get('depth_consistency', 0):.2f}, "
+                            f"camera={val.get('camera_fidelity', 0):.2f})"
+                        )
+                else:
+                    console.print(f"  [dim]Scene composition skipped: {comp_result.get('error', '?')}[/dim]")
+    except ImportError:
+        pass
+
+    # Step 6: Record experience (if FORESIGHT available)
+    if scene_composed:
+        try:
+            ratchet = ctx.ensure_ratchet()
+            if ratchet and ratchet.has_foresight:
+                console.print("[bold]Step 6/6:[/bold] Recording experience...")
+                ratchet.keep(
+                    prompt_id,
+                    {"aesthetic": 0.5},  # Placeholder scores
+                    change_context={"action": "orchestrate_pipeline"},
+                )
+                console.print("  [green]Experience recorded[/green]")
+        except Exception:
+            pass
+    elif not scene_composed:
+        console.print("[dim]Steps 5-6 skipped (usd-core not available)[/dim]")
+
+    # Save session if requested
+    if session:
+        save_result = json.loads(
+            session_tools.handle("save_session", {"name": session})
+        )
+        if "saved" in save_result:
+            console.print(f"\n[dim]Session '{session}' saved.[/dim]")
+
+    console.print("\n[bold green]Pipeline complete.[/bold green]")
+
+
+@app.command()
+def autoresearch(
+    query: str = typer.Argument(
+        None, help="What to search for (model, node, technique). "
+        "Omit to run a FORESIGHT autoresearch pipeline with --program.",
+    ),
+    category: str = typer.Option(
+        "all", "--category", "-c",
+        help="Search category: nodes, models, or all",
+    ),
+    provision: bool = typer.Option(
+        False, "--provision", "-p",
+        help="Auto-provision (register in stage) uninstalled models found",
+    ),
+    program: str = typer.Option(
+        None, "--program",
+        help="Path to a program.md file for FORESIGHT autoresearch pipeline",
+    ),
+    budget_hours: float = typer.Option(
+        1.0, "--budget-hours",
+        help="Maximum runtime in hours for FORESIGHT pipeline",
+    ),
+    experiment_seconds: float = typer.Option(
+        30.0, "--experiment-seconds",
+        help="Expected seconds per experiment",
+    ),
+    max_experiments: int = typer.Option(
+        100, "--max-experiments",
+        help="Maximum number of experiments to run",
+    ),
+    report: bool = typer.Option(
+        True, "--report/--no-report",
+        help="Generate morning report at end",
+    ),
+    resume: bool = typer.Option(
+        False, "--resume",
+        help="Resume from saved session experience",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="Show debug logging",
+    ),
+):
+    """Discover models/nodes or run FORESIGHT autoresearch pipeline.
+
+    Without --program: searches all sources (registry, CivitAI, HuggingFace),
+    displays results, and when --provision is set, registers uninstalled models
+    in the CognitiveWorkflowStage model registry for later download.
+
+    With --program: runs the FORESIGHT autoresearch pipeline — loads the
+    program spec, initializes the ratchet with CWM+experience+arbiter,
+    runs experiments, generates counterfactuals, and produces a morning report.
+    """
+    setup_logging(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        log_file=LOG_DIR / "autoresearch.log",
+    )
+
+    # FORESIGHT autoresearch pipeline mode
+    if program is not None:
+        from pathlib import Path
+        from .stage.autoresearch_runner import AutoresearchRunner, RunnerConfig
+
+        if not Path(program).exists():
+            console.print(f"[red]Program file not found: {program}[/red]")
+            raise typer.Exit(1)
+
+        config = RunnerConfig(
+            budget_hours=budget_hours,
+            experiment_seconds=experiment_seconds,
+            max_experiments=max_experiments,
+            program_path=program,
+            session_name="autoresearch",
+            resume=resume,
+        )
+
+        # Optionally wire CWS for experience persistence
+        cws = None
+        try:
+            from .session_context import get_session_context
+            ctx = get_session_context("default")
+            cws = ctx.ensure_stage()
+        except Exception:
+            pass
+
+        console.print("[bold]FORESIGHT Autoresearch[/bold]")
+        console.print(f"  Program: {program}")
+        console.print(f"  Budget: {budget_hours}h / {max_experiments} experiments")
+        console.print()
+
+        runner = AutoresearchRunner(config, cws=cws)
+        result = runner.run()
+
+        console.print("[bold]Results:[/bold]")
+        console.print(f"  Experiments: {len(result.experiments)}")
+        console.print(
+            f"  Kept: {sum(1 for e in result.experiments if e.kept)} / "
+            f"{len(result.experiments)}"
+        )
+        console.print(f"  Stopped: {result.stopped_reason}")
+
+        if report and result.report:
+            console.print(f"\n{result.report}")
+
+        return
+
+    # Discovery mode (original behavior) — query is required
+    if query is None:
+        console.print("[red]Provide a search query or use --program for FORESIGHT mode.[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Researching:[/bold] {query} (category={category})\n")
+
+    result = json.loads(
+        comfy_discover.handle("discover", {"query": query, "category": category})
+    )
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]")
+        raise typer.Exit(1)
+
+    results = result.get("results", [])
+    if not results:
+        console.print(f"[yellow]No results for '{query}'[/yellow]")
+        raise typer.Exit(0)
+
+    # Display results
+    table = Table(show_header=True, show_edge=False, pad_edge=False, box=None)
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Name", style="bold")
+    table.add_column("Type")
+    table.add_column("Source")
+    table.add_column("Status")
+    for i, r in enumerate(results, 1):
+        status = "[green]installed[/green]" if r.get("installed") else "[dim]not installed[/dim]"
+        table.add_row(str(i), r.get("name", "?"), r.get("type", ""), r.get("source", ""), status)
+    console.print(table)
+    console.print(f"\n[dim]{len(results)} results from {', '.join(result.get('sources_searched', []))}[/dim]")
+
+    # Auto-provision uninstalled models into the stage registry
+    if provision:
+        uninstalled = [r for r in results if not r.get("installed") and r.get("type") == "model"]
+        if not uninstalled:
+            console.print("\n[dim]All models already installed — nothing to provision.[/dim]")
+            return
+
+        console.print(f"\n[bold]Provisioning {len(uninstalled)} model(s) into stage registry...[/bold]")
+        try:
+            from .stage import HAS_USD
+            if not HAS_USD:
+                console.print("[yellow]usd-core not installed — cannot register in stage.[/yellow]")
+                return
+
+            from .session_context import get_session_context
+            from .stage import register_model
+
+            ctx = get_session_context("default")
+            stage = ctx.ensure_stage()
+            if stage is None:
+                console.print("[yellow]Could not initialize stage.[/yellow]")
+                return
+
+            for r in uninstalled:
+                name = r.get("name", "unknown")
+                model_type = r.get("model_type", "checkpoints")
+                url = r.get("url", "")
+                prim = register_model(
+                    stage, model_type, name,
+                    source_url=url,
+                )
+                console.print(f"  Registered: {prim}")
+
+        except Exception as e:
+            console.print(f"[red]Provision error: {e}[/red]")
+
+    console.print()
+
+
+@app.command()
 def mcp():
     """Primary integration -- exposes all tools via MCP for Claude Code.
 

@@ -248,6 +248,182 @@ def _empty_session(name: str) -> dict:
     }
 
 
+def save_stage(name: str, stage: "object") -> dict:
+    """Save a CognitiveWorkflowStage as a flattened .usda file alongside the session JSON.
+
+    Args:
+        name: Session name (matches the .json session file).
+        stage: CognitiveWorkflowStage instance.
+
+    Returns:
+        {"saved_stage": path} or {"error": msg}.
+    """
+    path = _sessions_dir() / f"{name}.usda"
+    try:
+        stage.flush(path)
+        return {"saved_stage": str(path)}
+    except Exception as e:
+        log.warning("Failed to save stage for session '%s': %s", name, e)
+        return {"error": f"Failed to save stage: {e}"}
+
+
+def load_stage(name: str) -> "object | None":
+    """Load a CognitiveWorkflowStage from a .usda file if it exists.
+
+    Args:
+        name: Session name to look up.
+
+    Returns:
+        CognitiveWorkflowStage instance, or None if not available.
+    """
+    path = _sessions_dir() / f"{name}.usda"
+    if not path.exists():
+        return None
+    try:
+        from ..stage import CognitiveWorkflowStage, HAS_USD
+        if not HAS_USD:
+            return None
+        return CognitiveWorkflowStage(str(path))
+    except Exception as e:
+        log.warning("Failed to load stage for session '%s': %s", name, e)
+        return None
+
+
+def save_ratchet(name: str, ratchet: "object") -> dict:
+    """Save Ratchet decision history as a JSON file alongside the session.
+
+    Args:
+        name: Session name (matches the .json session file).
+        ratchet: Ratchet instance with history to persist.
+
+    Returns:
+        {"saved_ratchet": path, "decisions": count} or {"error": msg}.
+    """
+    path = _sessions_dir() / f"{name}.ratchet.json"
+    try:
+        history = []
+        for d in ratchet.history:
+            history.append({
+                "delta_id": d.delta_id,
+                "kept": d.kept,
+                "axis_scores": d.axis_scores,
+                "composite": d.composite,
+                "timestamp": d.timestamp,
+            })
+        data = {
+            "threshold": ratchet.threshold,
+            "weights": ratchet.weights,
+            "history": history,
+        }
+        _atomic_write(path, json.dumps(data, sort_keys=True, indent=2))
+        return {"saved_ratchet": str(path), "decisions": len(history)}
+    except Exception as e:
+        log.warning("Failed to save ratchet for session '%s': %s", name, e)
+        return {"error": f"Failed to save ratchet: {e}"}
+
+
+def load_ratchet(name: str) -> "object | None":
+    """Load a Ratchet from a .ratchet.json file if it exists.
+
+    Restores weights, threshold, and replays the decision history.
+
+    Args:
+        name: Session name to look up.
+
+    Returns:
+        Ratchet instance with restored history, or None.
+    """
+    path = _sessions_dir() / f"{name}.ratchet.json"
+    if not path.exists():
+        return None
+    try:
+        from ..stage.ratchet import Ratchet, RatchetDecision
+        data = json.loads(path.read_text(encoding="utf-8"))
+        r = Ratchet(
+            weights=data.get("weights"),
+            threshold=data.get("threshold", 0.5),
+        )
+        # Replay history
+        for d in data.get("history", []):
+            r._history.append(RatchetDecision(
+                delta_id=d["delta_id"],
+                kept=d["kept"],
+                axis_scores=d.get("axis_scores", {}),
+                composite=d.get("composite", 0.0),
+                timestamp=d.get("timestamp", 0.0),
+            ))
+        return r
+    except Exception as e:
+        log.warning("Failed to load ratchet for session '%s': %s", name, e)
+        return None
+
+
+def save_experience(name: str, stage: "object") -> dict:
+    """Save experience data from a CognitiveWorkflowStage.
+
+    Experience prims live under /experience/ in the USD stage. Since the
+    stage is already saved via save_stage(), this extracts a lightweight
+    JSON summary of experiences for quick loading without USD.
+
+    Args:
+        name: Session name.
+        stage: CognitiveWorkflowStage instance.
+
+    Returns:
+        {"saved_experience": path, "count": n} or {"error": msg}.
+    """
+    path = _sessions_dir() / f"{name}.experience.json"
+    try:
+        from ..stage.experience import query_experience
+        chunks = query_experience(stage, limit=10000)
+        data = {
+            "count": len(chunks),
+            "experiences": [c.to_dict() for c in chunks],
+        }
+        _atomic_write(path, json.dumps(data, sort_keys=True, indent=2))
+        return {"saved_experience": str(path), "count": len(chunks)}
+    except Exception as e:
+        log.warning("Failed to save experience for session '%s': %s", name, e)
+        return {"error": f"Failed to save experience: {e}"}
+
+
+def load_experience(name: str, stage: "object") -> int:
+    """Replay saved experiences into a CognitiveWorkflowStage.
+
+    Reads the .experience.json file and re-records each experience
+    into the stage's /experience/ prims.
+
+    Args:
+        name: Session name.
+        stage: CognitiveWorkflowStage to record into.
+
+    Returns:
+        Number of experiences replayed, or 0 if file not found.
+    """
+    path = _sessions_dir() / f"{name}.experience.json"
+    if not path.exists():
+        return 0
+    try:
+        from ..stage.experience import record_experience
+        data = json.loads(path.read_text(encoding="utf-8"))
+        count = 0
+        for exp in data.get("experiences", []):
+            record_experience(
+                stage,
+                initial_state=exp.get("initial_state", {}),
+                decisions=exp.get("decisions", []),
+                outcome=exp.get("outcome", {}),
+                context_signature_hash=exp.get("context_signature_hash", ""),
+                predicted_outcome=exp.get("predicted_outcome") or None,
+                timestamp=exp.get("timestamp", 0.0),
+            )
+            count += 1
+        return count
+    except Exception as e:
+        log.warning("Failed to load experience for session '%s': %s", name, e)
+        return 0
+
+
 def _serialize_workflow_state(state: dict | None) -> dict:
     """Serialize workflow_patch._state for disk storage."""
     if state is None:

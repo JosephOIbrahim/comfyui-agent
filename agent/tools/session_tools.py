@@ -7,7 +7,11 @@ in the sessions/ directory.
 
 import copy
 
-from ..memory.session import save_session, load_session, list_sessions, add_note, restore_workflow_state
+from ..memory.session import (
+    save_session, load_session, list_sessions, add_note,
+    restore_workflow_state, save_stage, load_stage,
+    save_ratchet, load_ratchet,
+)
 from ._util import to_json
 
 # ---------------------------------------------------------------------------
@@ -121,6 +125,22 @@ def _handle_save_session(tool_input: dict) -> str:
     notes = existing.get("notes", []) if "error" not in existing else None
 
     result = save_session(name, workflow_state=workflow_state, notes=notes)
+
+    # Save CognitiveWorkflowStage alongside JSON if available
+    from ..session_context import get_session_context
+    ctx = get_session_context("default")
+    if ctx.stage is not None:
+        stage_result = save_stage(name, ctx.stage)
+        if "saved_stage" in stage_result:
+            result["stage_saved"] = True
+
+    # Save Ratchet decision history alongside session if available
+    if ctx.ratchet is not None and ctx.ratchet.history:
+        ratchet_result = save_ratchet(name, ctx.ratchet)
+        if "saved_ratchet" in ratchet_result:
+            result["ratchet_saved"] = True
+            result["ratchet_decisions"] = ratchet_result["decisions"]
+
     return to_json(result)
 
 
@@ -145,6 +165,24 @@ def _handle_load_session(tool_input: dict) -> str:
         wf_state["history"] = []  # Fresh undo history on restore
         restored_workflow = True
 
+    # Load CognitiveWorkflowStage if .usda exists alongside session
+    stage = load_stage(name)
+    stage_restored = False
+    if stage is not None:
+        from ..session_context import get_session_context
+        ctx = get_session_context("default")
+        ctx.stage = stage
+        stage_restored = True
+
+    # Load Ratchet decision history if .ratchet.json exists
+    ratchet = load_ratchet(name)
+    ratchet_restored = False
+    if ratchet is not None:
+        from ..session_context import get_session_context
+        ctx = get_session_context("default")
+        ctx._ratchet = ratchet
+        ratchet_restored = True
+
     notes = session.get("notes", [])
 
     return to_json({
@@ -152,6 +190,8 @@ def _handle_load_session(tool_input: dict) -> str:
         "saved_at": session.get("saved_at", ""),
         "workflow_restored": restored_workflow,
         "workflow_path": wf.get("loaded_path") if wf else None,
+        "stage_restored": stage_restored,
+        "ratchet_restored": ratchet_restored,
         "notes": notes,
         "notes_count": len(notes),
     })

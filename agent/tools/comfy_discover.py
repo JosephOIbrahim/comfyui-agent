@@ -603,6 +603,33 @@ def _rank_results(results: list[dict]) -> list[dict]:
     )
 
 
+def _annotate_provision_hints(results: list[dict]) -> None:
+    """Add provision_hint to uninstalled model results.
+
+    When a model is not installed, the hint tells the caller they can
+    register it in the CognitiveWorkflowStage and download it via
+    provision_download. Modifies results in place.
+    """
+    for r in results:
+        if r.get("type") == "model" and not r.get("installed", False):
+            url = r.get("url", "")
+            name = r.get("name", "unknown")
+            model_type = r.get("model_type", r.get("save_path", "checkpoints"))
+            if url:
+                r["provision_hint"] = {
+                    "action": "provision_download",
+                    "description": (
+                        f"Register '{name}' in the stage model registry, "
+                        f"then call provision_download to fetch it."
+                    ),
+                    "register_args": {
+                        "model_type": model_type,
+                        "filename": name,
+                        "source_url": url,
+                    },
+                }
+
+
 def _handle_discover(tool_input: dict) -> str:
     """Unified discovery across registry, CivitAI, and HuggingFace."""
     query = tool_input["query"]
@@ -662,6 +689,9 @@ def _handle_discover(tool_input: dict) -> str:
     # Deduplicate and rank
     deduped = _deduplicate(all_results)
     ranked = _rank_results(deduped)
+
+    # Annotate uninstalled models with provision hints
+    _annotate_provision_hints(ranked)
 
     response: dict = {
         "query": query,
