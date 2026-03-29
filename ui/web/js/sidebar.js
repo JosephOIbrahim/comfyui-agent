@@ -2,6 +2,7 @@ import { app } from "../../../scripts/app.js";
 import { renderText, createTypingIndicator, createPanel, createNodePill } from "./chat.js";
 import { createDispatchCard, updateAgentStatus } from "./dispatch.js";
 import { createProgressPanel, updateProgress } from "./progress.js";
+import { createQuickActions, updateQuickActions } from "./actions.js";
 
 /* ── SUPER DUPER Sidebar ─────────────────────────────────────────────
  *  Registers a sidebar tab in ComfyUI's extension manager.
@@ -274,6 +275,7 @@ function buildSidebar(el) {
       </div>
     </div>
     <div class="sd-readbar" id="sd-readbar"></div>
+    <div id="sd-quick-actions"></div>
     <div class="sd-input-bar">
       <input
         type="text"
@@ -297,6 +299,29 @@ function buildSidebar(el) {
 
   // Build readability controls
   _buildReadbar(readbarEl, messagesEl);
+
+  // Quick action chips
+  const quickActionsSlot = el.querySelector("#sd-quick-actions");
+  const ACTION_MESSAGES = {
+    run: "Run the current workflow",
+    validate: "Validate the current workflow and check for issues",
+    changes: "What changes have been made to the workflow?",
+    undo: "Undo the last workflow change",
+    optimize: "Suggest optimizations for the current workflow",
+    repair: "Find and install missing nodes for this workflow",
+  };
+  const quickActionsEl = createQuickActions((actionId) => {
+    const message = ACTION_MESSAGES[actionId];
+    if (!message || busy) return;
+    messagesEl.appendChild(createMessageEl("user", message));
+    const sent = conn.send("action", { action: "agent_message", message });
+    if (sent) {
+      setBusy(true);
+      _showThinking();
+      scrollToBottom();
+    }
+  });
+  quickActionsSlot.appendChild(quickActionsEl);
 
   let busy = false;
   let streamingEl = null;     // element receiving streamed text deltas
@@ -463,6 +488,13 @@ function buildSidebar(el) {
           }
           pipelineState = {};
           setBusy(false);
+          // Update quick actions
+          updateQuickActions({
+            workflowLoaded: true,
+            hasChanges: false,
+            canUndo: false,
+            isValid: true,
+          });
         }
         break;
 
@@ -625,6 +657,31 @@ function buildSidebar(el) {
   }
 
   sendBtn.addEventListener("click", sendMessage);
+
+  // Panel action button delegation — sends action to agent via WebSocket
+  messagesEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn || busy) return;
+
+    const action = btn.dataset.action;
+    const payload = { action };
+
+    if (action === "agent_message" && btn.dataset.message) {
+      // Show the message as a user message in chat
+      messagesEl.appendChild(createMessageEl("user", btn.dataset.message));
+      payload.message = btn.dataset.message;
+    } else if (action === "install_node_pack") {
+      if (btn.dataset.url) payload.url = btn.dataset.url;
+      if (btn.dataset.name) payload.name = btn.dataset.name;
+    }
+
+    const sent = conn.send("action", payload);
+    if (sent) {
+      setBusy(true);
+      _showThinking();
+      scrollToBottom();
+    }
+  });
 
   // Node pill canvas interaction (event delegation)
   messagesEl.addEventListener("click", (e) => {

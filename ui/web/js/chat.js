@@ -375,6 +375,13 @@ export function createActionFooter(status, actions) {
       const btn = document.createElement("button");
       btn.className = `sd-btn sd-btn--${action.variant || "secondary"}`;
       btn.textContent = action.label;
+      // Wire action data as dataset attributes for event delegation
+      if (action.action) {
+        btn.dataset.action = action.action;
+        if (action.message) btn.dataset.message = action.message;
+        if (action.url) btn.dataset.url = action.url;
+        if (action.name) btn.dataset.name = action.name;
+      }
       actionsEl.appendChild(btn);
     }
     footer.appendChild(actionsEl);

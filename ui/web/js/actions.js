@@ -12,6 +12,7 @@ let _onAction = null;
 
 const ACTIONS = {
   run: { label: "Run workflow", icon: "\u25B6" },
+  repair: { label: "Repair", icon: "\u2692" },
   changes: { label: "What changed?", icon: "\u0394" },
   undo: { label: "Undo", icon: "\u21A9" },
   optimize: { label: "Optimize", icon: "\u26A1" },

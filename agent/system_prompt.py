@@ -54,6 +54,11 @@ Discovery:
   check_node_updates (GitHub release tracking for installed packs),
   get_repo_releases (release history for a specific GitHub repo)
 
+Provisioning (install & download):
+  install_node_pack (git clone a custom node pack into Custom_Nodes),
+  download_model (download a model file to the correct models subdirectory),
+  uninstall_node_pack (disable a node pack non-destructively)
+
 Templates & Workflows:
   list_workflow_templates (built-in + user workflows + ComfyUI blueprints),
   get_workflow_template (load any template/workflow/blueprint for editing)

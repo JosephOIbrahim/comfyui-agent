@@ -71,6 +71,7 @@ class ConversationState:
         self.missing_nodes: list[str] | None = None
         self._workflow_hash: int | None = None  # skip reload if unchanged
         self._first_workflow = True  # run missing-nodes check on first inject
+        self._missing_nodes_full: list[dict] | None = None  # full data for panel
 
     def _build_system(self):
         from agent.system_prompt import build_system_prompt
@@ -138,6 +139,7 @@ def _inject_workflow(conv: ConversationState, workflow_data: dict) -> None:
     conv.workflow_summary = summarize_workflow_data(workflow_data)
 
     # On first workflow injection, check for missing nodes (best-effort)
+    # Store full missing data for panel emission (not just class_types)
     if conv._first_workflow:
         conv._first_workflow = False
         try:
@@ -148,8 +150,11 @@ def _inject_workflow(conv: ConversationState, workflow_data: dict) -> None:
             missing = result.get("missing", [])
             if missing:
                 conv.missing_nodes = [m.get("class_type", "?") for m in missing]
+                # Store full data for panel emission
+                conv._missing_nodes_full = missing
             else:
                 conv.missing_nodes = None
+                conv._missing_nodes_full = None
         except Exception as e:
             log.debug("Missing nodes check skipped: %s", e)
 
@@ -467,10 +472,121 @@ def _panel_discovery(result: dict, tool_input: dict) -> dict | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# Missing nodes panel
+# ---------------------------------------------------------------------------
+
+def _panel_missing_nodes(missing: list[dict]) -> dict:
+    """Build a panel showing missing nodes with install actions."""
+    sections = []
+    install_actions = []
+
+    for m in missing[:10]:
+        class_type = m.get("class_type", "?")
+        pack_name = m.get("pack_name", "")
+        pack_url = m.get("pack_url", "")
+
+        row = {"label": class_type, "value": pack_name or "Unknown pack"}
+        sections.append(row)
+
+        if pack_url and pack_url not in [a.get("url") for a in install_actions]:
+            install_actions.append({
+                "label": f"Install {pack_name or class_type}",
+                "variant": "primary",
+                "action": "install_node_pack",
+                "url": pack_url,
+                "name": pack_name,
+            })
+
+    actions = install_actions[:3]  # max 3 install buttons
+    if not actions:
+        actions = [{"label": "Search for nodes", "variant": "secondary",
+                     "action": "agent_message",
+                     "message": "Find and install the missing custom nodes for my workflow"}]
+
+    return {
+        "type": "missing_nodes",
+        "header": {
+            "label": "workflow \u00b7 repair",
+            "badge": str(len(missing)),
+            "title": "Missing Nodes Detected",
+            "summary": (
+                f"{len(missing)} node type{'s' if len(missing) != 1 else ''} "
+                f"not found. Install the required packs to fix."
+            ),
+            "stats": [
+                {"value": str(len(missing)), "label": "missing"},
+            ],
+        },
+        "sections": [{
+            "title": "Missing Node Types",
+            "dotColor": "#FF6E6E",
+            "count": len(sections),
+            "defaultOpen": True,
+            "type": "detail_rows",
+            "data": {"rows": sections},
+        }],
+        "footer": {
+            "status": "needs_repair",
+            "actions": actions,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Install/download result panels
+# ---------------------------------------------------------------------------
+
+def _panel_install_result(result: dict) -> dict | None:
+    """Panel for install_node_pack or download_model results."""
+    if result.get("error"):
+        return None
+
+    if result.get("installed"):
+        return {
+            "type": "install_result",
+            "header": {
+                "label": "provision \u00b7 install",
+                "badge": "OK",
+                "title": f"Installed: {result['installed']}",
+                "summary": result.get("message", ""),
+                "stats": [],
+            },
+            "sections": [],
+            "footer": {
+                "status": "restart_required" if result.get("restart_required") else "ready",
+                "actions": [{"label": "Restart ComfyUI", "variant": "primary",
+                             "action": "agent_message",
+                             "message": "How do I restart ComfyUI to load the new nodes?"}],
+            },
+        }
+
+    if result.get("downloaded"):
+        return {
+            "type": "download_result",
+            "header": {
+                "label": "provision \u00b7 download",
+                "badge": "OK",
+                "title": f"Downloaded: {result['downloaded']}",
+                "summary": result.get("message", ""),
+                "stats": [
+                    {"value": f"{result.get('size_gb', '?')} GB", "label": "size"},
+                    {"value": f"{result.get('speed_mbps', '?')} MB/s", "label": "speed"},
+                ],
+            },
+            "sections": [],
+            "footer": {"status": "ready", "actions": []},
+        }
+
+    return None
+
+
 # Tools that produce panelable results
 _PANEL_TOOLS = {
     "load_workflow", "validate_workflow",
     "discover",
+    "find_missing_nodes",
+    "install_node_pack", "download_model",
 }
 
 
@@ -491,6 +607,13 @@ def _build_panel_for_tool(name: str, tool_input: dict, result_json: str) -> dict
         return _panel_workflow_analysis(result)
     elif name == "discover":
         return _panel_discovery(result, tool_input)
+    elif name == "find_missing_nodes":
+        missing = result.get("missing", [])
+        if missing:
+            return _panel_missing_nodes(missing)
+        return None
+    elif name in ("install_node_pack", "download_model"):
+        return _panel_install_result(result)
 
     return None
 
@@ -663,6 +786,7 @@ def _infer_stage(tool_name: str) -> str:
         "list_workflow_templates", "get_workflow_template",
         "check_node_updates", "get_repo_releases",
         "identify_model_family", "check_model_compatibility",
+        "install_node_pack", "download_model", "uninstall_node_pack",
     }
     pilot = {
         "apply_workflow_patch", "preview_workflow_patch", "undo_workflow_patch",
@@ -827,6 +951,11 @@ async def websocket_handler(request):
                         except Exception as e:
                             log.warning("Workflow injection error: %s", e)
 
+                    # Emit missing nodes panel if detected on this injection
+                    if conv._missing_nodes_full:
+                        panel = _panel_missing_nodes(conv._missing_nodes_full)
+                        await ws.send_json({"type": "panel", "panel": panel})
+
                     conv.busy = True
                     await ws.send_json({"type": "stage", "stage": "THINKING", "detail": ""})
 
@@ -879,6 +1008,88 @@ async def websocket_handler(request):
                 elif msg_type == "reject":
                     # Phase 4: patch rejection
                     pass
+
+                elif msg_type == "action":
+                    # Panel action button clicked — route to agent as a message
+                    action = data.get("action", "")
+                    if action == "agent_message":
+                        # Send a pre-formed message to the agent
+                        message = data.get("message", "").strip()
+                        if message and not conv.busy:
+                            conv.busy = True
+                            await ws.send_json({"type": "stage", "stage": "THINKING", "detail": ""})
+                            msg_queue = queue.Queue()
+                            thread = threading.Thread(
+                                target=_run_agent_sync,
+                                args=(conv, message, msg_queue),
+                                daemon=True,
+                            )
+                            thread.start()
+                            accumulated_text = []
+                            while True:
+                                try:
+                                    event = await loop.run_in_executor(
+                                        None, lambda: msg_queue.get(timeout=0.1)
+                                    )
+                                except queue.Empty:
+                                    if not thread.is_alive():
+                                        while not msg_queue.empty():
+                                            event = msg_queue.get_nowait()
+                                            await _forward_event(ws, event, accumulated_text)
+                                        break
+                                    continue
+                                await _forward_event(ws, event, accumulated_text)
+                                if event["type"] in ("done", "error"):
+                                    break
+                            if accumulated_text:
+                                await ws.send_json({
+                                    "type": "message",
+                                    "role": "agent",
+                                    "content": "".join(accumulated_text),
+                                })
+                            conv.busy = False
+
+                    elif action == "install_node_pack":
+                        # Direct install action from panel button
+                        url = data.get("url", "")
+                        name = data.get("name", "")
+                        if url:
+                            message = f"Install the custom node pack from {url}"
+                            if name:
+                                message = f"Install the '{name}' custom node pack from {url}"
+                            if not conv.busy:
+                                conv.busy = True
+                                await ws.send_json({"type": "stage", "stage": "THINKING", "detail": ""})
+                                msg_queue = queue.Queue()
+                                thread = threading.Thread(
+                                    target=_run_agent_sync,
+                                    args=(conv, message, msg_queue),
+                                    daemon=True,
+                                )
+                                thread.start()
+                                accumulated_text = []
+                                while True:
+                                    try:
+                                        event = await loop.run_in_executor(
+                                            None, lambda: msg_queue.get(timeout=0.1)
+                                        )
+                                    except queue.Empty:
+                                        if not thread.is_alive():
+                                            while not msg_queue.empty():
+                                                event = msg_queue.get_nowait()
+                                                await _forward_event(ws, event, accumulated_text)
+                                            break
+                                        continue
+                                    await _forward_event(ws, event, accumulated_text)
+                                    if event["type"] in ("done", "error"):
+                                        break
+                                if accumulated_text:
+                                    await ws.send_json({
+                                        "type": "message",
+                                        "role": "agent",
+                                        "content": "".join(accumulated_text),
+                                    })
+                                conv.busy = False
 
             elif raw_msg.type == web.WSMsgType.ERROR:
                 log.error("WebSocket error: %s", ws.exception())

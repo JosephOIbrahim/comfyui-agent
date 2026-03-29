@@ -50,7 +50,7 @@ ruff format agent/ tests/                  # Format
 12. Never generate entire workflows from scratch. Make surgical, validated modifications.
 13. Every patch is validated before application. No exceptions.
 
-## Tool Overview (80 tools)
+## Tool Overview (83 tools)
 
 | Category | Tools |
 |----------|-------|
@@ -61,6 +61,7 @@ ruff format agent/ tests/                  # Format
 | **Semantic Build** | `add_node`, `connect_nodes`, `set_input` |
 | **Execution** | `validate_before_execute`, `execute_workflow`, `get_execution_status`, `execute_with_progress` |
 | **Discovery** | `discover`, `find_missing_nodes`, `check_registry_freshness`, `get_install_instructions` |
+| **Provision** | `install_node_pack`, `download_model`, `uninstall_node_pack` |
 | **CivitAI** | `get_civitai_model`, `get_trending_models` |
 | **Model Compat** | `identify_model_family`, `check_model_compatibility` |
 | **Node Replace** | `get_node_replacements`, `check_workflow_deprecations`, `migrate_deprecated_nodes` |
@@ -122,7 +123,7 @@ Patch engine operates on this format exclusively. Three input formats handled tr
 agent/
   main.py          # Agent loop (streaming, context management, retry)
   cli.py           # Typer CLI (run, mcp commands)
-  mcp_server.py    # MCP server exposing all 80 tools
+  mcp_server.py    # MCP server exposing all 83 tools
   config.py        # .env loading (ANTHROPIC_API_KEY, COMFYUI_DATABASE, etc.)
   system_prompt.py # Session-aware prompt builder + knowledge detection
   tools/           # Intelligence layer (53 tools, TOOLS+handle() pattern)

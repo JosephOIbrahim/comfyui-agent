@@ -166,6 +166,10 @@ class TestToolRegistry:
             "check_evolution_tier",
             "get_meta_history",
             "get_calibration_stats",
+            # Provisioning (install/download)
+            "install_node_pack",
+            "download_model",
+            "uninstall_node_pack",
         }
         assert expected == names, (
             f"Tool mismatch!\n"
@@ -174,7 +178,7 @@ class TestToolRegistry:
         )
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 103, f"Expected 103 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 106, f"Expected 106 tools, got {len(ALL_TOOLS)}"
 
     def test_brain_tool_error_returns_json(self):
         """Brain tool exceptions should be caught and returned as JSON errors."""
