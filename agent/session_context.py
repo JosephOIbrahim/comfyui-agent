@@ -230,6 +230,7 @@ def get_session_context(session_id: str = "default") -> SessionContext:
     On first creation of the default session, runs auto-initialization
     (model scan, workflow load, session restore) if configured via env vars.
     """
+    _registry.gc_stale()  # Clean up sessions idle > 1 hour
     is_new = _registry.get(session_id) is None
     ctx = _registry.get_or_create(session_id)
 

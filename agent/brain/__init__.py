@@ -25,6 +25,7 @@ from . import (  # noqa: F401 — trigger subclass registration
     demo, iterative_refine, intent_collector, iteration_accumulator,
 )
 from ._sdk import BrainAgent, BrainConfig  # noqa: F401
+from ..errors import error_json
 
 # Re-export agent classes (keep ALL existing re-exports)
 from .demo import DemoAgent  # noqa: F401
@@ -47,6 +48,8 @@ def handle(name: str, tool_input: dict) -> str:
     try:
         return BrainAgent.dispatch(name, tool_input)
     except Exception as e:
-        log.error("Unhandled error in brain tool %s", name, exc_info=True)
-        from ..tools._util import to_json
-        return to_json({"error": f"Internal error in {name}: {type(e).__name__}: {e}"})
+        log.warning("Brain tool %s failed: %s", name, e, exc_info=True)
+        return error_json(
+            f"Internal error in {name}: {e}",
+            hint="Try again, or check the ComfyUI console for details.",
+        )

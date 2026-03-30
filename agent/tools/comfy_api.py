@@ -5,11 +5,34 @@ query the running ComfyUI instance for node info, system stats,
 queue status, and execution history.
 """
 
+import threading
+
 import httpx
 
 from ..circuit_breaker import COMFYUI_BREAKER
 from ..config import COMFYUI_URL
 from ._util import to_json
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client (connection pool)
+# ---------------------------------------------------------------------------
+
+_client_lock = threading.Lock()
+_client: httpx.Client | None = None
+
+
+def _get_client() -> httpx.Client:
+    """Return a shared httpx client for ComfyUI API calls."""
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                _client = httpx.Client(
+                    base_url=COMFYUI_URL,
+                    timeout=10.0,
+                    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                )
+    return _client
 
 # ---------------------------------------------------------------------------
 # Tool schemas (Anthropic tool-use format)
@@ -152,11 +175,10 @@ def _get(path: str, timeout: float = _TIMEOUT) -> dict:
             f"ComfyUI has been unreachable. Waiting {breaker.recovery_timeout:.0f}s before retrying. Is ComfyUI still running?"
         )
     try:
-        with httpx.Client() as client:
-            resp = client.get(f"{COMFYUI_URL}{path}", timeout=timeout)
-            resp.raise_for_status()
-            breaker.record_success()
-            return resp.json()
+        resp = _get_client().get(f"{COMFYUI_URL}{path}", timeout=timeout)
+        resp.raise_for_status()
+        breaker.record_success()
+        return resp.json()
     except (httpx.ConnectError, httpx.TimeoutException) as e:
         breaker.record_failure()
         raise httpx.ConnectError(str(e)) from e

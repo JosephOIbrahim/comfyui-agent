@@ -230,24 +230,38 @@ class OrchestratorAgent(BrainAgent):
             }
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._run_subtask, task_id, profile, tool_calls)
+
+        def _on_timeout():
+            """Watchdog: fires if subtask exceeds timeout before completing."""
+            with self._tasks_lock:
+                if self._active_tasks.get(task_id, {}).get("status") == "running":
+                    self._active_tasks[task_id]["status"] = "timeout"
+                    self._active_tasks[task_id]["error"] = (
+                        f"Subtask timed out after {_SUBTASK_TIMEOUT_S}s"
+                    )
+            executor.shutdown(wait=False)
+
+        timer = threading.Timer(_SUBTASK_TIMEOUT_S, _on_timeout)
+        timer.daemon = True
+        timer.start()
 
         def _on_done(fut):
+            timer.cancel()  # Task completed — disarm the watchdog
             try:
-                result = fut.result(timeout=_SUBTASK_TIMEOUT_S)
+                result = fut.result()  # Future is already resolved; no timeout needed
                 with self._tasks_lock:
-                    self._active_tasks[task_id].update(result)
-            except concurrent.futures.TimeoutError:
-                with self._tasks_lock:
-                    self._active_tasks[task_id]["status"] = "timeout"
-                    self._active_tasks[task_id]["error"] = f"Timed out after {_SUBTASK_TIMEOUT_S}s"
+                    # Only update if the watchdog hasn't already marked it timed out
+                    if self._active_tasks.get(task_id, {}).get("status") == "running":
+                        self._active_tasks[task_id].update(result)
             except Exception as e:
                 with self._tasks_lock:
-                    self._active_tasks[task_id]["status"] = "error"
-                    self._active_tasks[task_id]["error"] = str(e)
+                    if self._active_tasks.get(task_id, {}).get("status") == "running":
+                        self._active_tasks[task_id]["status"] = "error"
+                        self._active_tasks[task_id]["error"] = str(e)
             finally:
                 executor.shutdown(wait=False)
 
+        future = executor.submit(self._run_subtask, task_id, profile, tool_calls)
         future.add_done_callback(_on_done)
 
         return self.to_json({

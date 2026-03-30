@@ -1,7 +1,7 @@
 """Tests for circuit_breaker.py — circuit breaker pattern for external services."""
 
 import threading
-import time
+from unittest.mock import patch
 
 import pytest
 
@@ -60,37 +60,45 @@ class TestCircuitBreakerStates:
 
     def test_transitions_to_half_open_after_recovery(self):
         cb = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=0.05)
-        cb.record_failure()
-        assert cb.state == OPEN
-        time.sleep(0.06)
-        assert cb.allow_request() is True
-        assert cb.state == HALF_OPEN
+        with patch("agent.circuit_breaker.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            cb.record_failure()
+            assert cb.state == OPEN
+            mock_time.monotonic.return_value = 1000.0 + 0.06  # past recovery_timeout=0.05
+            assert cb.allow_request() is True
+            assert cb.state == HALF_OPEN
 
     def test_half_open_limits_requests(self):
         cb = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=0.05,
                             half_open_max=1)
-        cb.record_failure()
-        time.sleep(0.06)
-        # First request in half-open allowed
-        assert cb.allow_request() is True
-        # Second blocked
-        assert cb.allow_request() is False
+        with patch("agent.circuit_breaker.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            cb.record_failure()
+            mock_time.monotonic.return_value = 1000.0 + 0.06  # past recovery_timeout=0.05
+            # First request in half-open allowed
+            assert cb.allow_request() is True
+            # Second blocked
+            assert cb.allow_request() is False
 
     def test_half_open_success_closes(self):
         cb = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=0.05)
-        cb.record_failure()
-        time.sleep(0.06)
-        cb.allow_request()  # transitions to HALF_OPEN
-        cb.record_success()
-        assert cb.state == CLOSED
+        with patch("agent.circuit_breaker.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            cb.record_failure()
+            mock_time.monotonic.return_value = 1000.0 + 0.06  # past recovery_timeout=0.05
+            cb.allow_request()  # transitions to HALF_OPEN
+            cb.record_success()
+            assert cb.state == CLOSED
 
     def test_half_open_failure_reopens(self):
         cb = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=0.05)
-        cb.record_failure()
-        time.sleep(0.06)
-        cb.allow_request()  # transitions to HALF_OPEN
-        cb.record_failure()
-        assert cb.state == OPEN
+        with patch("agent.circuit_breaker.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            cb.record_failure()
+            mock_time.monotonic.return_value = 1000.0 + 0.06  # past recovery_timeout=0.05
+            cb.allow_request()  # transitions to HALF_OPEN
+            cb.record_failure()
+            assert cb.state == OPEN
 
 
 class TestCircuitBreakerReset:
@@ -149,19 +157,21 @@ class TestThreadSafety:
     def test_concurrent_allow_request(self):
         """Concurrent allow_request calls should not crash."""
         cb = CircuitBreaker(name="test_allow", failure_threshold=1, recovery_timeout=0.01)
-        cb.record_failure()
-        time.sleep(0.02)
+        with patch("agent.circuit_breaker.time") as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            cb.record_failure()
+            mock_time.monotonic.return_value = 1000.0 + 0.02  # past recovery_timeout=0.01
 
-        results = []
+            results = []
 
-        def check():
-            results.append(cb.allow_request())
+            def check():
+                results.append(cb.allow_request())
 
-        threads = [threading.Thread(target=check) for _ in range(10)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+            threads = [threading.Thread(target=check) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
-        # At least one should be True (the first to transition to HALF_OPEN)
-        assert any(results)
+            # At least one should be True (the first to transition to HALF_OPEN)
+            assert any(results)

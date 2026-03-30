@@ -60,16 +60,21 @@ def _get_all_tools() -> list[dict]:
 class _ToolList(list):
     """Lazy tool list that includes brain tools on first access."""
     _initialized = False
+    _lock = threading.Lock()
 
     def _init_once(self):
-        if not self._initialized:
-            self._initialized = True
+        if self._initialized:
+            return
+        with self._lock:
+            if self._initialized:  # Double-check after acquiring lock
+                return
             self.extend(_LAYER_TOOLS)
             try:
                 from ..brain import ALL_BRAIN_TOOLS
                 self.extend(ALL_BRAIN_TOOLS)
             except ImportError:
                 log.warning("Brain layer not available")
+            self._initialized = True
 
     def __iter__(self):
         self._init_once()
@@ -133,10 +138,11 @@ def handle(
         log.warning("Unknown tool called: %s", name)
         return f"Unknown tool: {name}"
     try:
-        # Forward progress to modules that accept it
-        if mod is comfy_execute:
+        # Forward progress to any module that accepts it; fall back gracefully
+        try:
             return mod.handle(name, tool_input, progress=progress)
-        return mod.handle(name, tool_input)
+        except TypeError:
+            return mod.handle(name, tool_input)
     except Exception:
         log.error("Unhandled error in tool %s", name, exc_info=True)
         from ..errors import error_json

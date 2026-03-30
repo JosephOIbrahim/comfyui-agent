@@ -337,6 +337,7 @@ def _execute_with_websocket(
     progress.report(0, total_nodes, "Queued — waiting for ComfyUI...")
 
     progress_log = []
+    prompt_done = False
     node_times = {}
     current_node = None
     nodes_done = 0
@@ -367,7 +368,7 @@ def _execute_with_websocket(
 
                 if msg_type == "status":
                     queue_remaining = data.get("status", {}).get("exec_info", {}).get("queue_remaining", 0)
-                    if queue_remaining == 0 and progress_log:
+                    if prompt_done or (queue_remaining == 0 and progress_log):
                         # Execution finished
                         break
 
@@ -384,8 +385,9 @@ def _execute_with_websocket(
                         continue
                     node_id = data.get("node")
                     if node_id is None:
-                        # Execution complete
+                        # Execution complete for this prompt
                         elapsed = round(time.monotonic() - start_time, 1)
+                        prompt_done = True
                         progress_log.append({
                             "event": "complete",
                             "elapsed_s": round(time.monotonic() - start_time, 2),
