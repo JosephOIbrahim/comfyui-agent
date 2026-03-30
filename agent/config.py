@@ -1,7 +1,6 @@
 """Configuration and environment handling."""
 
 import os
-import platform
 import re
 import sys
 from pathlib import Path
@@ -37,19 +36,22 @@ API_RETRY_DELAY = 1.0  # seconds — base delay, doubles each retry
 
 # ComfyUI connection
 COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1")
-COMFYUI_PORT = int(os.getenv("COMFYUI_PORT", "8188"))
+_port_raw = os.getenv("COMFYUI_PORT", "8188")
+try:
+    COMFYUI_PORT = int(_port_raw)
+except ValueError:
+    print(
+        f"WARNING: COMFYUI_PORT='{_port_raw}' is not a valid integer. "
+        "Falling back to default port 8188.",
+        file=sys.stderr,
+    )
+    COMFYUI_PORT = 8188
 COMFYUI_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
 
 # Paths — cross-platform defaults for ComfyUI database location
 def _default_comfyui_database() -> str:
     """Sensible default ComfyUI database path per platform."""
-    _sys = platform.system()
-    if _sys == "Windows":
-        return "G:/COMFYUI_Database"
-    elif _sys == "Darwin":
-        return str(Path.home() / "ComfyUI")
-    else:
-        return str(Path.home() / "ComfyUI")
+    return str(Path.home() / "ComfyUI")
 
 
 COMFYUI_DATABASE = Path(os.getenv("COMFYUI_DATABASE", _default_comfyui_database()))
@@ -58,34 +60,24 @@ MODELS_DIR = COMFYUI_DATABASE / "models"
 WORKFLOWS_DIR = COMFYUI_DATABASE / "Workflows"
 
 # Output directory — may differ from COMFYUI_DATABASE when using extra_model_paths
-# or symlinked setups (e.g., models at G:\COMFYUI_Database but output at G:\COMFY\ComfyUI\output)
+# or symlinked setups. Override with COMFYUI_OUTPUT_DIR in .env.
 def _default_comfyui_output() -> str:
     """Default output directory. Checks COMFYUI_OUTPUT_DIR env var first."""
     env = os.getenv("COMFYUI_OUTPUT_DIR")
     if env:
         return env
-    # Check the common separate-install pattern
-    _sys = platform.system()
-    if _sys == "Windows":
-        candidate = Path("G:/COMFY/ComfyUI/output")
-        if candidate.exists():
-            return str(candidate)
     return str(COMFYUI_DATABASE / "output")
 
 
 COMFYUI_OUTPUT_DIR = Path(_default_comfyui_output())
 
-# ComfyUI installation directory (separate from database on this machine)
+# ComfyUI installation directory — defaults to COMFYUI_DATABASE unless overridden.
+# Override with COMFYUI_INSTALL_DIR in .env when install and data dirs differ.
 def _default_comfyui_install() -> str:
     """Default ComfyUI installation path. May differ from COMFYUI_DATABASE."""
     env = os.getenv("COMFYUI_INSTALL_DIR")
     if env:
         return env
-    _sys = platform.system()
-    if _sys == "Windows":
-        candidate = Path("G:/COMFY/ComfyUI")
-        if candidate.exists():
-            return str(candidate)
     return str(COMFYUI_DATABASE)
 
 

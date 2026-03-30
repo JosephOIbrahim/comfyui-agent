@@ -149,8 +149,7 @@ def _get(path: str, timeout: float = _TIMEOUT) -> dict:
     breaker = COMFYUI_BREAKER()
     if not breaker.allow_request():
         raise httpx.ConnectError(
-            f"Circuit breaker open — ComfyUI at {COMFYUI_URL} has been unreachable. "
-            f"Will retry in {breaker.recovery_timeout:.0f}s."
+            f"ComfyUI has been unreachable. Waiting {breaker.recovery_timeout:.0f}s before retrying. Is ComfyUI still running?"
         )
     try:
         with httpx.Client() as client:

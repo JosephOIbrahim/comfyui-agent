@@ -371,7 +371,7 @@ def _handle_install_node_pack(tool_input: dict) -> str:
             if pip_proc.returncode == 0:
                 pip_result = "Dependencies installed successfully."
             else:
-                pip_result = f"pip install had issues: {pip_proc.stderr[:200]}"
+                pip_result = "The node pack installed but some dependencies may be incomplete. Restart ComfyUI — if nodes don't appear, check the ComfyUI console for details."
         except Exception as e:
             pip_result = f"Could not install dependencies: {e}"
 
@@ -474,10 +474,16 @@ def _handle_download_model(tool_input: dict) -> str:
     try:
         with httpx.stream("GET", url, follow_redirects=True, timeout=30.0) as response:
             if response.status_code != 200:
-                return to_json({
-                    "error": f"Download failed: HTTP {response.status_code}",
-                    "url": url,
-                })
+                sc = response.status_code
+                if sc == 403:
+                    msg = "Download blocked — this model may require a CivitAI account or API key."
+                elif sc == 404:
+                    msg = "Download URL no longer valid — the model may have been removed."
+                elif sc >= 500:
+                    msg = "The model host is temporarily unavailable. Try again in a few minutes."
+                else:
+                    msg = f"Download failed (server returned {sc}). Try again later."
+                return to_json({"error": msg, "url": url})
 
             downloaded = 0
 

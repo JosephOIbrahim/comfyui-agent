@@ -5,6 +5,7 @@ same inputs -> same outputs across sessions and runs.
 """
 
 import json as _json
+import tempfile
 from pathlib import Path
 
 # Directories that tools are allowed to read/write within.
@@ -54,13 +55,10 @@ def validate_path(path_str: str, *, must_exist: bool = False) -> str | None:
 
     # Check against allowed directories
     safe_dirs = _get_safe_dirs()
-    in_safe_dir = any(
-        p_str.startswith(str(sd)) for sd in safe_dirs
-    )
+    in_safe_dir = any(p.is_relative_to(sd) for sd in safe_dirs)
     # Also allow temp directories (pytest tmp_path, system temp)
-    import tempfile
     temp_dir = Path(tempfile.gettempdir()).resolve()
-    if p_str.startswith(str(temp_dir)):
+    if p.is_relative_to(temp_dir):
         in_safe_dir = True
 
     if not in_safe_dir:

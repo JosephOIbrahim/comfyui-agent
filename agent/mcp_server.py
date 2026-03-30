@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 _SERVER_INSTRUCTIONS = """\
 # ComfyUI Agent
 
-AI co-pilot for VFX artists using ComfyUI. 80 tools across four phases:
+AI co-pilot for VFX artists using ComfyUI. 100+ tools across four phases:
 UNDERSTAND -> DISCOVER -> PILOT -> VERIFY.
 
 ## Tool Usage Guide

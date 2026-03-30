@@ -195,24 +195,25 @@ def _write_png_metadata(image_path: str, metadata: dict) -> None:
         raise RuntimeError("Pillow is required for PNG metadata operations")
 
     img = Image.open(image_path)
+    try:
+        # Preserve existing text chunks
+        existing_text = {}
+        if hasattr(img, "text"):
+            existing_text = dict(img.text)
 
-    # Preserve existing text chunks
-    existing_text = {}
-    if hasattr(img, "text"):
-        existing_text = dict(img.text)
+        # Build new PngInfo with all existing chunks + ours
+        png_info = PngInfo()
+        for key, value in sorted(existing_text.items()):
+            if key != METADATA_CHUNK_KEY:
+                png_info.add_text(key, value)
 
-    # Build new PngInfo with all existing chunks + ours
-    png_info = PngInfo()
-    for key, value in sorted(existing_text.items()):
-        if key != METADATA_CHUNK_KEY:
-            png_info.add_text(key, value)
+        # Add our chunk
+        png_info.add_text(METADATA_CHUNK_KEY, to_json(metadata))
 
-    # Add our chunk
-    png_info.add_text(METADATA_CHUNK_KEY, to_json(metadata))
-
-    # Re-save
-    img.save(image_path, pnginfo=png_info)
-    img.close()
+        # Re-save
+        img.save(image_path, pnginfo=png_info)
+    finally:
+        img.close()
 
 
 # ---------------------------------------------------------------------------

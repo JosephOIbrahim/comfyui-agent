@@ -30,11 +30,13 @@ from ..workflow_session import get_session
 _state = get_session("default")
 _state_lock = _state._lock
 
+_MAX_HISTORY = 50
+
 
 def _ensure_loaded() -> str | None:
     """Return error message if no workflow is loaded, else None."""
     if _state["current_workflow"] is None:
-        return "No workflow loaded. Use apply_workflow_patch with a file path first."
+        return "No workflow is open. Load a workflow first with load_workflow, then make changes."
     return None
 
 
@@ -48,8 +50,8 @@ def _load_workflow(path_str: str) -> str | None:
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        return f"Invalid JSON: {e}"
+    except json.JSONDecodeError:
+        return "This workflow file appears to be corrupted or incomplete. Try re-exporting it from ComfyUI using Save (API Format)."
 
     # Extract API format
     if "nodes" in data and isinstance(data["nodes"], list):
@@ -337,6 +339,8 @@ def _handle_apply_patch(tool_input: dict) -> str:
 
     # Save current state for undo
     _state["history"].append(copy.deepcopy(_state["current_workflow"]))
+    if len(_state["history"]) > _MAX_HISTORY:
+        _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     # Apply patches
     try:
@@ -521,6 +525,8 @@ def _handle_add_node(tool_input: dict) -> str:
 
     # Save state for undo
     _state["history"].append(copy.deepcopy(_state["current_workflow"]))
+    if len(_state["history"]) > _MAX_HISTORY:
+        _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     node_id = _next_node_id()
     _state["current_workflow"][node_id] = {
@@ -557,6 +563,8 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
     # Save state for undo
     _state["history"].append(copy.deepcopy(workflow))
+    if len(_state["history"]) > _MAX_HISTORY:
+        _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     # Set connection (ComfyUI format: [source_node_id_str, output_index_int])
     # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
@@ -601,6 +609,8 @@ def _handle_set_input(tool_input: dict) -> str:
 
     # Save state for undo
     _state["history"].append(copy.deepcopy(workflow))
+    if len(_state["history"]) > _MAX_HISTORY:
+        _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
     # as nested dicts in API format: {"values": {"a": ...}}

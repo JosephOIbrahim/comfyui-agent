@@ -11,6 +11,7 @@ Includes freshness tracking to detect stale registry data and suggest updates.
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -21,6 +22,13 @@ from ..rate_limiter import HUGGINGFACE_LIMITER
 from ._util import to_json
 
 log = logging.getLogger(__name__)
+
+# Pre-compiled pattern for UUID-style component instance node class_types.
+# These are not real node classes and should be excluded from missing-node checks.
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def _check_deprecated(class_type: str) -> dict | None:
@@ -41,8 +49,7 @@ def _check_deprecated(class_type: str) -> dict | None:
                     "all_replacements": [r.get("new_node_id") for r in reps],
                 }
     except Exception as e:
-        import logging as _logging
-        _logging.getLogger(__name__).warning("_check_deprecated failed for %s: %s", class_type, e)
+        log.warning("_check_deprecated failed for %s: %s", class_type, e)
     return None
 
 # ---------------------------------------------------------------------------
@@ -1145,12 +1152,7 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
     class_types.update(subgraph_class_types)
 
     # Remove UUID-style component types — they aren't real node classes
-    import re
-    _uuid_pattern = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        re.IGNORECASE,
-    )
-    class_types = {ct for ct in class_types if not _uuid_pattern.match(ct)}
+    class_types = {ct for ct in class_types if not _UUID_PATTERN.match(ct)}
 
     if not class_types:
         return to_json({"error": "No nodes found in workflow."})

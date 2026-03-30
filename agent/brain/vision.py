@@ -428,12 +428,19 @@ class VisionAgent(BrainAgent):
         except Exception as e:
             return self.to_json({"error": f"Failed to open images: {e}"})
 
-        hash_a = _compute_average_hash(img_a)
-        hash_b = _compute_average_hash(img_b)
-        hamming = _hamming_distance(hash_a, hash_b)
-        hash_similarity = round(1.0 - hamming / 64, 4)
+        try:
+            hash_a = _compute_average_hash(img_a)
+            hash_b = _compute_average_hash(img_b)
+            hamming = _hamming_distance(hash_a, hash_b)
+            hash_similarity = round(1.0 - hamming / 64, 4)
 
-        diff = _pixel_diff(img_a, img_b)
+            diff = _pixel_diff(img_a, img_b)
+
+            res_a = f"{img_a.width}x{img_a.height}"
+            res_b = f"{img_b.width}x{img_b.height}"
+        finally:
+            img_a.close()
+            img_b.close()
 
         if hamming == 0 and diff["diff_pct"] == 0:
             verdict = "identical"
@@ -453,8 +460,8 @@ class VisionAgent(BrainAgent):
             "pixel_diff_pct": diff["diff_pct"],
             "avg_color_delta": diff["avg_color_delta"],
             "diff_pixels": diff["diff_pixels"],
-            "resolution_a": f"{img_a.width}x{img_a.height}",
-            "resolution_b": f"{img_b.width}x{img_b.height}",
+            "resolution_a": res_a,
+            "resolution_b": res_b,
             "image_a": image_a,
             "image_b": image_b,
         })

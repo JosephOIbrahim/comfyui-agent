@@ -159,8 +159,8 @@ def _load_workflow_from_file(path_str: str) -> tuple[dict | None, str | None]:
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        return None, f"Invalid JSON: {e}"
+    except json.JSONDecodeError:
+        return None, "This workflow file appears to be corrupted or incomplete. Try re-exporting it from ComfyUI using Save (API Format)."
 
     # Extract API format
     if "nodes" in data and isinstance(data["nodes"], list):
@@ -171,7 +171,7 @@ def _load_workflow_from_file(path_str: str) -> tuple[dict | None, str | None]:
                 if isinstance(v, dict) and "class_type" in v
             }
             return nodes, None
-        return None, "UI-only format -- can't execute without API data."
+        return None, "This workflow was saved without execution data. In ComfyUI, use Workflow > Save (API Format) and use that file instead."
 
     nodes = {
         k: v for k, v in data.items()
@@ -199,7 +199,7 @@ def _queue_prompt(workflow: dict) -> tuple[str | None, str | None]:
             data = resp.json()
             prompt_id = data.get("prompt_id")
             if not prompt_id:
-                return None, f"No prompt_id in response: {data}"
+                return None, "ComfyUI accepted the workflow but didn't return a job ID. It may be overloaded — try again in a few seconds."
             return prompt_id, None
     except httpx.ConnectError:
         return None, f"ComfyUI not reachable at {COMFYUI_URL}. Is it running?"

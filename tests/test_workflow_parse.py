@@ -197,7 +197,7 @@ class TestLoadWorkflow:
         )
         assert result["format"] == "ui_only"
         assert result["node_count"] == 2
-        assert "UI-only" in result["summary"]
+        assert "without execution data" in result["summary"]
 
     def test_file_not_found(self):
         result = json.loads(
@@ -295,7 +295,7 @@ class TestValidateWorkflow:
             workflow_parse.handle("validate_workflow", {"path": str(ui_only_workflow)})
         )
         assert "error" in result
-        assert "UI-only" in result["error"]
+        assert "without execution data" in result["error"]
 
     def test_validation_with_mock_comfyui(self, api_workflow):
         """Mock a successful validation against object_info."""

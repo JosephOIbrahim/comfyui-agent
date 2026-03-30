@@ -130,8 +130,8 @@ def _load_json(path_str: str) -> tuple[dict, str | None]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         return data, None
-    except json.JSONDecodeError as e:
-        return {}, f"Invalid JSON: {e}"
+    except json.JSONDecodeError:
+        return {}, "This workflow file appears to be corrupted or incomplete. Try re-exporting it from ComfyUI using Save (API Format)."
 
 
 # ---------------------------------------------------------------------------
@@ -477,8 +477,8 @@ def _build_summary(
     if fmt == "ui_only":
         lines.append("")
         lines.append(
-            "Note: UI-only format — editable field values not available. "
-            "Use an API-format workflow for full analysis."
+            "Note: This workflow was saved without execution data — field values are not available. "
+            "Use Workflow > Save (API Format) in ComfyUI for full analysis."
         )
 
     return "\n".join(lines)
@@ -867,9 +867,7 @@ def _handle_validate_workflow(tool_input: dict) -> str:
     if fmt == "ui_only":
         return to_json({
             "error": (
-                "UI-only workflow format — can't validate without API format data. "
-                "Re-export the workflow using 'Save (API Format)' in ComfyUI, "
-                "or use a workflow that has extra.prompt embedded."
+                "This workflow was saved without execution data. In ComfyUI, use Workflow > Save (API Format) and use that file instead."
             ),
         })
 
@@ -914,8 +912,7 @@ def _handle_get_editable_fields(tool_input: dict) -> str:
     if fmt == "ui_only":
         return to_json({
             "error": (
-                "UI-only format — field values aren't available. "
-                "Use an API-format workflow or one with extra.prompt embedded."
+                "This workflow was saved without execution data. In ComfyUI, use Workflow > Save (API Format) and use that file instead."
             ),
         })
 
