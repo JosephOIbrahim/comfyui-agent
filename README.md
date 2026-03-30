@@ -1,14 +1,15 @@
 # ComfyUI Agent
 
-An AI co-pilot for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) that understands your workflows and helps you work faster through natural conversation.
+AI co-pilot for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) -- 108 tools that understand your workflows and help you work faster through natural conversation.
 
-Instead of manually editing JSON, hunting for node packs, or debugging broken workflows yourself, just describe what you want and the agent handles it -- including installing missing nodes and downloading models.
+Instead of manually editing JSON, hunting for node packs, or debugging broken workflows yourself, just describe what you want. The agent inspects, repairs, reconfigures, and executes -- including installing missing nodes, downloading models, and fixing broken model references.
 
 ## What It Does
 
 - **"What models do I have?"** -- scans your installation instantly
 - **"Load this workflow and change the seed to 42"** -- reads, modifies, and saves with undo support
-- **"This workflow has missing nodes"** -- detects missing nodes, finds the packs, and installs them
+- **"Repair this workflow"** -- one-shot: detects missing nodes, finds the packs, installs them all
+- **"Reconfigure for my local models"** -- scans model references, finds missing files, substitutes closest local match
 - **"Download the LTX-2 FP8 checkpoint"** -- downloads models directly to the correct directory
 - **"Run this with 30 steps instead of 20"** -- patches the workflow and queues it to ComfyUI
 - **"Find me a good anime LoRA"** -- searches local catalog, ComfyUI Manager registry, HuggingFace, and CivitAI
@@ -16,7 +17,7 @@ Instead of manually editing JSON, hunting for node packs, or debugging broken wo
 - **"Analyze this output -- why does it look wrong?"** -- uses Claude Vision to diagnose image issues
 - **"Remember that I prefer SDXL for landscapes"** -- saves notes and learns from your outcomes over time
 
-The agent talks to ComfyUI's API directly. It reads your actual installation, sees what's really installed, and works with your real workflows.
+The agent talks to ComfyUI's API directly. It reads your actual installation, sees what's really installed, and works with your real workflows -- including component/subgraph workflows with nested node graphs.
 
 ## Installation
 
@@ -117,16 +118,16 @@ agent autoresearch --program program.md     # FORESIGHT autoresearch pipeline
 
 ## How It Works
 
-The agent uses Claude (Anthropic's AI) with 106 specialized tools across three tiers:
+The agent uses Claude (Anthropic's AI) with 108 specialized tools across three tiers:
 
-**Intelligence Layer (56 tools)**
+**Intelligence Layer (58 tools)**
 
 | Layer | Tools | What they do |
 |-------|-------|-------------|
-| **UNDERSTAND** | 13 | Parse workflows, scan models/nodes, query ComfyUI API, detect format |
+| **UNDERSTAND** | 13 | Parse workflows (including component/subgraph format), scan models/nodes, query ComfyUI API, detect format |
 | **DISCOVER** | 15 | Search local catalog + ComfyUI Manager (31k+ nodes) + HuggingFace + CivitAI, model compatibility, install instructions, GitHub releases |
-| **PILOT** | 16 | RFC6902 patch engine with undo, semantic node ops, session persistence, pipeline execution |
-| **PROVISION** | 3 | Install node packs (git clone), download models (httpx), disable node packs |
+| **PILOT** | 16 | RFC6902 patch engine with undo, semantic node ops (AUTOGROW_V3 support), session persistence, pipeline execution |
+| **PROVISION** | 5 | Install node packs (git clone), download models (httpx), disable node packs, one-shot workflow repair, model reference reconfiguration |
 | **VERIFY** | 9 | Validate, execute, WebSocket progress monitoring, post-execution verification, creative metadata embedding |
 
 **Brain Layer (27 tools)**
@@ -184,6 +185,15 @@ The agent can load workflows from three locations:
 
 Use `list_workflow_templates` to see all available workflows across sources.
 
+## Component Workflow Support
+
+ComfyUI 0.16+ introduced component nodes -- workflows-within-workflows where a single node on the canvas contains an entire subgraph internally. The agent handles these natively:
+
+- **Detects** component instance nodes (UUID-style class types)
+- **Parses** `definitions.subgraphs` to inspect internal node graphs
+- **Validates** nodes inside components (catches missing nodes in subgraphs)
+- **Supports** `COMFY_AUTOGROW_V3` dynamic inputs (dotted names like `values.a`)
+
 ## SuperDuper Panel (ComfyUI Sidebar)
 
 When loaded as a ComfyUI extension, the agent provides an in-app AI sidebar:
@@ -191,13 +201,31 @@ When loaded as a ComfyUI extension, the agent provides an in-app AI sidebar:
 - **Chat interface** with real-time streaming responses
 - **Workflow-aware** -- automatically reads the current canvas
 - **Missing nodes detection** with one-click install panels
+- **Direct execution** -- Repair, Validate, Install, Download bypass Claude API for instant results
 - **Agent dispatch cards** showing which intelligence layer is active (ROUTER / INTENT / EXECUTION / VERIFY)
 - **Quick action chips** -- Run, Validate, Repair, Optimize with one click
 - **Node interaction pills** -- click to highlight nodes on the canvas
+- **Environment awareness** -- receives full installation snapshot (resolved paths, model counts, node packs) on connect
+
+### Repair Flow
+
+When you load a workflow with missing nodes, SuperDuper:
+1. Detects missing nodes (including inside component subgraphs)
+2. Shows a repair panel listing each missing type and its source pack
+3. One click installs all required packs via `git clone`
+4. Reports which packs succeeded and if a restart is needed
+
+### Reconfigure Flow
+
+When a workflow references models you don't have:
+1. Scans all model references (checkpoints, LoRAs, VAEs, ControlNets)
+2. Checks which files exist locally
+3. Fuzzy-matches the closest local alternative (stem/word overlap scoring)
+4. Applies substitutions automatically or shows a report
 
 ## MCP Server (Primary Interface)
 
-All 106 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
+All 108 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
 
 ```bash
 agent mcp
@@ -252,6 +280,7 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 - **API format** -- the JSON you get from "Save (API Format)" in ComfyUI. Full node data with inputs and connections. Best for the agent.
 - **UI format with API data** -- the default "Save" export. Contains visual layout plus embedded API data. Agent extracts what it needs.
 - **UI-only format** -- older exports with only visual layout. The agent can read the structure but can't modify or execute these.
+- **Component format** -- workflows containing subgraph definitions (`definitions.subgraphs`). The agent parses both the top-level instances and the internal node graphs.
 
 ## Troubleshooting
 
@@ -259,9 +288,13 @@ ComfyUI exports workflows in different formats. The agent handles all of them:
 
 **"Could not connect to ComfyUI"** -- Start ComfyUI first. The agent needs it running to inspect nodes, execute workflows, and validate changes.
 
-**"Node type not found"** -- The workflow uses a custom node that isn't installed. Ask the agent: "find and install missing nodes" and it will detect, locate, and install the required packs.
+**"Node type not found"** -- The workflow uses a custom node that isn't installed. Ask the agent: "repair this workflow" and it will detect, locate, and install the required packs in one shot.
 
 **Unicode/encoding crash on Windows** -- If you see `UnicodeEncodeError` with Rich, ensure you're running in a terminal that supports UTF-8 (Windows Terminal recommended).
+
+**"Port 8188 already in use"** -- Another ComfyUI instance is running. Kill it first or use a different port via `COMFYUI_PORT`.
+
+**Disabled node packs still showing errors** -- ComfyUI scans all directories in `custom_nodes/`, including those with `.disabled_` prefixes. Move disabled packs to a folder outside `custom_nodes/` (e.g., `Custom_Nodes_Disabled/`) to eliminate startup tracebacks.
 
 ## Testing
 
