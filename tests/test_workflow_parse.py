@@ -694,3 +694,171 @@ class TestRegistration:
         from agent.tools import handle
         result = json.loads(handle("load_workflow", {"path": "/nonexistent"}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# COMFY_AUTOGROW_V3 support
+# ---------------------------------------------------------------------------
+
+class TestAutogrowHelpers:
+    """Test the AUTOGROW dotted-name helper functions."""
+
+    def test_is_autogrow_dotted_name(self):
+        assert workflow_parse._is_autogrow_dotted_name("values.a") is True
+        assert workflow_parse._is_autogrow_dotted_name("values.b") is True
+        assert workflow_parse._is_autogrow_dotted_name("group.sub.deep") is True
+        assert workflow_parse._is_autogrow_dotted_name("normal_input") is False
+        assert workflow_parse._is_autogrow_dotted_name(".hidden") is False
+        assert workflow_parse._is_autogrow_dotted_name("") is False
+
+    def test_group_autogrow_inputs(self):
+        flat = {
+            "expression": "a + b",
+            "values.a": 42,
+            "values.b": 7,
+        }
+        grouped = workflow_parse._group_autogrow_inputs(flat)
+        assert grouped["expression"] == "a + b"
+        assert grouped["values"] == {"a": 42, "b": 7}
+
+    def test_flatten_autogrow_inputs(self):
+        nested = {
+            "expression": "a + b",
+            "values": {"a": 42, "b": 7},
+        }
+        flat = workflow_parse._flatten_autogrow_inputs(nested)
+        assert flat["expression"] == "a + b"
+        assert flat["values.a"] == 42
+        assert flat["values.b"] == 7
+        assert "values" not in flat
+
+    def test_flatten_preserves_connections(self):
+        """Connection lists [node_id, idx] should not be flattened."""
+        inputs = {
+            "model": ["1", 0],
+            "values": {"a": 42},
+        }
+        flat = workflow_parse._flatten_autogrow_inputs(inputs)
+        assert flat["model"] == ["1", 0]
+        assert flat["values.a"] == 42
+
+    def test_flatten_skips_empty_dicts(self):
+        inputs = {"values": {}, "text": "hello"}
+        flat = workflow_parse._flatten_autogrow_inputs(inputs)
+        assert flat["values"] == {}
+        assert flat["text"] == "hello"
+
+
+class TestAutogrowWorkflow:
+    """Test AUTOGROW support in workflow parsing and validation."""
+
+    @pytest.fixture
+    def autogrow_workflow(self, tmp_path):
+        """API-format workflow with a COMFY_AUTOGROW_V3 node."""
+        data = {
+            "1": {
+                "class_type": "CheckpointLoaderSimple",
+                "inputs": {"ckpt_name": "sd15.safetensors"},
+            },
+            "2": {
+                "class_type": "ComfyMathExpression",
+                "inputs": {
+                    "expression": "a + b",
+                    "values": {"a": 42, "b": 7},
+                },
+            },
+        }
+        path = tmp_path / "autogrow_wf.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_editable_fields_flatten_autogrow(self, autogrow_workflow):
+        result = json.loads(workflow_parse.handle(
+            "load_workflow", {"path": str(autogrow_workflow)}
+        ))
+        fields = result["editable_fields"]
+        field_names = [f["field"] for f in fields if f["class_type"] == "ComfyMathExpression"]
+        assert "expression" in field_names
+        assert "values.a" in field_names
+        assert "values.b" in field_names
+        # The nested dict key "values" should NOT appear as a raw field
+        assert "values" not in field_names
+
+    def test_connections_through_autogrow(self, tmp_path):
+        """Connections inside AUTOGROW nested dicts are traced correctly."""
+        data = {
+            "1": {
+                "class_type": "SomeIntNode",
+                "inputs": {"value": 10},
+            },
+            "2": {
+                "class_type": "ComfyMathExpression",
+                "inputs": {
+                    "expression": "a + b",
+                    "values": {
+                        "a": ["1", 0],  # connection from node 1
+                        "b": 7,
+                    },
+                },
+            },
+        }
+        path = tmp_path / "autogrow_conn.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        result = json.loads(workflow_parse.handle(
+            "load_workflow", {"path": str(path)}
+        ))
+        connections = result["connections"]
+        # Should find connection to "values.a"
+        conn_inputs = [c["to_input"] for c in connections]
+        assert "values.a" in conn_inputs
+
+    def test_validate_autogrow_no_false_warnings(self):
+        """AUTOGROW sub-inputs should not trigger 'unknown input' warnings."""
+        nodes = {
+            "1": {
+                "class_type": "ComfyMathExpression",
+                "inputs": {
+                    "expression": "a + b",
+                    "values": {"a": 42, "b": 7},
+                },
+            },
+        }
+        connections = []
+        mock_info = {
+            "ComfyMathExpression": {
+                "input": {
+                    "required": {
+                        "expression": ["STRING", {"default": "a + b"}],
+                        "values": [
+                            "COMFY_AUTOGROW_V3",
+                            {
+                                "template": {
+                                    "input": {
+                                        "required": {
+                                            "value": ["FLOAT,INT", {}],
+                                        },
+                                    },
+                                },
+                                "names": ["a", "b", "c"],
+                                "min": 1,
+                            },
+                        ],
+                    },
+                    "optional": {},
+                },
+                "output": ["FLOAT", "INT"],
+            },
+        }
+        mock_resp = type("Resp", (), {
+            "json": lambda self: mock_info,
+            "raise_for_status": lambda self: None,
+        })()
+        with patch("httpx.Client") as mock_client:
+            mock_client.return_value.__enter__ = lambda s: s
+            mock_client.return_value.__exit__ = lambda s, *a: None
+            mock_client.return_value.get.return_value = mock_resp
+            result = workflow_parse._validate_against_comfyui(nodes, connections)
+
+        assert result["valid"] is True
+        assert len(result["warnings"]) == 0
+        assert len(result["errors"]) == 0

@@ -9,12 +9,21 @@ what's connected to what, and what can be safely modified.
 """
 
 import json
+import re
 from pathlib import Path
 
 import httpx
 
 from ._util import to_json
 from ..config import COMFYUI_URL
+
+# Regex to detect UUID-style component type strings.
+# Component instance nodes use a UUID as their "type" instead of a class name,
+# e.g. "b94257db-cdc1-45d3-8913-ca61e782d9c1".
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -125,12 +134,68 @@ def _load_json(path_str: str) -> tuple[dict, str | None]:
         return {}, f"Invalid JSON: {e}"
 
 
+# ---------------------------------------------------------------------------
+# COMFY_AUTOGROW_V3 helpers (ComfyUI 0.16.3+)
+# ---------------------------------------------------------------------------
+# AUTOGROW inputs use dotted names in the UI ("values.a", "values.b") but
+# nested dicts in the API format ({"values": {"a": ..., "b": ...}}).
+# These helpers translate between the two representations.
+
+
+def _is_autogrow_dotted_name(name: str) -> bool:
+    """Check if an input name uses COMFY_AUTOGROW_V3 dotted notation."""
+    return "." in name and not name.startswith(".")
+
+
+def _group_autogrow_inputs(inputs: dict) -> dict:
+    """Group dotted AUTOGROW inputs into nested dicts for API format.
+
+    UI format: {"values.a": 42, "values.b": 7}
+    API format: {"values": {"a": 42, "b": 7}}
+    Non-dotted inputs pass through unchanged.
+    """
+    result = {}
+    for name, value in inputs.items():
+        if _is_autogrow_dotted_name(name):
+            group, _, sub = name.partition(".")
+            result.setdefault(group, {})[sub] = value
+        else:
+            result[name] = value
+    return result
+
+
+def _flatten_autogrow_inputs(inputs: dict) -> dict:
+    """Flatten nested AUTOGROW dicts into dotted names for display.
+
+    API format: {"values": {"a": 42, "b": 7}}
+    Flat format: {"values.a": 42, "values.b": 7}
+    Connection lists and dicts with class_type are left as-is.
+    """
+    result = {}
+    for name, value in inputs.items():
+        if (
+            isinstance(value, dict)
+            and "class_type" not in value
+            and value  # skip empty dicts
+        ):
+            # Nested dict — likely AUTOGROW group. Flatten sub-keys.
+            for sub, sub_val in value.items():
+                result[f"{name}.{sub}"] = sub_val
+        else:
+            result[name] = value
+    return result
+
+
 def _extract_api_format(data: dict) -> tuple[dict, str]:
     """
     Extract API-format node dict from any workflow format.
 
     Returns (api_nodes, format_name).
     api_nodes: {node_id_str: {"class_type": ..., "inputs": {...}}}
+
+    COMFY_AUTOGROW_V3 note: In API format, AUTOGROW inputs are stored
+    as nested dicts (e.g. {"values": {"a": 42}}). The flatten/group
+    helpers handle translation to/from dotted names when needed.
     """
     # Check for UI format (has "nodes" array)
     if "nodes" in data and isinstance(data["nodes"], list):
@@ -149,12 +214,16 @@ def _extract_api_format(data: dict) -> tuple[dict, str]:
             nid = str(node.get("id", ""))
             class_type = node.get("type", "Unknown")
             widgets = node.get("widgets_values", [])
-            nodes[nid] = {
+            entry = {
                 "class_type": class_type,
                 "inputs": {},
                 "_widgets_values": widgets,
                 "_ui_node": True,
             }
+            # Mark component instance nodes (type is a UUID)
+            if _is_component_node(class_type):
+                entry["_is_component"] = True
+            nodes[nid] = entry
         return nodes, "ui_only"
 
     # API format: top-level keys are node IDs
@@ -178,7 +247,10 @@ def _trace_connections(nodes: dict) -> list[dict]:
     for target_id, node in sorted(nodes.items()):
         if node.get("_ui_node"):
             continue  # UI-only nodes don't have connection info
-        for input_name, value in sorted(node.get("inputs", {}).items()):
+        # Flatten AUTOGROW nested dicts so connections like
+        # {"values": {"a": ["10", 0]}} are traced as "values.a"
+        flat_inputs = _flatten_autogrow_inputs(node.get("inputs", {}))
+        for input_name, value in sorted(flat_inputs.items()):
             if isinstance(value, list) and len(value) == 2:
                 source_id = str(value[0])
                 output_idx = value[1]
@@ -209,8 +281,12 @@ def _find_editable_fields(nodes: dict, class_filter: str = "") -> list[dict]:
         if filter_lower and filter_lower not in class_type.lower():
             continue
 
+        # Flatten AUTOGROW nested dicts so sub-inputs like "values.a"
+        # appear as individual editable fields.
+        flat_inputs = _flatten_autogrow_inputs(node.get("inputs", {}))
+
         # He2025: sort for deterministic field order per node
-        for field_name, value in sorted(node.get("inputs", {}).items()):
+        for field_name, value in sorted(flat_inputs.items()):
             # Skip connections (2-element list [node_id, output_index])
             if isinstance(value, list) and len(value) == 2:
                 continue
@@ -226,11 +302,84 @@ def _find_editable_fields(nodes: dict, class_filter: str = "") -> list[dict]:
     return fields
 
 
+def _is_component_node(class_type: str) -> bool:
+    """Return True if a node's class_type is a UUID (component instance)."""
+    return bool(_UUID_RE.match(class_type))
+
+
+def _extract_subgraph_nodes(workflow_data: dict) -> dict:
+    """Extract internal node information from component/subgraph definitions.
+
+    ComfyUI workflows can contain *component nodes* (subgraphs).  A component
+    instance appears in the top-level ``nodes`` list with a UUID as its
+    ``type``.  The matching subgraph definition lives under
+    ``definitions.subgraphs`` and contains its own ``nodes`` and ``links``
+    arrays describing the internal graph.
+
+    Returns a dict keyed by component UUID::
+
+        {
+            "<uuid>": {
+                "node_count": int,
+                "link_count": int,
+                "class_types": sorted list of unique class_type strings,
+            },
+            ...
+        }
+
+    Returns an empty dict when no subgraph definitions are present.
+    """
+    definitions = workflow_data.get("definitions")
+    if not definitions or not isinstance(definitions, dict):
+        return {}
+
+    subgraphs_list = definitions.get("subgraphs")
+    if not subgraphs_list or not isinstance(subgraphs_list, list):
+        return {}
+
+    result: dict[str, dict] = {}
+    for subgraph in subgraphs_list:
+        if not isinstance(subgraph, dict):
+            continue
+
+        # The subgraph's UUID may be stored as an "id" or "uuid" field,
+        # or matched from a top-level node whose type is a UUID.
+        sg_id = subgraph.get("id") or subgraph.get("uuid") or ""
+
+        internal_nodes = subgraph.get("nodes", [])
+        internal_links = subgraph.get("links", [])
+
+        class_types: set[str] = set()
+        for node in internal_nodes:
+            if not isinstance(node, dict):
+                continue
+            ntype = node.get("type", "")
+            if ntype:
+                class_types.add(ntype)
+
+        result[str(sg_id)] = {
+            "node_count": len(internal_nodes),
+            "link_count": len(internal_links) if isinstance(internal_links, list) else 0,
+            "class_types": sorted(class_types),
+        }
+
+    return result
+
+
+def _all_subgraph_class_types(subgraph_info: dict) -> set[str]:
+    """Collect every class_type across all subgraph definitions."""
+    types: set[str] = set()
+    for sg in subgraph_info.values():
+        types.update(sg.get("class_types", []))
+    return types
+
+
 def _build_summary(
     nodes: dict,
     connections: list[dict],
     fmt: str,
     classification: dict | None = None,
+    subgraph_info: dict | None = None,
 ) -> str:
     """Build a human-readable summary of the workflow pipeline."""
     if not nodes:
@@ -310,6 +459,20 @@ def _build_summary(
         for target, conns in sorted(by_target.items()):
             sources = [f"{c['from_class']}.out[{c['from_output']}]" for c in conns]
             lines.append(f"  {target} <- {', '.join(sources)}")
+
+    # Component/subgraph summary
+    if subgraph_info:
+        lines.append("")
+        lines.append(
+            f"Components: {len(subgraph_info)} subgraph definition(s)"
+        )
+        for sg_id, sg in sorted(subgraph_info.items()):
+            lines.append(
+                f"  Component {sg_id[:12]}...: "
+                f"{sg['node_count']} nodes, {sg['link_count']} links — "
+                f"{', '.join(sg['class_types'][:8])}"
+                f"{'...' if len(sg['class_types']) > 8 else ''}"
+            )
 
     if fmt == "ui_only":
         lines.append("")
@@ -528,21 +691,46 @@ def _validate_against_comfyui(nodes: dict, connections: list[dict]) -> dict:
         optional_inputs = node_schema.get("input", {}).get("optional", {})
         all_known_inputs = {**required_inputs, **optional_inputs}
 
+        # Build set of AUTOGROW group names so we can recognize their
+        # sub-inputs (e.g. "values.a" belongs to the "values" AUTOGROW input)
+        autogrow_groups = {
+            name
+            for name, spec in all_known_inputs.items()
+            if (
+                isinstance(spec, (list, tuple))
+                and len(spec) > 0
+                and spec[0] == "COMFY_AUTOGROW_V3"
+            )
+        }
+
         # Check required inputs are provided
         node_inputs = node.get("inputs", {})
         for req_name in required_inputs:
             if req_name not in node_inputs:
-                errors.append(
-                    f"Node [{nid}] {class_type}: missing required input '{req_name}'."
-                )
+                # AUTOGROW inputs may be present as a nested dict or
+                # not yet populated (min=0 is valid). Only flag as
+                # missing if it's not an AUTOGROW type.
+                if req_name not in autogrow_groups:
+                    errors.append(
+                        f"Node [{nid}] {class_type}: "
+                        f"missing required input '{req_name}'."
+                    )
 
         # Check for unknown inputs
         for inp_name in node_inputs:
-            if inp_name not in all_known_inputs:
-                warnings.append(
-                    f"Node [{nid}] {class_type}: unknown input '{inp_name}' "
-                    f"(may be from a different version)."
-                )
+            if inp_name in all_known_inputs:
+                continue
+            # AUTOGROW sub-inputs: "values.a" -> group "values"
+            if _is_autogrow_dotted_name(inp_name):
+                group = inp_name.split(".")[0]
+                if group in autogrow_groups:
+                    continue
+            # Nested dict keys (API-format AUTOGROW) are already matched
+            # by the top-level name, so this only fires for truly unknown
+            warnings.append(
+                f"Node [{nid}] {class_type}: unknown input '{inp_name}' "
+                f"(may be from a different version)."
+            )
 
     # Check connection type compatibility
     for conn in connections:
@@ -570,6 +758,27 @@ def _validate_against_comfyui(nodes: dict, connections: list[dict]) -> dict:
             **target_info.get("input", {}).get("optional", {}),
         }
         target_spec = all_target_inputs.get(target_input)
+
+        # AUTOGROW dotted name: "values.a" -> look up "values" group
+        # and use the template's sub-input type for validation
+        if target_spec is None and _is_autogrow_dotted_name(target_input):
+            group = target_input.split(".")[0]
+            group_spec = all_target_inputs.get(group)
+            if (
+                group_spec
+                and isinstance(group_spec, (list, tuple))
+                and len(group_spec) > 0
+                and group_spec[0] == "COMFY_AUTOGROW_V3"
+            ):
+                # Extract the template's sub-input type.
+                # Schema: ['COMFY_AUTOGROW_V3', {'template': {'input':
+                #   {'required': {'value': ['FLOAT,INT', {}]}}}, ...}]
+                tmpl = group_spec[1].get("template", {}) if len(group_spec) > 1 else {}
+                tmpl_inputs = tmpl.get("input", {}).get("required", {})
+                # Use first template input's type spec
+                if tmpl_inputs:
+                    first_tmpl = next(iter(tmpl_inputs.values()))
+                    target_spec = first_tmpl
         if target_spec and isinstance(target_spec, (list, tuple)) and len(target_spec) > 0:
             target_type = target_spec[0]
             # Check type compatibility (exact match or wildcard "*")
@@ -607,7 +816,16 @@ def _handle_load_workflow(tool_input: dict) -> str:
     connections = _trace_connections(nodes)
     editable = _find_editable_fields(nodes)
     classification = _classify_pattern(nodes)
-    summary = _build_summary(nodes, connections, fmt, classification)
+
+    # Extract component/subgraph definitions if present
+    subgraph_info = _extract_subgraph_nodes(data)
+    if subgraph_info:
+        classification["has_components"] = True
+        classification["component_count"] = len(subgraph_info)
+
+    summary = _build_summary(
+        nodes, connections, fmt, classification, subgraph_info
+    )
 
     # Build node list for output
     node_list = {}
@@ -615,11 +833,13 @@ def _handle_load_workflow(tool_input: dict) -> str:
         entry = {
             "class_type": node.get("class_type", ""),
         }
+        if _is_component_node(entry["class_type"]):
+            entry["is_component"] = True
         if not node.get("_ui_node"):
             entry["input_count"] = len(node.get("inputs", {}))
         node_list[nid] = entry
 
-    return to_json({
+    result = {
         "file": path_str,
         "format": fmt,
         "node_count": len(nodes),
@@ -630,7 +850,11 @@ def _handle_load_workflow(tool_input: dict) -> str:
         "nodes": node_list,
         "connections": connections,
         "editable_fields": editable,
-    })
+    }
+    if subgraph_info:
+        result["components"] = subgraph_info
+
+    return to_json(result)
 
 
 def _handle_validate_workflow(tool_input: dict) -> str:
@@ -664,6 +888,17 @@ def _handle_classify_workflow(tool_input: dict) -> str:
     classification = _classify_pattern(nodes)
     classification["file"] = path_str
     classification["format"] = fmt
+
+    # Flag component-based workflows
+    subgraph_info = _extract_subgraph_nodes(data)
+    if subgraph_info:
+        classification["has_components"] = True
+        classification["component_count"] = len(subgraph_info)
+        # Include subgraph class_types so the caller knows what's inside
+        classification["component_class_types"] = sorted(
+            _all_subgraph_class_types(subgraph_info)
+        )
+
     return to_json(classification)
 
 
@@ -712,16 +947,27 @@ def summarize_workflow_data(data: dict) -> dict:
     connections = _trace_connections(nodes)
     editable = _find_editable_fields(nodes)
     classification = _classify_pattern(nodes)
-    summary = _build_summary(nodes, connections, fmt, classification)
+
+    # Extract component/subgraph definitions if present
+    subgraph_info = _extract_subgraph_nodes(data)
+    if subgraph_info:
+        classification["has_components"] = True
+        classification["component_count"] = len(subgraph_info)
+
+    summary = _build_summary(
+        nodes, connections, fmt, classification, subgraph_info
+    )
 
     node_list = {}
     for nid, node in sorted(nodes.items()):
         entry = {"class_type": node.get("class_type", "")}
+        if _is_component_node(entry["class_type"]):
+            entry["is_component"] = True
         if not node.get("_ui_node"):
             entry["input_count"] = len(node.get("inputs", {}))
         node_list[nid] = entry
 
-    return {
+    result = {
         "format": fmt,
         "node_count": len(nodes),
         "connection_count": len(connections),
@@ -731,6 +977,10 @@ def summarize_workflow_data(data: dict) -> dict:
         "nodes": node_list,
         "editable_fields": editable,
     }
+    if subgraph_info:
+        result["components"] = subgraph_info
+
+    return result
 
 
 def handle(name: str, tool_input: dict) -> str:

@@ -183,3 +183,75 @@ class TestConnectionError:
             result = json.loads(comfy_api.handle("get_system_stats", {}))
             assert "error" in result
             assert "running" in result["error"].lower() or "connect" in result["error"].lower()
+
+
+class TestAutogrowNodeInfo:
+    """Test that get_node_info annotates COMFY_AUTOGROW_V3 inputs."""
+
+    def test_autogrow_hints_present(self):
+        mock_data = {
+            "ComfyMathExpression": {
+                "display_name": "Math Expression",
+                "category": "math",
+                "description": "Evaluate math expressions",
+                "input": {
+                    "required": {
+                        "expression": ["STRING", {"default": "a + b", "multiline": True}],
+                        "values": [
+                            "COMFY_AUTOGROW_V3",
+                            {
+                                "template": {
+                                    "input": {
+                                        "required": {
+                                            "value": ["FLOAT,INT", {}],
+                                        },
+                                    },
+                                },
+                                "names": ["a", "b", "c", "d", "e"],
+                                "min": 1,
+                            },
+                        ],
+                    },
+                    "optional": {},
+                },
+                "output": ["FLOAT", "INT"],
+                "output_name": ["FLOAT", "INT"],
+                "output_is_list": [False, False],
+            },
+        }
+        with patch("agent.tools.comfy_api._get", return_value=mock_data):
+            result = json.loads(comfy_api.handle("get_node_info", {
+                "node_type": "ComfyMathExpression",
+            }))
+        assert "autogrow_inputs" in result
+        hints = result["autogrow_inputs"]
+        assert "values" in hints
+        assert hints["values"]["type"] == "COMFY_AUTOGROW_V3"
+        assert hints["values"]["sub_input_type"] == "FLOAT,INT"
+        assert hints["values"]["min"] == 1
+        assert "values.a" in hints["values"]["usage"]
+        assert "a" in hints["values"]["template_names"]
+
+    def test_no_autogrow_hints_for_normal_nodes(self):
+        mock_data = {
+            "KSampler": {
+                "display_name": "KSampler",
+                "category": "sampling",
+                "description": "",
+                "input": {
+                    "required": {
+                        "model": ["MODEL", {}],
+                        "seed": ["INT", {"default": 0}],
+                    },
+                    "optional": {},
+                },
+                "output": ["LATENT"],
+                "output_name": ["LATENT"],
+                "output_is_list": [False],
+            },
+        }
+        with patch("agent.tools.comfy_api._get", return_value=mock_data):
+            result = json.loads(comfy_api.handle("get_node_info", {
+                "node_type": "KSampler",
+            }))
+        assert "autogrow_inputs" not in result

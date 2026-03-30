@@ -87,3 +87,53 @@ models/3d/ — 3D generation models (Hunyuan3D, Meshy, Trellis, etc.)
 - ControlNet requires resolution matching with the latent
 - Empty latent size must be divisible by 8 (usually 64)
 - VAE decode and encode are explicit separate nodes
+
+## Component / Subgraph Workflows
+
+ComfyUI supports **component nodes** (subgraphs) — workflows-within-workflows.
+A component encapsulates a reusable sub-pipeline as a single node in the outer
+workflow.
+
+### JSON Structure
+
+In a workflow that uses components:
+
+1. **Instance node** — appears in the top-level `nodes` array. Its `type` is a
+   UUID (e.g. `"b94257db-cdc1-45d3-8913-ca61e782d9c1"`) instead of a standard
+   class name like `"KSampler"`.
+
+2. **Subgraph definition** — lives under `definitions.subgraphs`. Each entry
+   contains its own `nodes` and `links` arrays describing the internal graph.
+   The component's UUID (`id` field) matches the instance node's `type`.
+
+```json
+{
+  "nodes": [
+    {"id": 267, "type": "b94257db-cdc1-45d3-8913-ca61e782d9c1"}
+  ],
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "b94257db-cdc1-45d3-8913-ca61e782d9c1",
+        "nodes": [
+          {"id": 1, "type": "KSampler", ...},
+          {"id": 2, "type": "VAEDecode", ...}
+        ],
+        "links": [[1, 0, 2, 0, "LATENT"]]
+      }
+    ]
+  }
+}
+```
+
+### Key Points
+
+- A UUID `type` on a node means it's a component instance — don't look it up
+  in `/object_info`.
+- Internal nodes inside a subgraph definition ARE standard ComfyUI nodes and
+  must be installed. `find_missing_nodes` checks both top-level and subgraph
+  nodes.
+- Components may use special helper nodes like `ComfyMathExpression` that are
+  part of custom node packs.
+- When analyzing a component workflow, report both the top-level graph and the
+  internal structure of each component.

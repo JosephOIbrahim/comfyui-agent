@@ -261,7 +261,7 @@ def _handle_get_node_info(tool_input: dict) -> str:
                 "similar_nodes": similar,
             })
 
-    return to_json({
+    result = {
         "class_type": node_type,
         "display_name": info.get("display_name", node_type),
         "category": info.get("category", ""),
@@ -270,7 +270,47 @@ def _handle_get_node_info(tool_input: dict) -> str:
         "output": info.get("output", []),
         "output_name": info.get("output_name", []),
         "output_is_list": info.get("output_is_list", []),
-    })
+    }
+
+    # Annotate COMFY_AUTOGROW_V3 inputs with dotted-name hints so the
+    # agent knows to use "group.sub" notation (e.g. "values.a") when
+    # setting inputs or making connections on these nodes.
+    autogrow_hints = {}
+    for section in ("required", "optional"):
+        for inp_name, spec in info.get("input", {}).get(section, {}).items():
+            if (
+                isinstance(spec, (list, tuple))
+                and len(spec) > 0
+                and spec[0] == "COMFY_AUTOGROW_V3"
+            ):
+                tmpl = spec[1] if len(spec) > 1 else {}
+                template_info = tmpl.get("template", {})
+                names = tmpl.get("names", [])
+                min_count = tmpl.get("min", 0)
+                # Extract sub-input type from template
+                tmpl_inputs = template_info.get("input", {}).get("required", {})
+                sub_type = None
+                if tmpl_inputs:
+                    first_spec = next(iter(tmpl_inputs.values()))
+                    if isinstance(first_spec, (list, tuple)) and first_spec:
+                        sub_type = first_spec[0]
+                autogrow_hints[inp_name] = {
+                    "type": "COMFY_AUTOGROW_V3",
+                    "sub_input_type": sub_type,
+                    "template_names": names[:10],  # cap for readability
+                    "min": min_count,
+                    "usage": (
+                        f"Use dotted names: '{inp_name}.{names[0]}', "
+                        f"'{inp_name}.{names[1]}', etc."
+                        if len(names) >= 2
+                        else f"Use dotted names: '{inp_name}.<name>'"
+                    ),
+                }
+
+    if autogrow_hints:
+        result["autogrow_inputs"] = autogrow_hints
+
+    return to_json(result)
 
 
 def _handle_get_system_stats() -> str:

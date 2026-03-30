@@ -1122,12 +1122,28 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
                 ),
             })
 
-    # Collect unique class_types
+    # Collect unique class_types from top-level nodes
     class_types = set()
     for node in workflow.values():
         ct = node.get("class_type")
         if ct:
             class_types.add(ct)
+
+    # Also collect class_types from component/subgraph definitions.
+    # Component instance nodes use a UUID as their class_type; the actual
+    # internal nodes live under definitions.subgraphs[].nodes[].
+    from .workflow_parse import _extract_subgraph_nodes, _all_subgraph_class_types
+    subgraph_info = _extract_subgraph_nodes(data) if path_str else {}
+    subgraph_class_types = _all_subgraph_class_types(subgraph_info)
+    class_types.update(subgraph_class_types)
+
+    # Remove UUID-style component types — they aren't real node classes
+    import re
+    _uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    class_types = {ct for ct in class_types if not _uuid_pattern.match(ct)}
 
     if not class_types:
         return to_json({"error": "No nodes found in workflow."})
@@ -1194,14 +1210,24 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
             missing_report.append(report_item)
 
     # Summary
+    component_note = None
+    if subgraph_info:
+        component_note = (
+            f"Workflow contains {len(subgraph_info)} component/subgraph "
+            f"definition(s). Internal nodes were also checked for availability."
+        )
+
     if not missing:
-        return to_json({
+        result = {
             "status": "all_installed",
             "total_node_types": len(class_types),
             "message": "All node types in this workflow are available.",
-        })
+        }
+        if component_note:
+            result["component_note"] = component_note
+        return to_json(result)
 
-    return to_json({
+    result = {
         "status": "missing_nodes",
         "total_node_types": len(class_types),
         "installed_count": len(installed),
@@ -1212,7 +1238,10 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
             "Install missing packs via ComfyUI Manager or git clone into "
             f"{CUSTOM_NODES_DIR}"
         ),
-    })
+    }
+    if component_note:
+        result["component_note"] = component_note
+    return to_json(result)
 
 
 def _handle_get_install_instructions(tool_input: dict) -> str:

@@ -260,3 +260,115 @@ class TestReset:
 
         current = workflow_patch.get_current_workflow()
         assert current["3"]["inputs"]["seed"] == 42
+
+
+# ---------------------------------------------------------------------------
+# COMFY_AUTOGROW_V3 support
+# ---------------------------------------------------------------------------
+
+class TestAutogrowSetInput:
+    """Test set_input with AUTOGROW dotted names."""
+
+    @pytest.fixture
+    def autogrow_workflow(self, tmp_path):
+        data = {
+            "1": {
+                "class_type": "ComfyMathExpression",
+                "inputs": {
+                    "expression": "a + b",
+                    "values": {"a": 42, "b": 7},
+                },
+            },
+        }
+        path = tmp_path / "autogrow_wf.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_set_autogrow_sub_input(self, autogrow_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(autogrow_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1",
+            "input_name": "values.a",
+            "value": 100,
+        }))
+        assert result["set"] is True
+        assert result["old_value"] == 42
+        assert result["new_value"] == 100
+        # Verify the nested structure is correct in the workflow
+        wf = workflow_patch.get_current_workflow()
+        assert wf["1"]["inputs"]["values"]["a"] == 100
+        assert wf["1"]["inputs"]["values"]["b"] == 7  # unchanged
+
+    def test_set_autogrow_new_sub_input(self, autogrow_workflow):
+        """Adding a new sub-input to an AUTOGROW group."""
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(autogrow_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1",
+            "input_name": "values.c",
+            "value": 99,
+        }))
+        assert result["set"] is True
+        assert result["old_value"] is None
+        wf = workflow_patch.get_current_workflow()
+        assert wf["1"]["inputs"]["values"]["c"] == 99
+
+    def test_set_normal_input_unchanged(self, autogrow_workflow):
+        """Normal (non-dotted) inputs still work as before."""
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(autogrow_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1",
+            "input_name": "expression",
+            "value": "a * b",
+        }))
+        assert result["set"] is True
+        assert result["old_value"] == "a + b"
+
+
+class TestAutogrowConnectNodes:
+    """Test connect_nodes with AUTOGROW dotted names."""
+
+    @pytest.fixture
+    def autogrow_workflow(self, tmp_path):
+        data = {
+            "1": {
+                "class_type": "SomeIntNode",
+                "inputs": {"value": 10},
+            },
+            "2": {
+                "class_type": "ComfyMathExpression",
+                "inputs": {
+                    "expression": "a + b",
+                    "values": {"a": 42, "b": 7},
+                },
+            },
+        }
+        path = tmp_path / "autogrow_conn.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_connect_to_autogrow_sub_input(self, autogrow_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(autogrow_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "2",
+            "to_input": "values.a",
+        }))
+        assert result["connected"] is True
+        assert result["previous_value"] == 42
+        # Verify the nested structure
+        wf = workflow_patch.get_current_workflow()
+        assert wf["2"]["inputs"]["values"]["a"] == ["1", 0]
+        assert wf["2"]["inputs"]["values"]["b"] == 7  # unchanged

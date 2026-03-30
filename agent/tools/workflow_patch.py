@@ -253,7 +253,10 @@ TOOLS: list[dict] = [
                 },
                 "to_input": {
                     "type": "string",
-                    "description": "Input name on the target node (e.g. 'model', 'samples', 'clip').",
+                    "description": (
+                        "Input name on the target node (e.g. 'model', 'samples', 'clip'). "
+                        "For COMFY_AUTOGROW_V3 inputs, use dotted names like 'values.a'."
+                    ),
                 },
             },
             "required": ["from_node", "from_output", "to_node", "to_input"],
@@ -275,7 +278,10 @@ TOOLS: list[dict] = [
                 },
                 "input_name": {
                     "type": "string",
-                    "description": "Input field name (e.g. 'seed', 'steps', 'text', 'ckpt_name').",
+                    "description": (
+                        "Input field name (e.g. 'seed', 'steps', 'text', 'ckpt_name'). "
+                        "For COMFY_AUTOGROW_V3 inputs, use dotted names like 'values.a'."
+                    ),
                 },
                 "value": {
                     "description": "The value to set (string, int, float, bool).",
@@ -536,8 +542,20 @@ def _handle_connect_nodes(tool_input: dict) -> str:
     _state["history"].append(copy.deepcopy(workflow))
 
     # Set connection (ComfyUI format: [source_node_id_str, output_index_int])
-    old_value = workflow[to_node].get("inputs", {}).get(to_input)
-    workflow[to_node].setdefault("inputs", {})[to_input] = [from_node, from_output]
+    # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
+    # as nested dicts in API format: {"values": {"a": [node_id, idx]}}
+    if "." in to_input and not to_input.startswith("."):
+        group, _, sub = to_input.partition(".")
+        inputs = workflow[to_node].setdefault("inputs", {})
+        autogrow_dict = inputs.get(group, {})
+        if not isinstance(autogrow_dict, dict):
+            autogrow_dict = {}
+        old_value = autogrow_dict.get(sub)
+        autogrow_dict[sub] = [from_node, from_output]
+        inputs[group] = autogrow_dict
+    else:
+        old_value = workflow[to_node].get("inputs", {}).get(to_input)
+        workflow[to_node].setdefault("inputs", {})[to_input] = [from_node, from_output]
 
     from_class = workflow[from_node].get("class_type", "?")
     to_class = workflow[to_node].get("class_type", "?")
@@ -567,8 +585,20 @@ def _handle_set_input(tool_input: dict) -> str:
     # Save state for undo
     _state["history"].append(copy.deepcopy(workflow))
 
-    old_value = workflow[node_id].get("inputs", {}).get(input_name)
-    workflow[node_id].setdefault("inputs", {})[input_name] = value
+    # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
+    # as nested dicts in API format: {"values": {"a": ...}}
+    if "." in input_name and not input_name.startswith("."):
+        group, _, sub = input_name.partition(".")
+        inputs = workflow[node_id].setdefault("inputs", {})
+        autogrow_dict = inputs.get(group, {})
+        if not isinstance(autogrow_dict, dict):
+            autogrow_dict = {}
+        old_value = autogrow_dict.get(sub)
+        autogrow_dict[sub] = value
+        inputs[group] = autogrow_dict
+    else:
+        old_value = workflow[node_id].get("inputs", {}).get(input_name)
+        workflow[node_id].setdefault("inputs", {})[input_name] = value
 
     class_type = workflow[node_id].get("class_type", "?")
 
