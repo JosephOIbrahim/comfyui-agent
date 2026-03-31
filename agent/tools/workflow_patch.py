@@ -6,10 +6,16 @@ with concrete patch operations.
 
 State is module-level: load a workflow once, patch it multiple times,
 undo as needed, then save or execute.
+
+CognitiveGraphEngine integration: When the cognitive module is available,
+all mutations are tracked as LIVRPS delta layers for non-destructive
+composition. The engine runs alongside the existing state mechanism —
+_state["current_workflow"] is always kept in sync.
 """
 
 import copy
 import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -18,12 +24,11 @@ import jsonpatch
 
 from ._util import to_json
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Module-level state (one active workflow at a time)
 # ---------------------------------------------------------------------------
-# WorkflowSession is dict-like: _state["key"] and _state.get("key") work.
-# The lock is per-session, so the existing `with _state_lock:` pattern
-# continues to work for the default session.
 
 from ..workflow_session import get_session
 
@@ -31,6 +36,26 @@ _state = get_session("default")
 _state_lock = _state._lock
 
 _MAX_HISTORY = 50
+
+# CognitiveGraphEngine instance (None if cognitive module unavailable or no workflow loaded)
+_engine = None
+
+
+def _try_create_engine(workflow_data: dict):
+    """Try to create a CognitiveGraphEngine. Returns None on failure."""
+    try:
+        from src.cognitive.core.graph import CognitiveGraphEngine
+        return CognitiveGraphEngine(workflow_data)
+    except (ImportError, Exception) as exc:
+        log.debug("CognitiveGraphEngine not available: %s", exc)
+        return None
+
+
+def _sync_state_from_engine():
+    """Update _state['current_workflow'] from engine's resolved graph."""
+    global _engine
+    if _engine is not None:
+        _state["current_workflow"] = _engine.to_api_json()
 
 
 def _ensure_loaded() -> str | None:
@@ -42,6 +67,7 @@ def _ensure_loaded() -> str | None:
 
 def _load_workflow(path_str: str) -> str | None:
     """Load a workflow into state. Returns error or None."""
+    global _engine
     from ._util import validate_path
     path_err = validate_path(path_str, must_exist=True)
     if path_err:
@@ -81,6 +107,10 @@ def _load_workflow(path_str: str) -> str | None:
     _state["base_workflow"] = copy.deepcopy(api_nodes)
     _state["current_workflow"] = copy.deepcopy(api_nodes)
     _state["history"] = []
+
+    # Create engine from the loaded workflow
+    _engine = _try_create_engine(api_nodes)
+
     return None
 
 
@@ -317,7 +347,35 @@ def _get_value_at_path(workflow: dict, path: str):
     return current
 
 
+def _patches_to_mutations(patches: list[dict]) -> dict[str, dict[str, object]] | None:
+    """Try to convert RFC6902 patches to engine mutation format.
+
+    Returns {node_id: {param: value}} or None if patches can't be cleanly
+    converted (e.g. remove ops, non-input paths).
+    """
+    mutations: dict[str, dict[str, object]] = {}
+    for patch in patches:
+        op = patch.get("op")
+        path = patch.get("path", "")
+        value = patch.get("value")
+
+        # We can convert replace/add ops targeting /node_id/inputs/param
+        if op not in ("replace", "add"):
+            return None
+
+        parts = path.strip("/").split("/")
+        if len(parts) < 3 or parts[1] != "inputs":
+            return None
+
+        node_id = parts[0]
+        param_name = "/".join(parts[2:])  # Handle nested paths
+        mutations.setdefault(node_id, {})[param_name] = value
+
+    return mutations if mutations else None
+
+
 def _handle_apply_patch(tool_input: dict) -> str:
+    global _engine
     path_str = tool_input.get("path")
     patches = tool_input["patches"]
 
@@ -337,19 +395,39 @@ def _handle_apply_patch(tool_input: dict) -> str:
         p = patch.get("path", "")
         before_values[p] = _get_value_at_path(_state["current_workflow"], p)
 
-    # Save current state for undo
+    # Save current state for undo (history list kept for backward compat)
     _state["history"].append(copy.deepcopy(_state["current_workflow"]))
     if len(_state["history"]) > _MAX_HISTORY:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
-    # Apply patches
-    try:
-        jp = jsonpatch.JsonPatch(patches)
-        _state["current_workflow"] = jp.apply(_state["current_workflow"])
-    except Exception as e:
-        # Rollback on failure
-        _state["current_workflow"] = _state["history"].pop()
-        return to_json({"error": f"Patch failed: {e}"})
+    # Try engine-based mutation first
+    engine_used = False
+    if _engine is not None:
+        mutations = _patches_to_mutations(patches)
+        if mutations is not None:
+            try:
+                _engine.mutate_workflow(
+                    mutations,
+                    opinion="L",
+                    description=f"apply_workflow_patch: {len(patches)} patches",
+                )
+                _sync_state_from_engine()
+                engine_used = True
+            except Exception as exc:
+                log.debug("Engine mutation failed, falling back to jsonpatch: %s", exc)
+
+    # Fallback: apply via jsonpatch (original path)
+    if not engine_used:
+        try:
+            jp = jsonpatch.JsonPatch(patches)
+            _state["current_workflow"] = jp.apply(_state["current_workflow"])
+        except Exception as e:
+            _state["current_workflow"] = _state["history"].pop()
+            return to_json({"error": f"Patch failed: {e}"})
+
+        # Rebuild engine from current state to keep it in sync
+        if _engine is not None:
+            _engine = _try_create_engine(_state["current_workflow"])
 
     # Build change report
     changes = []
@@ -380,13 +458,13 @@ def _handle_preview_patch(tool_input: dict) -> str:
     patches = tool_input["patches"]
 
     # Preview without modifying state
-    preview = []
     try:
         jp = jsonpatch.JsonPatch(patches)
         jp.apply(copy.deepcopy(_state["current_workflow"]))
     except Exception as e:
         return to_json({"error": f"Patch would fail: {e}"})
 
+    preview = []
     for patch in patches:
         p = patch.get("path", "")
         preview.append({
@@ -400,6 +478,7 @@ def _handle_preview_patch(tool_input: dict) -> str:
 
 
 def _handle_undo() -> str:
+    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -407,7 +486,17 @@ def _handle_undo() -> str:
     if not _state["history"]:
         return to_json({"error": "Nothing to undo."})
 
+    # Pop from history (backward compat)
     _state["current_workflow"] = _state["history"].pop()
+
+    # Pop from engine delta stack too
+    if _engine is not None:
+        popped = _engine.pop_delta()
+        if popped is not None:
+            _sync_state_from_engine()
+        else:
+            # Engine stack empty but history had entries — rebuild engine
+            _engine = _try_create_engine(_state["current_workflow"])
 
     remaining = len(
         jsonpatch.make_patch(_state["base_workflow"], _state["current_workflow"]).patch
@@ -483,12 +572,17 @@ def _handle_save(tool_input: dict) -> str:
 
 
 def _handle_reset() -> str:
+    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
 
     _state["current_workflow"] = copy.deepcopy(_state["base_workflow"])
     _state["history"] = []
+
+    # Reset engine from base workflow
+    if _engine is not None:
+        _engine = _try_create_engine(_state["base_workflow"])
 
     return to_json({
         "reset": True,
@@ -516,6 +610,7 @@ def _next_node_id() -> str:
 
 
 def _handle_add_node(tool_input: dict) -> str:
+    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -529,10 +624,21 @@ def _handle_add_node(tool_input: dict) -> str:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     node_id = _next_node_id()
-    _state["current_workflow"][node_id] = {
-        "class_type": class_type,
-        "inputs": inputs,
-    }
+
+    # Use engine if available
+    if _engine is not None:
+        mutations = {node_id: {"class_type": class_type, **inputs}}
+        _engine.mutate_workflow(
+            mutations,
+            opinion="L",
+            description=f"add_node: {class_type} as {node_id}",
+        )
+        _sync_state_from_engine()
+    else:
+        _state["current_workflow"][node_id] = {
+            "class_type": class_type,
+            "inputs": inputs,
+        }
 
     return to_json({
         "added": True,
@@ -544,6 +650,7 @@ def _handle_add_node(tool_input: dict) -> str:
 
 
 def _handle_connect_nodes(tool_input: dict) -> str:
+    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -566,9 +673,10 @@ def _handle_connect_nodes(tool_input: dict) -> str:
     if len(_state["history"]) > _MAX_HISTORY:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
-    # Set connection (ComfyUI format: [source_node_id_str, output_index_int])
-    # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
-    # as nested dicts in API format: {"values": {"a": [node_id, idx]}}
+    # Connection value in ComfyUI format
+    connection = [from_node, from_output]
+
+    # COMFY_AUTOGROW_V3 support: dotted names like "values.a"
     if "." in to_input and not to_input.startswith("."):
         group, _, sub = to_input.partition(".")
         inputs = workflow[to_node].setdefault("inputs", {})
@@ -576,11 +684,31 @@ def _handle_connect_nodes(tool_input: dict) -> str:
         if not isinstance(autogrow_dict, dict):
             autogrow_dict = {}
         old_value = autogrow_dict.get(sub)
-        autogrow_dict[sub] = [from_node, from_output]
+        autogrow_dict[sub] = connection
         inputs[group] = autogrow_dict
+
+        # Engine: use the full nested mutation
+        if _engine is not None:
+            # For AUTOGROW, we need to set the entire group dict
+            _engine.mutate_workflow(
+                {to_node: {group: copy.deepcopy(inputs[group])}},
+                opinion="L",
+                description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
+            )
+            _sync_state_from_engine()
     else:
         old_value = workflow[to_node].get("inputs", {}).get(to_input)
-        workflow[to_node].setdefault("inputs", {})[to_input] = [from_node, from_output]
+
+        # Use engine if available
+        if _engine is not None:
+            _engine.mutate_workflow(
+                {to_node: {to_input: connection}},
+                opinion="L",
+                description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
+            )
+            _sync_state_from_engine()
+        else:
+            workflow[to_node].setdefault("inputs", {})[to_input] = connection
 
     from_class = workflow[from_node].get("class_type", "?")
     to_class = workflow[to_node].get("class_type", "?")
@@ -594,6 +722,7 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
 
 def _handle_set_input(tool_input: dict) -> str:
+    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -612,8 +741,7 @@ def _handle_set_input(tool_input: dict) -> str:
     if len(_state["history"]) > _MAX_HISTORY:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
-    # COMFY_AUTOGROW_V3 support: dotted names like "values.a" are stored
-    # as nested dicts in API format: {"values": {"a": ...}}
+    # COMFY_AUTOGROW_V3 support: dotted names like "values.a"
     if "." in input_name and not input_name.startswith("."):
         group, _, sub = input_name.partition(".")
         inputs = workflow[node_id].setdefault("inputs", {})
@@ -623,9 +751,28 @@ def _handle_set_input(tool_input: dict) -> str:
         old_value = autogrow_dict.get(sub)
         autogrow_dict[sub] = value
         inputs[group] = autogrow_dict
+
+        # Engine: set the entire group dict
+        if _engine is not None:
+            _engine.mutate_workflow(
+                {node_id: {group: copy.deepcopy(inputs[group])}},
+                opinion="L",
+                description=f"set_input: {node_id}.{input_name} = {value!r}",
+            )
+            _sync_state_from_engine()
     else:
         old_value = workflow[node_id].get("inputs", {}).get(input_name)
-        workflow[node_id].setdefault("inputs", {})[input_name] = value
+
+        # Use engine if available
+        if _engine is not None:
+            _engine.mutate_workflow(
+                {node_id: {input_name: value}},
+                opinion="L",
+                description=f"set_input: {node_id}.{input_name} = {value!r}",
+            )
+            _sync_state_from_engine()
+        else:
+            workflow[node_id].setdefault("inputs", {})[input_name] = value
 
     class_type = workflow[node_id].get("class_type", "?")
 
@@ -676,6 +823,7 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
     Called by the sidebar backend to inject the live ComfyUI graph.
     Returns None on success, error string on failure.
     """
+    global _engine
     from .workflow_parse import _extract_api_format
 
     nodes, fmt = _extract_api_format(data)
@@ -696,9 +844,17 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
         _state["current_workflow"] = copy.deepcopy(nodes)
         _state["history"] = []
 
+        # Create engine from loaded workflow
+        _engine = _try_create_engine(nodes)
+
     return None
 
 
 def get_current_workflow() -> dict | None:
     """Get the current workflow dict (used by comfy_execute)."""
     return _state["current_workflow"]
+
+
+def get_engine():
+    """Get the current CognitiveGraphEngine instance, or None."""
+    return _engine

@@ -41,6 +41,7 @@ class SessionContext:
         self._cwm = None  # Optional CWM predict function (lazy)
         self._arbiter = None  # Optional Arbiter instance (lazy)
         self._workflow_signature = None  # Optional WorkflowSignature
+        self._graph_engine = None  # Optional CognitiveGraphEngine (lazy)
 
     @property
     def stage(self):
@@ -148,6 +149,31 @@ class SessionContext:
     def workflow_signature(self, value):
         """Set the workflow signature (e.g., after loading a workflow)."""
         self._workflow_signature = value
+
+    @property
+    def graph_engine(self):
+        """CognitiveGraphEngine for this session, or None."""
+        return self._graph_engine
+
+    @graph_engine.setter
+    def graph_engine(self, value):
+        """Set the graph engine instance."""
+        self._graph_engine = value
+
+    def ensure_graph_engine(self, workflow_data: dict):
+        """Get or create CognitiveGraphEngine for this session.
+
+        Creates a new engine from the provided workflow data if one
+        doesn't exist yet. Returns None if the cognitive module is
+        not available.
+        """
+        if self._graph_engine is None:
+            try:
+                from src.cognitive.core.graph import CognitiveGraphEngine
+                self._graph_engine = CognitiveGraphEngine(workflow_data)
+            except ImportError:
+                pass
+        return self._graph_engine
 
     def touch(self):
         """Update last_activity timestamp."""
