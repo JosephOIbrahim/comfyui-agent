@@ -27,6 +27,7 @@ class WorkflowSession:
             "current_workflow": None,
             "history": [],
             "format": None,
+            "_engine": None,
         }
         self._lock = threading.RLock()
 

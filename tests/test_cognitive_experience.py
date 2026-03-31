@@ -289,3 +289,36 @@ class TestAccumulator:
         stats = accumulator.get_stats()
         assert stats["successful"] == 50
         assert stats["avg_quality"] > 0
+
+    def test_save_load_round_trip(self, accumulator, good_chunk, tmp_path):
+        """Save to JSONL and load back — data survives."""
+        accumulator.record(good_chunk)
+        accumulator.record(ExperienceChunk(
+            chunk_id="c2", model_family="SDXL",
+            output_filenames=["x.png"],
+            quality=QualityScore(overall=0.6),
+        ))
+
+        path = str(tmp_path / "experience.jsonl")
+        saved = accumulator.save(path)
+        assert saved == 2
+
+        loaded = ExperienceAccumulator.load(path)
+        assert loaded.generation_count == 2
+        assert loaded._chunks[0].chunk_id == good_chunk.chunk_id
+        assert loaded._chunks[0].quality.overall == 0.8
+        assert loaded._chunks[1].model_family == "SDXL"
+
+    def test_load_nonexistent_file(self, tmp_path):
+        """Loading from nonexistent file returns empty accumulator."""
+        loaded = ExperienceAccumulator.load(str(tmp_path / "nope.jsonl"))
+        assert loaded.generation_count == 0
+
+    def test_chunk_to_dict_round_trip(self, good_chunk):
+        """ExperienceChunk serializes and deserializes correctly."""
+        d = good_chunk.to_dict()
+        restored = ExperienceChunk.from_dict(d)
+        assert restored.chunk_id == good_chunk.chunk_id
+        assert restored.model_family == good_chunk.model_family
+        assert restored.quality.overall == good_chunk.quality.overall
+        assert restored.quality.aesthetic == good_chunk.quality.aesthetic

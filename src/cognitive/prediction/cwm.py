@@ -9,6 +9,10 @@ Each source maps to a LIVRPS opinion tier:
 - R (References): Prior rules
 - I (Inherits): Experience-derived predictions
 - S (Safety): Safety constraints on predictions
+
+NOTE: The canonical multi-axis CWM implementation is in agent/stage/cwm.py.
+This module provides a simplified single-axis API used by the cognitive
+pipeline. When agent/stage/cwm is available, prefer it for production use.
 """
 
 from __future__ import annotations

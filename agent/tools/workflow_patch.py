@@ -4,8 +4,9 @@ Apply RFC6902 JSON patches to ComfyUI workflows with full undo support.
 The agent reasons about what changes to make, then calls these tools
 with concrete patch operations.
 
-State is module-level: load a workflow once, patch it multiple times,
-undo as needed, then save or execute.
+State is session-scoped: load a workflow once, patch it multiple times,
+undo as needed, then save or execute. The CognitiveGraphEngine is stored
+in the session alongside the workflow data, enabling multi-session isolation.
 
 CognitiveGraphEngine integration: When the cognitive module is available,
 all mutations are tracked as LIVRPS delta layers for non-destructive
@@ -37,9 +38,6 @@ _state_lock = _state._lock
 
 _MAX_HISTORY = 50
 
-# CognitiveGraphEngine instance (None if cognitive module unavailable or no workflow loaded)
-_engine = None
-
 
 def _try_create_engine(workflow_data: dict):
     """Try to create a CognitiveGraphEngine. Returns None on failure."""
@@ -51,13 +49,24 @@ def _try_create_engine(workflow_data: dict):
         return None
 
 
+def _get_engine():
+    """Get the engine from session state. Thread-safe via _state_lock."""
+    return _state["_engine"]
+
+
+def _set_engine(engine):
+    """Set the engine in session state. Thread-safe via _state_lock."""
+    _state["_engine"] = engine
+
+
 def _sync_state_from_engine():
     """Update _state['current_workflow'] from engine's resolved graph.
 
-    MUST be called inside `with _state_lock:` — _engine access requires the lock.
+    MUST be called inside `with _state_lock:`.
     """
-    if _engine is not None:
-        _state["current_workflow"] = _engine.to_api_json()
+    engine = _get_engine()
+    if engine is not None:
+        _state["current_workflow"] = engine.to_api_json()
 
 
 def _ensure_loaded() -> str | None:
@@ -69,7 +78,6 @@ def _ensure_loaded() -> str | None:
 
 def _load_workflow(path_str: str) -> str | None:
     """Load a workflow into state. Returns error or None."""
-    global _engine
     from ._util import validate_path
     path_err = validate_path(path_str, must_exist=True)
     if path_err:
@@ -110,8 +118,8 @@ def _load_workflow(path_str: str) -> str | None:
     _state["current_workflow"] = copy.deepcopy(api_nodes)
     _state["history"] = []
 
-    # Create engine from the loaded workflow
-    _engine = _try_create_engine(api_nodes)
+    # Create engine from the loaded workflow (session-scoped)
+    _set_engine(_try_create_engine(api_nodes))
 
     return None
 
@@ -377,7 +385,6 @@ def _patches_to_mutations(patches: list[dict]) -> dict[str, dict[str, object]] |
 
 
 def _handle_apply_patch(tool_input: dict) -> str:
-    global _engine
     path_str = tool_input.get("path")
     patches = tool_input["patches"]
 
@@ -403,12 +410,13 @@ def _handle_apply_patch(tool_input: dict) -> str:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
     # Try engine-based mutation first
+    engine = _get_engine()
     engine_used = False
-    if _engine is not None:
+    if engine is not None:
         mutations = _patches_to_mutations(patches)
         if mutations is not None:
             try:
-                _engine.mutate_workflow(
+                engine.mutate_workflow(
                     mutations,
                     opinion="L",
                     description=f"apply_workflow_patch: {len(patches)} patches",
@@ -428,8 +436,8 @@ def _handle_apply_patch(tool_input: dict) -> str:
             return to_json({"error": f"Patch failed: {e}"})
 
         # Rebuild engine from current state to keep it in sync
-        if _engine is not None:
-            _engine = _try_create_engine(_state["current_workflow"])
+        if engine is not None:
+            _set_engine(_try_create_engine(_state["current_workflow"]))
 
     # Build change report
     changes = []
@@ -480,7 +488,6 @@ def _handle_preview_patch(tool_input: dict) -> str:
 
 
 def _handle_undo() -> str:
-    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -492,13 +499,14 @@ def _handle_undo() -> str:
     _state["current_workflow"] = _state["history"].pop()
 
     # Pop from engine delta stack too
-    if _engine is not None:
-        popped = _engine.pop_delta()
+    engine = _get_engine()
+    if engine is not None:
+        popped = engine.pop_delta()
         if popped is not None:
             _sync_state_from_engine()
         else:
             # Engine stack empty but history had entries — rebuild engine
-            _engine = _try_create_engine(_state["current_workflow"])
+            _set_engine(_try_create_engine(_state["current_workflow"]))
 
     remaining = len(
         jsonpatch.make_patch(_state["base_workflow"], _state["current_workflow"]).patch
@@ -574,7 +582,6 @@ def _handle_save(tool_input: dict) -> str:
 
 
 def _handle_reset() -> str:
-    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -583,8 +590,8 @@ def _handle_reset() -> str:
     _state["history"] = []
 
     # Reset engine from base workflow
-    if _engine is not None:
-        _engine = _try_create_engine(_state["base_workflow"])
+    if _get_engine() is not None:
+        _set_engine(_try_create_engine(_state["base_workflow"]))
 
     return to_json({
         "reset": True,
@@ -612,7 +619,6 @@ def _next_node_id() -> str:
 
 
 def _handle_add_node(tool_input: dict) -> str:
-    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -628,9 +634,10 @@ def _handle_add_node(tool_input: dict) -> str:
     node_id = _next_node_id()
 
     # Use engine if available
-    if _engine is not None:
+    engine = _get_engine()
+    if engine is not None:
         mutations = {node_id: {"class_type": class_type, **inputs}}
-        _engine.mutate_workflow(
+        engine.mutate_workflow(
             mutations,
             opinion="L",
             description=f"add_node: {class_type} as {node_id}",
@@ -652,7 +659,6 @@ def _handle_add_node(tool_input: dict) -> str:
 
 
 def _handle_connect_nodes(tool_input: dict) -> str:
-    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -678,6 +684,8 @@ def _handle_connect_nodes(tool_input: dict) -> str:
     # Connection value in ComfyUI format
     connection = [from_node, from_output]
 
+    engine = _get_engine()
+
     # COMFY_AUTOGROW_V3 support: dotted names like "values.a"
     if "." in to_input and not to_input.startswith("."):
         group, _, sub = to_input.partition(".")
@@ -689,10 +697,8 @@ def _handle_connect_nodes(tool_input: dict) -> str:
         autogrow_dict[sub] = connection
         inputs[group] = autogrow_dict
 
-        # Engine: use the full nested mutation
-        if _engine is not None:
-            # For AUTOGROW, we need to set the entire group dict
-            _engine.mutate_workflow(
+        if engine is not None:
+            engine.mutate_workflow(
                 {to_node: {group: copy.deepcopy(inputs[group])}},
                 opinion="L",
                 description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
@@ -701,9 +707,8 @@ def _handle_connect_nodes(tool_input: dict) -> str:
     else:
         old_value = workflow[to_node].get("inputs", {}).get(to_input)
 
-        # Use engine if available
-        if _engine is not None:
-            _engine.mutate_workflow(
+        if engine is not None:
+            engine.mutate_workflow(
                 {to_node: {to_input: connection}},
                 opinion="L",
                 description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
@@ -724,7 +729,6 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
 
 def _handle_set_input(tool_input: dict) -> str:
-    global _engine
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
@@ -743,6 +747,8 @@ def _handle_set_input(tool_input: dict) -> str:
     if len(_state["history"]) > _MAX_HISTORY:
         _state["history"] = _state["history"][-_MAX_HISTORY:]
 
+    engine = _get_engine()
+
     # COMFY_AUTOGROW_V3 support: dotted names like "values.a"
     if "." in input_name and not input_name.startswith("."):
         group, _, sub = input_name.partition(".")
@@ -754,9 +760,8 @@ def _handle_set_input(tool_input: dict) -> str:
         autogrow_dict[sub] = value
         inputs[group] = autogrow_dict
 
-        # Engine: set the entire group dict
-        if _engine is not None:
-            _engine.mutate_workflow(
+        if engine is not None:
+            engine.mutate_workflow(
                 {node_id: {group: copy.deepcopy(inputs[group])}},
                 opinion="L",
                 description=f"set_input: {node_id}.{input_name} = {value!r}",
@@ -765,9 +770,8 @@ def _handle_set_input(tool_input: dict) -> str:
     else:
         old_value = workflow[node_id].get("inputs", {}).get(input_name)
 
-        # Use engine if available
-        if _engine is not None:
-            _engine.mutate_workflow(
+        if engine is not None:
+            engine.mutate_workflow(
                 {node_id: {input_name: value}},
                 opinion="L",
                 description=f"set_input: {node_id}.{input_name} = {value!r}",
@@ -825,7 +829,6 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
     Called by the sidebar backend to inject the live ComfyUI graph.
     Returns None on success, error string on failure.
     """
-    global _engine
     from .workflow_parse import _extract_api_format
 
     nodes, fmt = _extract_api_format(data)
@@ -846,8 +849,8 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
         _state["current_workflow"] = copy.deepcopy(nodes)
         _state["history"] = []
 
-        # Create engine from loaded workflow
-        _engine = _try_create_engine(nodes)
+        # Create engine from loaded workflow (session-scoped)
+        _set_engine(_try_create_engine(nodes))
 
     return None
 
@@ -858,5 +861,9 @@ def get_current_workflow() -> dict | None:
 
 
 def get_engine():
-    """Get the current CognitiveGraphEngine instance, or None."""
-    return _engine
+    """Get the current CognitiveGraphEngine instance, or None.
+
+    Returns the session-scoped engine. Each WorkflowSession has
+    its own engine, preventing multi-session collision.
+    """
+    return _state["_engine"]

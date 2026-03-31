@@ -42,13 +42,13 @@ class TestWorkflowSessionAccess:
 
     def test_keys(self):
         s = WorkflowSession("test")
-        assert set(s.keys()) == {"loaded_path", "base_workflow", "current_workflow", "history", "format"}
+        assert set(s.keys()) == {"loaded_path", "base_workflow", "current_workflow", "history", "format", "_engine"}
 
     def test_values(self):
         s = WorkflowSession("test")
         vals = list(s.values())
-        # Default: None, None, None, [], None
-        assert len(vals) == 5
+        # Default: None, None, None, [], None, None (includes _engine)
+        assert len(vals) == 6
 
     def test_items(self):
         s = WorkflowSession("test")

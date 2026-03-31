@@ -26,6 +26,21 @@ class QualityScore:
     def is_scored(self) -> bool:
         return self.overall > 0.0
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "overall": self.overall, "technical": self.technical,
+            "aesthetic": self.aesthetic, "prompt_adherence": self.prompt_adherence,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> QualityScore:
+        return cls(
+            overall=d.get("overall", 0.0), technical=d.get("technical", 0.0),
+            aesthetic=d.get("aesthetic", 0.0), prompt_adherence=d.get("prompt_adherence", 0.0),
+            source=d.get("source", ""),
+        )
+
 
 @dataclass
 class ExperienceChunk:
@@ -106,3 +121,46 @@ class ExperienceChunk:
         if checks == 0:
             return False
         return (score / checks) >= threshold
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dict for persistence."""
+        return {
+            "chunk_id": self.chunk_id,
+            "timestamp": self.timestamp,
+            "model_family": self.model_family,
+            "checkpoint": self.checkpoint,
+            "prompt": self.prompt,
+            "negative_prompt": self.negative_prompt,
+            "parameters": self.parameters,
+            "workflow_hash": self.workflow_hash,
+            "delta_count": self.delta_count,
+            "output_filenames": self.output_filenames,
+            "quality": self.quality.to_dict(),
+            "execution_time_ms": self.execution_time_ms,
+            "error": self.error,
+            "tags": self.tags,
+            "session_id": self.session_id,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ExperienceChunk:
+        """Deserialize from a dict."""
+        quality_data = d.get("quality", {})
+        quality = QualityScore.from_dict(quality_data) if isinstance(quality_data, dict) else QualityScore()
+        return cls(
+            chunk_id=d.get("chunk_id", uuid.uuid4().hex[:12]),
+            timestamp=d.get("timestamp", time.time()),
+            model_family=d.get("model_family", ""),
+            checkpoint=d.get("checkpoint", ""),
+            prompt=d.get("prompt", ""),
+            negative_prompt=d.get("negative_prompt", ""),
+            parameters=d.get("parameters", {}),
+            workflow_hash=d.get("workflow_hash", ""),
+            delta_count=d.get("delta_count", 0),
+            output_filenames=d.get("output_filenames", []),
+            quality=quality,
+            execution_time_ms=d.get("execution_time_ms", 0.0),
+            error=d.get("error", ""),
+            tags=d.get("tags", []),
+            session_id=d.get("session_id", ""),
+        )

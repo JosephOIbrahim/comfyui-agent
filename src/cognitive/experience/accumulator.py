@@ -156,6 +156,45 @@ class ExperienceAccumulator:
             "best_quality": round(max(scored), 3) if scored else 0.0,
         }
 
+    # ── Persistence ────────────────────────────────────────────────
+
+    def save(self, path: str) -> int:
+        """Save all chunks to a JSONL file. Returns count saved."""
+        import json
+        from pathlib import Path
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            for chunk in self._chunks:
+                f.write(json.dumps(chunk.to_dict(), sort_keys=True) + "\n")
+        return len(self._chunks)
+
+    @classmethod
+    def load(cls, path: str, max_chunks: int = 10000) -> ExperienceAccumulator:
+        """Load chunks from a JSONL file. Returns a new accumulator."""
+        import json
+        from pathlib import Path
+        acc = cls(max_chunks=max_chunks)
+        p = Path(path)
+        if not p.exists():
+            return acc
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    chunk = ExperienceChunk.from_dict(data)
+                    acc._chunks.append(chunk)
+                except (json.JSONDecodeError, Exception):
+                    continue
+        # Enforce max_chunks
+        if len(acc._chunks) > max_chunks:
+            acc._chunks.sort(key=lambda c: (c.quality.overall, c.timestamp))
+            acc._chunks = acc._chunks[-max_chunks:]
+        return acc
+
 
 def _chunk_to_workflow_proxy(chunk: ExperienceChunk) -> dict[str, Any]:
     """Convert an ExperienceChunk to a minimal workflow-like dict for signature matching."""
