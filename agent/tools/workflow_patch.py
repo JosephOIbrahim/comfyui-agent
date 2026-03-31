@@ -52,8 +52,10 @@ def _try_create_engine(workflow_data: dict):
 
 
 def _sync_state_from_engine():
-    """Update _state['current_workflow'] from engine's resolved graph."""
-    global _engine
+    """Update _state['current_workflow'] from engine's resolved graph.
+
+    MUST be called inside `with _state_lock:` — _engine access requires the lock.
+    """
     if _engine is not None:
         _state["current_workflow"] = _engine.to_api_json()
 

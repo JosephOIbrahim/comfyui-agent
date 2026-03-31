@@ -24,7 +24,7 @@ def _get_safe_dirs() -> list[Path]:
     if _SAFE_DIRS is None:
         from ..config import (
             COMFYUI_DATABASE, COMFYUI_OUTPUT_DIR, PROJECT_DIR, SESSIONS_DIR,
-            WORKFLOWS_DIR,
+            WORKFLOWS_DIR, COMFYUI_INSTALL_DIR,
         )
         _SAFE_DIRS = [
             COMFYUI_DATABASE.resolve(),
@@ -33,6 +33,10 @@ def _get_safe_dirs() -> list[Path]:
             SESSIONS_DIR.resolve(),
             WORKFLOWS_DIR.resolve(),
         ]
+        # Add install dir if it differs from database (split-directory setups)
+        install_resolved = COMFYUI_INSTALL_DIR.resolve()
+        if install_resolved not in _SAFE_DIRS:
+            _SAFE_DIRS.append(install_resolved)
     return _SAFE_DIRS
 
 

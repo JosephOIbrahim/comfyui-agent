@@ -71,13 +71,29 @@ def _default_comfyui_output() -> str:
 
 COMFYUI_OUTPUT_DIR = Path(_default_comfyui_output())
 
-# ComfyUI installation directory — defaults to COMFYUI_DATABASE unless overridden.
-# Override with COMFYUI_INSTALL_DIR in .env when install and data dirs differ.
+# ComfyUI installation directory — auto-detected or overridden via env.
+# This is the actual ComfyUI repo (with /blueprints, /comfy, etc.),
+# which may differ from COMFYUI_DATABASE on split-directory setups.
 def _default_comfyui_install() -> str:
-    """Default ComfyUI installation path. May differ from COMFYUI_DATABASE."""
+    """Auto-detect ComfyUI installation path."""
     env = os.getenv("COMFYUI_INSTALL_DIR")
     if env:
         return env
+    # Auto-detect: check common locations for the actual ComfyUI install
+    candidates = [
+        Path("G:/COMFY/ComfyUI"),
+        COMFYUI_DATABASE / "ComfyUI",
+        Path.home() / "ComfyUI",
+    ]
+    for candidate in candidates:
+        if (candidate / "comfy").is_dir() or (candidate / "main.py").exists():
+            return str(candidate)
+    # Fallback: custom_nodes symlink may point back to the install
+    custom_nodes_link = CUSTOM_NODES_DIR
+    if custom_nodes_link.is_symlink():
+        resolved = custom_nodes_link.resolve().parent
+        if (resolved / "main.py").exists():
+            return str(resolved)
     return str(COMFYUI_DATABASE)
 
 

@@ -184,6 +184,10 @@ def _load_workflow_from_file(path_str: str) -> tuple[dict | None, str | None]:
 
 def _queue_prompt(workflow: dict) -> tuple[str | None, str | None]:
     """Queue a workflow. Returns (prompt_id, error)."""
+    from ..circuit_breaker import COMFYUI_BREAKER
+    breaker = COMFYUI_BREAKER()
+    if not breaker.allow_request():
+        return None, f"ComfyUI has been unreachable. Waiting {breaker.recovery_timeout:.0f}s before retrying."
     payload = {
         "prompt": workflow,
         "client_id": _CLIENT_ID,
@@ -196,12 +200,14 @@ def _queue_prompt(workflow: dict) -> tuple[str | None, str | None]:
                 timeout=30.0,
             )
             resp.raise_for_status()
+            breaker.record_success()
             data = resp.json()
             prompt_id = data.get("prompt_id")
             if not prompt_id:
                 return None, "ComfyUI accepted the workflow but didn't return a job ID. It may be overloaded — try again in a few seconds."
             return prompt_id, None
     except httpx.ConnectError:
+        breaker.record_failure()
         return None, f"ComfyUI not reachable at {COMFYUI_URL}. Is it running?"
     except httpx.HTTPStatusError as e:
         # ComfyUI returns errors in the response body
@@ -231,12 +237,18 @@ def _poll_completion(
     progress: ProgressCallback | None = None,
 ) -> dict:
     """Poll /history until the prompt completes or times out."""
+    from ..circuit_breaker import COMFYUI_BREAKER
+    breaker = COMFYUI_BREAKER()
     progress = progress or ProgressReporter.noop()
     deadline = time.monotonic() + timeout
     start = time.monotonic()
     poll_count = 0
+    consecutive_errors = 0
 
     while time.monotonic() < deadline:
+        if not breaker.allow_request():
+            log.warning("Circuit breaker open during polling for %s", prompt_id)
+            return {"error": "ComfyUI became unreachable during generation. Check if it's still running."}
         try:
             with httpx.Client() as client:
                 resp = client.get(
@@ -245,7 +257,17 @@ def _poll_completion(
                 )
                 resp.raise_for_status()
                 history = resp.json()
-        except Exception:
+                breaker.record_success()
+                consecutive_errors = 0
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            breaker.record_failure()
+            consecutive_errors += 1
+            log.warning("Poll attempt %d failed for %s: %s", consecutive_errors, prompt_id, e)
+            time.sleep(poll_interval)
+            continue
+        except Exception as e:
+            consecutive_errors += 1
+            log.warning("Unexpected polling error for %s: %s", prompt_id, e)
             time.sleep(poll_interval)
             continue
 
@@ -327,7 +349,9 @@ def _execute_with_websocket(
         result["monitoring"] = "polling_fallback"
         return result
 
-    ws_url = f"ws://{COMFYUI_HOST}:{COMFYUI_PORT}/ws?clientId={_CLIENT_ID}"
+    # Derive WebSocket scheme from COMFYUI_URL
+    ws_scheme = "wss" if COMFYUI_URL.startswith("https") else "ws"
+    ws_url = f"{ws_scheme}://{COMFYUI_HOST}:{COMFYUI_PORT}/ws?clientId={_CLIENT_ID}"
 
     # Queue the prompt first
     prompt_id, err = _queue_prompt(workflow)
@@ -344,7 +368,7 @@ def _execute_with_websocket(
     start_time = time.monotonic()
 
     try:
-        with websockets.sync.client.connect(ws_url, close_timeout=5) as ws:
+        with websockets.sync.client.connect(ws_url, close_timeout=5, open_timeout=10) as ws:
             ws.recv_bufsize = 16 * 1024 * 1024  # 16MB for preview images
             deadline = time.monotonic() + timeout
 
