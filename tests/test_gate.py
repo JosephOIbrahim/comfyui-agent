@@ -10,12 +10,10 @@ import pytest
 
 from agent.gate import (
     GateDecision,
-    GateResult,
     RiskLevel,
     get_risk_level,
     pre_dispatch_check,
 )
-from agent.gate.risk_levels import TOOL_RISK_LEVELS
 
 
 # ---------------------------------------------------------------------------

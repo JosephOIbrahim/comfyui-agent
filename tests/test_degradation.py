@@ -7,7 +7,6 @@ unregistered subsystem errors, fallback counting, and reset behavior.
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 

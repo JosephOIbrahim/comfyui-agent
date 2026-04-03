@@ -10,7 +10,7 @@ import copy
 
 import pytest
 
-from agent.brain.adapters import adapt, get_adapter, ADAPTER_REGISTRY
+from agent.brain.adapters import adapt, get_adapter
 from agent.brain.adapters.vision_memory import (
     vision_to_outcome,
     patterns_to_vision_context,
@@ -374,7 +374,7 @@ class TestVerifyAgainstIntent:
             "analysis": "",
         }
         criteria = {
-            "expected_attributes": [f"high_detail" for _ in range(20)],
+            "expected_attributes": ["high_detail" for _ in range(20)],
             "quality_threshold": 0.99,
             "style_match": "nonexistent_style",
         }

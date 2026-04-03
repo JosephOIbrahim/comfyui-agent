@@ -5,7 +5,7 @@
 
 import pytest
 
-from src.cognitive.prediction.cwm import CognitiveWorldModel, Prediction
+from src.cognitive.prediction.cwm import CognitiveWorldModel
 from src.cognitive.prediction.arbiter import SimulationArbiter, DeliveryMode
 from src.cognitive.prediction.counterfactual import CounterfactualGenerator, Counterfactual
 

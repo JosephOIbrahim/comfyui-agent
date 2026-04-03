@@ -7,7 +7,6 @@ Providers translate between these types and their native formats.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 # ---------------------------------------------------------------------------

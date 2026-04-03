@@ -24,14 +24,13 @@ from pathlib import Path
 import jsonpatch
 
 from ._util import to_json
+from ..workflow_session import get_session
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level state (one active workflow at a time)
 # ---------------------------------------------------------------------------
-
-from ..workflow_session import get_session
 
 _state = get_session("default")
 _state_lock = _state._lock

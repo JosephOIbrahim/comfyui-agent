@@ -5,14 +5,14 @@
 
 import pytest
 
-from src.cognitive.tools.analyze import analyze_workflow, WorkflowAnalysis
-from src.cognitive.tools.mutate import mutate_workflow, MutationResult
-from src.cognitive.tools.query import query_environment, EnvironmentSnapshot
-from src.cognitive.tools.dependencies import manage_dependencies, DependencyAction
-from src.cognitive.tools.execute import execute_workflow, ExecutionResult, ExecutionStatus
-from src.cognitive.tools.compose import compose_workflow, CompositionResult
-from src.cognitive.tools.series import generate_series, SeriesConfig, SeriesResult
-from src.cognitive.tools.research import autoresearch, AutoresearchConfig, AutoresearchResult
+from src.cognitive.tools.analyze import analyze_workflow
+from src.cognitive.tools.mutate import mutate_workflow
+from src.cognitive.tools.query import query_environment
+from src.cognitive.tools.dependencies import manage_dependencies
+from src.cognitive.tools.execute import execute_workflow, ExecutionStatus
+from src.cognitive.tools.compose import compose_workflow
+from src.cognitive.tools.series import generate_series, SeriesConfig
+from src.cognitive.tools.research import autoresearch, AutoresearchConfig
 from src.cognitive.core.graph import CognitiveGraphEngine
 from src.cognitive.transport.schema_cache import SchemaCache
 

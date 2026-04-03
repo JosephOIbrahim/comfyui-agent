@@ -439,8 +439,8 @@ class TestChronologicalOrdering:
 
     def test_insertion_order_preserved_in_stack(self, engine):
         """Delta stack preserves insertion order."""
-        d1 = engine.mutate_workflow({"4": {"steps": 10}}, opinion="L", layer_id="first")
-        d2 = engine.mutate_workflow({"4": {"steps": 50}}, opinion="L", layer_id="second")
+        engine.mutate_workflow({"4": {"steps": 10}}, opinion="L", layer_id="first")
+        engine.mutate_workflow({"4": {"steps": 50}}, opinion="L", layer_id="second")
         stack = engine.delta_stack
         assert stack[0].layer_id == "first"
         assert stack[1].layer_id == "second"
@@ -545,8 +545,8 @@ class TestEdgeCases:
 
     def test_pop_delta_returns_most_recent(self, engine):
         """pop_delta removes and returns the last pushed layer."""
-        d1 = engine.mutate_workflow({"4": {"cfg": 5.0}}, opinion="L", layer_id="first")
-        d2 = engine.mutate_workflow({"4": {"steps": 30}}, opinion="L", layer_id="second")
+        engine.mutate_workflow({"4": {"cfg": 5.0}}, opinion="L", layer_id="first")
+        engine.mutate_workflow({"4": {"steps": 30}}, opinion="L", layer_id="second")
         popped = engine.pop_delta()
         assert popped.layer_id == "second"
         assert len(engine.delta_stack) == 1

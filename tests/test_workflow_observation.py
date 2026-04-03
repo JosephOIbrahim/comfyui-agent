@@ -6,10 +6,8 @@ and the BASELINE_OBSERVATION contract.
 
 from __future__ import annotations
 
-import copy
 import threading
 
-import pytest
 
 from agent.workflow_observation import (
     BASELINE_OBSERVATION,

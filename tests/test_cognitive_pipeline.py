@@ -9,13 +9,12 @@ import pytest
 from src.cognitive.pipeline.autonomous import (
     AutonomousPipeline,
     PipelineConfig,
-    PipelineResult,
     PipelineStage,
 )
 from src.cognitive.experience.accumulator import ExperienceAccumulator
-from src.cognitive.experience.chunk import ExperienceChunk, QualityScore
+from src.cognitive.experience.chunk import QualityScore
 from src.cognitive.prediction.cwm import CognitiveWorldModel
-from src.cognitive.prediction.arbiter import SimulationArbiter, DeliveryMode
+from src.cognitive.prediction.arbiter import SimulationArbiter
 from src.cognitive.prediction.counterfactual import CounterfactualGenerator
 
 

@@ -227,7 +227,7 @@ def run_agent_turn(
 
 
 def run_interactive(
-    client: anthropic.Anthropic,
+    client,
     *,
     session_context: dict | None = None,
     handler: StreamHandler | None = None,

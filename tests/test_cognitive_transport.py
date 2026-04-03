@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.cognitive.transport.schema_cache import SchemaCache, NodeSchema, InputSpec
+from src.cognitive.transport.schema_cache import SchemaCache, InputSpec
 from src.cognitive.transport.events import ExecutionEvent, EventType
 from src.cognitive.transport.interrupt import interrupt_execution, get_system_stats
 

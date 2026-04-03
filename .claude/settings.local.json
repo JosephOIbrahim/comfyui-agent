@@ -84,7 +84,28 @@
       "mcp__comfyui-agent__get_system_stats",
       "mcp__comfyui-agent__get_queue_status",
       "mcp__comfyui-agent__get_models_summary",
-      "mcp__comfyui-agent__list_custom_nodes"
+      "mcp__comfyui-agent__list_custom_nodes",
+      "Bash(.venv312/Scripts/python.exe -c \"import agent; print\\(agent.__file__\\)\" 2>&1)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Get-ChildItem -Path 'G:\\\\comfyui-agent' -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint } | Select-Object FullName, @{N='Target';E={$_.Target}} | Format-Table -AutoSize -Wrap\" 2>&1)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Get-ChildItem -Path 'G:\\\\' -Force -ErrorAction SilentlyContinue | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint } | Select-Object FullName, @{N='Target';E={$_.Target}} | Format-Table -AutoSize -Wrap\" 2>&1)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\User\\\\comfyui-agent\\\\migrate_to_g.ps1\" 2>&1)",
+      "Bash(robocopy \"C:\\\\Users\\\\User\\\\comfyui-agent\" \"G:\\\\comfyui-agent\" /E /COPY:DAT /DCOPY:DAT /XD .venv312 workspace .git __pycache__ .ruff_cache .pytest_cache node_modules nul /XF tmp_find_symlinks.ps1 migrate_to_g.ps1)",
+      "Bash(robocopy \"C:\\\\Users\\\\User\\\\comfyui-agent\" \"G:\\\\comfyui-agent\" /E /COPY:DAT /DCOPY:DAT /XD \".venv312\" \"workspace\" \".git\" \"__pycache__\" \".ruff_cache\" \".pytest_cache\" \"node_modules\" /XF \"tmp_find_symlinks.ps1\" \"migrate_to_g.ps1\" \"nul\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\User\\\\comfyui-agent\\\\do_copy.ps1\" 2>&1)",
+      "Bash(agent --help)",
+      "Bash(agent mcp:*)",
+      "Bash(agent run:*)",
+      "Bash(agent inspect:*)",
+      "Bash(2)",
+      "Bash(find G:COMFYUI_DatabaseModels -maxdepth 2 -type f \\\\\\(-name *.safetensors -o -name *.pth \\\\\\))",
+      "Bash(du -sh G:COMFYUI_DatabaseModels/*)",
+      "Bash(/tmp/workflow_analysis.md:*)",
+      "Read(//tmp/**)",
+      "Bash(printf:*)",
+      "Bash(fsutil reparsepoint:*)",
+      "Bash(1:*)",
+      "Read(//c/Users/User/Downloads/**)",
+      "Bash(pip uninstall:*)"
     ]
   }
 }

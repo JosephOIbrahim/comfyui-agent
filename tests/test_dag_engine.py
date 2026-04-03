@@ -15,7 +15,6 @@ import pytest
 from agent.stage.dag import (
     ComplexityLevel,
     ModelRequirements,
-    OptimizationVector,
     ReadinessGrade,
     RiskLevel,
     WorkflowIntelligence,
@@ -517,7 +516,6 @@ class TestWithoutNetworkx:
         """build_dag should raise RuntimeError when networkx is absent."""
         with patch.dict(sys.modules, {"networkx": None}):
             # Force reimport of the engine to pick up HAS_NX = False
-            import importlib
             import agent.stage.dag.engine as engine_mod
 
             orig_has_nx = engine_mod.HAS_NX
