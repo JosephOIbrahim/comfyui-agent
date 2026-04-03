@@ -8,6 +8,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from agent.progress import ProgressReporter, _NoopReporter
 
 
+def _mock_httpx_client():
+    """Create a properly chained httpx.Client context manager mock."""
+    mock_client = MagicMock()
+    mock_cm = MagicMock()
+    mock_cm.__enter__ = MagicMock(return_value=mock_client)
+    mock_cm.__exit__ = MagicMock(return_value=False)
+    patcher = patch("agent.tools.comfy_execute.httpx.Client", return_value=mock_cm)
+    return patcher, mock_client
+
+
 class TestNoopReporter:
     def test_noop_is_silent(self):
         """Noop reporter accepts any arguments without error."""
@@ -114,6 +124,15 @@ class TestProgressReporter:
 class TestProgressInExecution:
     """Integration: verify progress reporter is called during execution."""
 
+    @pytest.fixture(autouse=True)
+    def _allow_breaker(self):
+        """Ensure circuit breaker allows requests in tests."""
+        with patch("agent.tools.comfy_execute.COMFYUI_BREAKER", create=True):
+            breaker = MagicMock()
+            breaker.allow_request.return_value = True
+            with patch("agent.circuit_breaker.get_breaker", return_value=breaker):
+                yield
+
     @pytest.fixture
     def sample_workflow(self, tmp_path):
         data = {
@@ -152,8 +171,8 @@ class TestProgressInExecution:
         progress = MagicMock()
         progress.report = MagicMock()
 
-        with patch("agent.tools.comfy_execute.httpx.Client") as mock_cls:
-            mock_client = mock_cls.return_value.__enter__.return_value
+        patcher, mock_client = _mock_httpx_client()
+        with patcher:
             mock_client.post.return_value = queue_resp
             mock_client.get.return_value = history_resp
 
@@ -207,12 +226,12 @@ class TestProgressInExecution:
         progress = MagicMock()
         progress.report = MagicMock()
 
+        patcher, mock_client = _mock_httpx_client()
+        mock_client.post.return_value = queue_resp
+        mock_client.get.return_value = history_resp
         with patch.object(comfy_execute, "_HAS_WS", True), \
-             patch("agent.tools.comfy_execute.httpx.Client") as mock_http, \
+             patcher, \
              patch("agent.tools.comfy_execute.websockets.sync.client.connect", return_value=mock_ws):
-            mock_client = mock_http.return_value.__enter__.return_value
-            mock_client.post.return_value = queue_resp
-            mock_client.get.return_value = history_resp
 
             result = json.loads(comfy_execute.handle(
                 "execute_with_progress",
@@ -253,8 +272,8 @@ class TestProgressInExecution:
         }
         history_resp.raise_for_status = MagicMock()
 
-        with patch("agent.tools.comfy_execute.httpx.Client") as mock_cls:
-            mock_client = mock_cls.return_value.__enter__.return_value
+        patcher, mock_client = _mock_httpx_client()
+        with patcher:
             mock_client.post.return_value = queue_resp
             mock_client.get.return_value = history_resp
 

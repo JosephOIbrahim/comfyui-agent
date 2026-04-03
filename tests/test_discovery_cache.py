@@ -59,11 +59,15 @@ class TestDiscoveryCache:
     def test_lru_eviction_at_capacity(self):
         cache = DiscoveryCache(max_entries=3)
         cache.set("a", 1)
+        time.sleep(0.01)  # Ensure distinct timestamps on Windows
         cache.set("b", 2)
+        time.sleep(0.01)
         cache.set("c", 3)
+        time.sleep(0.01)
 
         # Access "a" to make it recently used
         cache.get("a")
+        time.sleep(0.01)
 
         # Adding "d" should evict the LRU entry ("b")
         cache.set("d", 4)
