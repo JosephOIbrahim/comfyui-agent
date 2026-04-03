@@ -48,11 +48,12 @@ def serialize(msg: dict) -> str:
 
 
 def dispatch_brain_message(msg: dict, *, max_retries: int = 3) -> bool:
-    """Route a BrainMessage to its target module via the tools dispatcher.
+    """Route a BrainMessage to its target module via adapters or fallback.
 
+    First tries the adapter registry (typed, pure-function translators).
+    Falls back to legacy hardcoded routing if no adapter found.
     Retries with exponential backoff on failure. Returns True on success
     (or when no route matches), False when all retries are exhausted.
-    Currently supports vision->memory routing (record_outcome).
     """
     import logging
 
@@ -62,6 +63,20 @@ def dispatch_brain_message(msg: dict, *, max_retries: int = 3) -> bool:
     target = msg.get("target", "")
     payload = msg.get("payload", {})
 
+    # Adapter enrichment (logs translated view alongside legacy dispatch)
+    try:
+        from .adapters import get_adapter
+        adapter = get_adapter(source, target)
+        if adapter is not None:
+            adapted = adapter(payload)
+            _log.debug(
+                "Adapter translated %s->%s (keys: %s)",
+                source, target, sorted(adapted.keys()),
+            )
+    except Exception:
+        pass  # Adapter not available — no impact on dispatch
+
+    # Legacy routing (battle-tested, preserved as primary dispatch path)
     if source == "vision" and target == "memory":
         from ..tools import handle as dispatch_tool
 

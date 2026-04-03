@@ -633,21 +633,52 @@ def _handle_validate_before_execute(tool_input: dict) -> str:
                             f"May be valid if models changed since last restart."
                         )
 
+    # DAG intelligence (optional — guarded by kill switch)
+    intelligence = {}
+    try:
+        from ..config import DAG_ENABLED
+        if DAG_ENABLED:
+            from ..stage.dag import evaluate_dag, build_dag
+            dag = build_dag()
+            wi = evaluate_dag(
+                dag, workflow,
+                node_registry=object_info if 'object_info' in dir() else None,
+                system_stats=None,
+            )
+            intelligence = {
+                "complexity": wi.complexity.name,
+                "risk": wi.risk.name,
+                "readiness": wi.readiness.name,
+                "model_family": wi.model_requirements.checkpoint_family,
+                "vram_estimate_gb": wi.model_requirements.vram_estimate_gb,
+                "lora_count": wi.model_requirements.lora_count,
+                "controlnet": wi.model_requirements.controlnet_present,
+                "tensorrt_eligible": wi.optimization.tensorrt_eligible,
+            }
+    except Exception:
+        pass  # DAG unavailable — degrade silently
+
     if errors:
-        return to_json({
+        result = {
             "valid": False,
             "errors": errors,
             "warnings": warnings,
             "message": "Fix errors before executing.",
-        })
+        }
+        if intelligence:
+            result["intelligence"] = intelligence
+        return to_json(result)
 
-    return to_json({
+    result = {
         "valid": True,
         "node_count": len(workflow),
         "errors": [],
         "warnings": warnings,
         "message": "Workflow looks ready to execute.",
-    })
+    }
+    if intelligence:
+        result["intelligence"] = intelligence
+    return to_json(result)
 
 
 def _handle_execute_workflow(

@@ -49,6 +49,51 @@ def _ensure_brain():
         _brain_loaded = True
 
 
+# Capability registry (parallel index for smart routing)
+_CAPABILITY_REGISTRY = None
+_cap_lock = threading.Lock()
+
+
+def _ensure_capabilities():
+    """Lazily build capability registry (thread-safe)."""
+    global _CAPABILITY_REGISTRY
+    if _CAPABILITY_REGISTRY is not None:
+        return _CAPABILITY_REGISTRY
+    with _cap_lock:
+        if _CAPABILITY_REGISTRY is not None:
+            return _CAPABILITY_REGISTRY
+        try:
+            from .capability_registry import ToolCapabilityRegistry
+            from .capability_defaults import build_default_capabilities
+            reg = ToolCapabilityRegistry()
+            reg.register_batch(build_default_capabilities())
+            _CAPABILITY_REGISTRY = reg
+        except Exception:
+            log.debug("Capability registry not available", exc_info=True)
+    return _CAPABILITY_REGISTRY
+
+
+def select_tools(requirements: dict) -> list[str]:
+    """Select tools matching capability requirements. Returns tool names."""
+    reg = _ensure_capabilities()
+    if reg is None:
+        return []
+    try:
+        caps = reg.select(requirements)
+        return [c.tool_name for c in caps]
+    except Exception:
+        return []
+
+
+def _observe(name: str, tool_input: dict, ctx: "object | None") -> None:
+    """Record observation after tool dispatch. Never raises."""
+    try:
+        if ctx is not None and hasattr(ctx, 'workflow'):
+            ctx.workflow.observe(name, tool_input)
+    except Exception:
+        pass
+
+
 def _get_all_tools() -> list[dict]:
     """Get all tool schemas (intelligence + brain layers)."""
     _ensure_brain()
@@ -118,12 +163,52 @@ def handle(
         from ..session_context import get_session_context
         ctx = get_session_context(session_id)
 
+    # Pre-dispatch gate (guarded by kill switch, only for known tools)
+    _is_known = name in _HANDLERS or name in _BRAIN_TOOL_NAMES
+    try:
+        from ..config import GATE_ENABLED
+        if GATE_ENABLED and _is_known:
+            from ..gate import pre_dispatch_check, GateDecision
+            gate_result = pre_dispatch_check(
+                name, tool_input,
+                session_active=ctx is not None,
+                has_undo=bool(
+                    ctx and hasattr(ctx, 'workflow')
+                    and ctx.workflow.get("history")
+                ),
+            )
+            if gate_result.decision == GateDecision.DENY:
+                from ..errors import error_json
+                return error_json(
+                    f"Gate denied '{name}': {gate_result.reason}",
+                    hint="Check prerequisites or try a different approach.",
+                )
+            elif gate_result.decision == GateDecision.LOCKED:
+                from ..errors import error_json
+                return error_json(
+                    f"'{name}' is a destructive operation and requires "
+                    f"explicit confirmation.",
+                    hint="This tool cannot be auto-executed.",
+                )
+            elif gate_result.decision == GateDecision.ESCALATE:
+                log.info("Gate escalated '%s' (risk level %d)",
+                         name, gate_result.risk_level)
+                # Escalation logged but allowed through — the MCP client
+                # (Claude) decides whether to confirm with the user.
+    except ImportError:
+        pass  # Gate not available — degrade silently
+    except Exception:
+        log.debug("Gate check failed for %s, proceeding anyway", name,
+                   exc_info=True)
+
     # Check brain tools (lazy loaded)
     _ensure_brain()
     if name in _BRAIN_TOOL_NAMES:
         from ..brain import handle as handle_brain
         try:
-            return handle_brain(name, tool_input)
+            result = handle_brain(name, tool_input)
+            _observe(name, tool_input, ctx)
+            return result
         except Exception:
             log.error("Unhandled error in brain tool %s", name, exc_info=True)
             from ..errors import error_json
@@ -140,9 +225,11 @@ def handle(
     try:
         # Forward progress to any module that accepts it; fall back gracefully
         try:
-            return mod.handle(name, tool_input, progress=progress)
+            result = mod.handle(name, tool_input, progress=progress)
         except TypeError:
-            return mod.handle(name, tool_input)
+            result = mod.handle(name, tool_input)
+        _observe(name, tool_input, ctx)
+        return result
     except Exception:
         log.error("Unhandled error in tool %s", name, exc_info=True)
         from ..errors import error_json

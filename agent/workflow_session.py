@@ -30,6 +30,8 @@ class WorkflowSession:
             "_engine": None,
         }
         self._lock = threading.RLock()
+        self._observation_log = None  # Lazy — created on first observe() call
+        self._observation_log_checked = False
 
     def __getitem__(self, key: str):
         with self._lock:
@@ -73,6 +75,59 @@ class WorkflowSession:
             new = WorkflowSession(self.session_id)
             new._data = copy.deepcopy(self._data, memo)
             return new
+
+    def _ensure_observation_log(self):
+        """Lazily create observation log on first use. Never raises."""
+        if self._observation_log_checked:
+            return
+        self._observation_log_checked = True
+        try:
+            from .config import OBSERVATION_ENABLED
+            if not OBSERVATION_ENABLED:
+                return
+            from .workflow_observation_log import WorkflowObservationLog
+            self._observation_log = WorkflowObservationLog(self.session_id)
+        except Exception:
+            pass
+
+    def observe(self, tool_name: str, tool_input: dict) -> "int | None":
+        """Record a workflow observation after a tool call. Returns step_index or None."""
+        self._ensure_observation_log()
+        if self._observation_log is None:
+            return None
+        try:
+            import hashlib
+            import json
+            import time as _time
+            from .workflow_observation import (
+                WorkflowObservation, ActionBlock, WorkflowStateBlock,
+                WorkflowPhase,
+            )
+            # Determine phase from workflow state
+            phase = WorkflowPhase.EMPTY
+            wf = self._data.get("current_workflow")
+            if wf:
+                phase = WorkflowPhase.LOADED
+
+            # Build observation
+            obs = WorkflowObservation(
+                session_id=self.session_id,
+                timestamp=_time.time(),
+                state=WorkflowStateBlock(
+                    phase=phase,
+                    node_count=len(wf) if wf else 0,
+                ),
+                action=ActionBlock(
+                    tool_name=tool_name,
+                    tool_input_hash=hashlib.sha256(
+                        json.dumps(tool_input, sort_keys=True, default=str).encode()
+                    ).hexdigest()[:16],
+                    action_type=tool_name.split("_")[0] if tool_name else "",
+                ),
+            )
+            return self._observation_log.author(obs)
+        except Exception:
+            return None
 
     def __repr__(self) -> str:
         with self._lock:

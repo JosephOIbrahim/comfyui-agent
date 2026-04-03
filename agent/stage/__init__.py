@@ -39,6 +39,13 @@ from .model_registry import (
 )
 from .workflow_mapper import prims_to_workflow_json, workflow_json_to_prims
 
+# DAG engine (optional — requires networkx)
+try:
+    from .dag import build_dag as build_dag, evaluate_dag as evaluate_dag, WorkflowIntelligence as WorkflowIntelligence  # noqa: E501
+    _DAG_EXPORTS = ["build_dag", "evaluate_dag", "WorkflowIntelligence"]
+except ImportError:
+    _DAG_EXPORTS = []
+
 __all__ = [
     "ANCHOR_PARAMS",
     "AnchorViolationError",
@@ -59,4 +66,5 @@ __all__ = [
     "register_model",
     "update_status",
     "workflow_json_to_prims",
+    *_DAG_EXPORTS,
 ]

@@ -41,6 +41,13 @@ class SessionContext:
         self._cwm = None  # Optional CWM predict function (lazy)
         self._arbiter = None  # Optional Arbiter instance (lazy)
         self._workflow_signature = None  # Optional WorkflowSignature
+        self._dag_state = None  # Optional DAG engine state (lazy)
+        self._degradation = None  # Optional DegradationManager (lazy)
+        try:
+            from .degradation import DegradationManager
+            self._degradation = DegradationManager()
+        except ImportError:
+            pass
 
     @property
     def stage(self):
@@ -148,6 +155,32 @@ class SessionContext:
     def workflow_signature(self, value):
         """Set the workflow signature (e.g., after loading a workflow)."""
         self._workflow_signature = value
+
+    def ensure_dag(self):
+        """Get or create the DAG engine state for this session.
+
+        Lazy-initialized. Returns None if networkx unavailable or DAG_ENABLED=False.
+        """
+        if self._dag_state is None:
+            try:
+                from .config import DAG_ENABLED
+                if not DAG_ENABLED:
+                    return None
+                from .stage.dag import build_dag
+                self._dag_state = {"dag": build_dag()}
+            except ImportError:
+                pass
+        return self._dag_state
+
+    @property
+    def observation_log(self):
+        """WorkflowObservationLog for this session, or None."""
+        return getattr(self.workflow, '_observation_log', None)
+
+    @property
+    def degradation(self):
+        """DegradationManager for this session, or None."""
+        return self._degradation
 
     @property
     def graph_engine(self):

@@ -48,6 +48,16 @@ except ValueError:
     COMFYUI_PORT = 8188
 COMFYUI_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
 
+# Kill switches — independently disable subsystems (all default ON)
+STAGE_ENABLED = os.getenv("STAGE_ENABLED", "1") == "1"
+BRAIN_ENABLED = os.getenv("BRAIN_ENABLED", "1") == "1"
+CWM_ENABLED = os.getenv("CWM_ENABLED", "1") == "1"
+OBSERVATION_ENABLED = os.getenv("OBSERVATION_ENABLED", "1") == "1"
+VISION_ENABLED = os.getenv("VISION_ENABLED", "1") == "1"
+DISCOVERY_ENABLED = os.getenv("DISCOVERY_ENABLED", "1") == "1"
+DAG_ENABLED = os.getenv("DAG_ENABLED", "1") == "1"
+GATE_ENABLED = os.getenv("GATE_ENABLED", "1") == "1"
+
 # Paths — cross-platform defaults for ComfyUI database location
 def _default_comfyui_database() -> str:
     """Sensible default ComfyUI database path per platform."""
