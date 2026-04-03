@@ -45,7 +45,18 @@ def setup_routes():
 
     @routes.get("/superduper-panel/health")
     async def health(request):
-        return web.json_response({"status": "ok", "panel": "superduper-panel"})
+        try:
+            from agent.health import check_health
+
+            result = check_health()
+            status_code = 200 if result["status"] == "ok" else 503
+            return web.json_response(result, status=status_code)
+        except Exception as e:
+            log.error("Health check error: %s", e, exc_info=True)
+            return web.json_response(
+                {"status": "error", "error": "Health check failed"},
+                status=503,
+            )
 
     # ── Graph State (CognitiveGraphEngine) ─────────────────────────
 

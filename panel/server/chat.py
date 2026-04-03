@@ -146,6 +146,9 @@ def _inject_workflow_data(conv: ConversationState, workflow_data: dict) -> None:
 # Queue-based stream handler
 # ---------------------------------------------------------------------------
 
+_EXECUTION_TOOLS = frozenset({"execute_workflow", "execute_with_progress"})
+
+
 class _QueueStreamHandler:
     """StreamHandler that pushes events to a thread-safe queue."""
 
@@ -160,6 +163,11 @@ class _QueueStreamHandler:
 
     def on_tool_call(self, name, inp):
         self._q.put({"type": "tool_call", "name": name})
+        if name in _EXECUTION_TOOLS:
+            self._q.put({
+                "type": "executing",
+                "message": f"Running workflow via {name}...",
+            })
 
     def on_tool_result(self, name, inp, result_json):
         pass
@@ -178,32 +186,49 @@ class _QueueStreamHandler:
 def _run_agent_sync(conv: ConversationState, user_text: str, msg_queue: queue.Queue):
     """Run the agent loop synchronously, pushing events to msg_queue."""
     from agent.main import run_agent_turn
+    from agent.queue_progress import QueueProgressReporter
 
     conv._build_system()
     conv.messages.append({"role": "user", "content": user_text})
 
     max_turns = 15
     handler = _QueueStreamHandler(msg_queue)
+    progress = QueueProgressReporter(msg_queue)
 
-    for _turn in range(max_turns):
-        try:
-            conv.messages, done = run_agent_turn(
-                _client,
-                conv.messages,
-                conv.system_prompt,
-                handler=handler,
-            )
+    # Patch handle_tool inside agent.main to forward the progress reporter.
+    # run_agent_turn imports handle as handle_tool from agent.tools; we
+    # temporarily replace agent.main.handle_tool so execution tools can
+    # stream progress back through the queue.
+    import agent.main as _main_mod
+    _original_handle = _main_mod.handle_tool
 
-            if done:
-                msg_queue.put({"type": "done"})
+    def _handle_with_progress(name, tool_input, **kw):
+        return _original_handle(name, tool_input, progress=progress, **kw)
+
+    _main_mod.handle_tool = _handle_with_progress
+
+    try:
+        for _turn in range(max_turns):
+            try:
+                conv.messages, done = run_agent_turn(
+                    _client,
+                    conv.messages,
+                    conv.system_prompt,
+                    handler=handler,
+                )
+
+                if done:
+                    msg_queue.put({"type": "done"})
+                    return
+
+            except Exception as e:
+                log.error("Agent turn error: %s", e, exc_info=True)
+                msg_queue.put({"type": "error", "message": str(e)})
                 return
 
-        except Exception as e:
-            log.error("Agent turn error: %s", e, exc_info=True)
-            msg_queue.put({"type": "error", "message": str(e)})
-            return
-
-    msg_queue.put({"type": "done"})
+        msg_queue.put({"type": "done"})
+    finally:
+        _main_mod.handle_tool = _original_handle
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +245,20 @@ async def _forward_event(ws, event, accumulated_text):
 
     elif etype == "tool_call":
         await ws.send_json({"type": "tool_call", "name": event.get("name", "")})
+
+    elif etype == "progress":
+        await ws.send_json({
+            "type": "progress",
+            "progress": event.get("progress", 0),
+            "total": event.get("total"),
+            "message": event.get("message", ""),
+        })
+
+    elif etype == "executing":
+        await ws.send_json({
+            "type": "executing",
+            "message": event.get("message", "Executing workflow..."),
+        })
 
     elif etype == "error":
         await ws.send_json({

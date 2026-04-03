@@ -152,8 +152,22 @@ export function createAppMode(container, client) {
     _addSystem(`Using: ${data.name}`);
   });
 
+  client.on("progress", (data) => {
+    if (data.total) {
+      const pct = (data.progress / data.total) * 100;
+      _showProgress(pct, data.message);
+    } else {
+      _showProgress(data.progress, data.message);
+    }
+  });
+
+  client.on("executing", (data) => {
+    _showProgress(0, data.message || "Executing workflow...");
+  });
+
   client.on("done", () => {
     _clearTyping();
+    _hideProgress();
     _finalizeAgentMessage(_agentText);
     _agentText = "";
     _setBusy(false);
@@ -161,6 +175,7 @@ export function createAppMode(container, client) {
 
   client.on("error", (data) => {
     _clearTyping();
+    _hideProgress();
     _streamingEl = null;
     _addAgent(`Error: ${data.message || "Unknown error"}`);
     _agentText = "";
@@ -277,8 +292,35 @@ export function createAppMode(container, client) {
     } catch { /* quota exceeded */ }
   }
 
+  // ── Progress display ─────────────────────────────────────────
+
+  function _showProgress(pct, nodeLabel) {
+    let prog = messagesEl.querySelector(".sdp-progress");
+    if (!prog) {
+      prog = document.createElement("div");
+      prog.className = "sdp-progress";
+      prog.innerHTML = `
+        <div class="sdp-progress__bar"><div class="sdp-progress__fill"></div></div>
+        <div class="sdp-progress__label">
+          <span class="sdp-progress__node"></span>
+          <span class="sdp-progress__pct"></span>
+        </div>
+      `;
+      messagesEl.appendChild(prog);
+    }
+    prog.querySelector(".sdp-progress__fill").style.width = `${pct}%`;
+    prog.querySelector(".sdp-progress__node").textContent = nodeLabel || "";
+    prog.querySelector(".sdp-progress__pct").textContent = `${Math.round(pct)}%`;
+    _scrollToBottom();
+  }
+
+  function _hideProgress() {
+    const prog = messagesEl.querySelector(".sdp-progress");
+    if (prog) prog.remove();
+  }
+
   // Public API for adding tool cards and predictions
-  return {
+  const appApi = {
     addToolCard(name, params) {
       const card = document.createElement("div");
       card.className = "sdp-tool";
@@ -311,34 +353,13 @@ export function createAppMode(container, client) {
       _scrollToBottom();
     },
 
-    showProgress(pct, nodeLabel) {
-      let prog = messagesEl.querySelector(".sdp-progress");
-      if (!prog) {
-        prog = document.createElement("div");
-        prog.className = "sdp-progress";
-        prog.innerHTML = `
-          <div class="sdp-progress__bar"><div class="sdp-progress__fill"></div></div>
-          <div class="sdp-progress__label">
-            <span class="sdp-progress__node"></span>
-            <span class="sdp-progress__pct"></span>
-          </div>
-        `;
-        messagesEl.appendChild(prog);
-      }
-      prog.querySelector(".sdp-progress__fill").style.width = `${pct}%`;
-      prog.querySelector(".sdp-progress__node").textContent = nodeLabel || "";
-      prog.querySelector(".sdp-progress__pct").textContent = `${Math.round(pct)}%`;
-      _scrollToBottom();
-    },
-
-    hideProgress() {
-      const prog = messagesEl.querySelector(".sdp-progress");
-      if (prog) prog.remove();
-    },
-
+    showProgress: _showProgress,
+    hideProgress: _hideProgress,
     addMessage: _addAgent,
     addSystemMessage: _addSystem,
   };
+
+  return appApi;
 
   function _appendSystemMessage(container_, text) {
     _addSystem(text);

@@ -98,6 +98,12 @@ def setup_logging(
         max_bytes: Max log file size before rotation (default 10 MB).
         backup_count: Number of rotated log files to keep.
     """
+    import os
+
+    log_format_env = os.getenv("LOG_FORMAT", "").lower()
+    if log_format_env == "json":
+        json_format = True
+
     root = logging.getLogger()
 
     # Remove existing handlers to avoid duplicate output
