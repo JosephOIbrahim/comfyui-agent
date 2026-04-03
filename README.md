@@ -1,4 +1,4 @@
-# ComfyUI Agent
+# Comfy Cozy
 
 **Talk to ComfyUI like a colleague. It talks back.**
 
