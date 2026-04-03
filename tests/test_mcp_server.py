@@ -98,7 +98,7 @@ class TestToolBridging:
         from agent.tools import ALL_TOOLS
 
         converted = [_convert_schema(t) for t in ALL_TOOLS]
-        assert len(converted) == 110
+        assert len(converted) == 113
 
 
 class TestToolExecution:

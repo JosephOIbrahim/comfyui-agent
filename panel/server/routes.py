@@ -683,4 +683,44 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    log.info("Comfy Cozy Panel routes mounted (%d routes)", 46)
+    # ── Provision Pipeline ──────────────────────────────────────
+
+    @routes.post("/superduper-panel/provision-model")
+    async def provision_model(request):
+        """One-step model provisioning: discover, download, verify, wire."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("provision_model", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/provision-status")
+    async def provision_pipeline_status(request):
+        """Check what the workflow needs vs what is installed."""
+        try:
+            result = _tool_call("provision_pipeline_status", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/provision-verify")
+    async def provision_pipeline_verify(request):
+        """Verify a model file exists and check compatibility."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("provision_pipeline_verify", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    log.info("Comfy Cozy Panel routes mounted (%d routes)", 49)

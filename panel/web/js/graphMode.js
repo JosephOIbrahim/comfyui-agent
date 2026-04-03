@@ -1,6 +1,9 @@
 /* ── GRAPH Mode — Workflow Inspector ────────────────────────────── */
 
 export function createGraphMode(container, client) {
+  const statusBar = _createStatusBar(container, client);
+  container.appendChild(statusBar);
+
   const el = document.createElement("div");
   el.className = "sdp-graph";
   container.appendChild(el);
@@ -93,6 +96,7 @@ export function createGraphMode(container, client) {
 
   function startPolling() {
     _refresh();
+    _refreshStatusBar(statusBar, client);
     pollTimer = setInterval(_refresh, 2000);
   }
 
@@ -301,4 +305,107 @@ function _relativeTime(ts) {
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
   return `${Math.floor(diff / 86400)}d`;
+}
+
+/* ── Status Bar ─────────────────────────────────────────────────── */
+
+function _createStatusBar(container, client) {
+  const bar = document.createElement("div");
+  bar.className = "sdp-status";
+  bar.innerHTML = `<span class="sdp-status__loading">Checking workflow health...</span>`;
+  return bar;
+}
+
+async function _refreshStatusBar(bar, client) {
+  bar.innerHTML = "";
+  const warnings = [];
+
+  try {
+    const [wiringRes, deprecRes] = await Promise.allSettled([
+      fetch("/superduper-panel/suggest-wiring").then((r) => r.json()),
+      fetch("/superduper-panel/check-deprecations").then((r) => r.json()),
+    ]);
+
+    // Process wiring issues
+    if (wiringRes.status === "fulfilled" && wiringRes.value) {
+      const wiring = wiringRes.value;
+      const missing = wiring.missing_nodes || wiring.missing || [];
+      if (missing.length > 0) {
+        warnings.push({
+          text: `${missing.length} missing node${missing.length > 1 ? "s" : ""}`,
+          action: "Repair",
+          handler: async (btn) => {
+            btn.disabled = true;
+            btn.textContent = "...";
+            try {
+              await client.repairWorkflow(true);
+              btn.textContent = "Done";
+              _refreshStatusBar(bar, client);
+            } catch { btn.textContent = "Failed"; }
+          },
+        });
+      }
+      const issues = wiring.issues || wiring.warnings || [];
+      for (const issue of issues) {
+        const text = typeof issue === "string" ? issue : issue.message || issue.description || JSON.stringify(issue);
+        warnings.push({ text });
+      }
+    }
+
+    // Process deprecation issues
+    if (deprecRes.status === "fulfilled" && deprecRes.value) {
+      const deprec = deprecRes.value;
+      const deprecated = deprec.deprecated || deprec.nodes || [];
+      if (deprecated.length > 0) {
+        warnings.push({
+          text: `${deprecated.length} deprecated node${deprecated.length > 1 ? "s" : ""}`,
+          action: "Migrate",
+          handler: async (btn) => {
+            btn.disabled = true;
+            btn.textContent = "...";
+            try {
+              await fetch("/superduper-panel/migrate-deprecated", { method: "POST" });
+              btn.textContent = "Done";
+              _refreshStatusBar(bar, client);
+            } catch { btn.textContent = "Failed"; }
+          },
+        });
+      }
+    }
+  } catch {
+    // Network error — skip status bar
+  }
+
+  if (warnings.length === 0) {
+    const ok = document.createElement("div");
+    ok.className = "sdp-status__ok";
+    ok.textContent = "\u2713 Workflow healthy";
+    bar.appendChild(ok);
+    return;
+  }
+
+  for (const warn of warnings) {
+    const row = document.createElement("div");
+    row.className = "sdp-status__warning";
+
+    const text = document.createElement("span");
+    text.textContent = warn.text;
+    row.appendChild(text);
+
+    if (warn.action && warn.handler) {
+      const btn = document.createElement("button");
+      btn.className = "sdp-status__action";
+      btn.textContent = warn.action;
+      btn.addEventListener("click", () => warn.handler(btn));
+      row.appendChild(btn);
+    }
+
+    const dismissBtn = document.createElement("button");
+    dismissBtn.className = "sdp-status__dismiss";
+    dismissBtn.textContent = "\u2715";
+    dismissBtn.addEventListener("click", () => row.remove());
+    row.appendChild(dismissBtn);
+
+    bar.appendChild(row);
+  }
 }

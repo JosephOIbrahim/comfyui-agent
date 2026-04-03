@@ -24,7 +24,10 @@ export function createAppMode(container, client) {
   inputBar.appendChild(textarea);
   inputBar.appendChild(sendBtn);
 
+  const actionsBar = _createQuickActions(container, client, _appendSystemMessage);
+
   container.appendChild(messagesEl);
+  container.appendChild(actionsBar);
   container.appendChild(inputBar);
 
   // State
@@ -271,5 +274,245 @@ export function createAppMode(container, client) {
     },
 
     addMessage: _addAgent,
+    addSystemMessage: _addSystem,
   };
+
+  function _appendSystemMessage(container_, text) {
+    _addSystem(text);
+  }
+}
+
+/* ── Quick Actions Bar ──────────────────────────────────────────── */
+
+function _createQuickActions(container, client, appendMsg) {
+  const bar = document.createElement("div");
+  bar.className = "sdp-actions";
+
+  const actions = [
+    {
+      label: "Repair",
+      icon: "\u2695",
+      title: "Auto-install missing nodes",
+      action: () => client.repairWorkflow(true),
+    },
+    {
+      label: "Save",
+      icon: "\uD83D\uDCBE",
+      title: "Save workflow to disk",
+      action: () => _promptSaveWorkflow(client, appendMsg, container),
+    },
+    {
+      label: "Browse",
+      icon: "\uD83D\uDD0D",
+      title: "Browse & download models",
+      action: () => { _openModelBrowser(container, client, appendMsg); return null; },
+    },
+    {
+      label: "Wiring",
+      icon: "\u26A1",
+      title: "Show model wiring",
+      action: () => _fetchWiring(client),
+    },
+  ];
+
+  for (const act of actions) {
+    const btn = document.createElement("button");
+    btn.className = "sdp-action-btn";
+    btn.title = act.title;
+    btn.textContent = act.label;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        const result = await act.action();
+        if (result != null) {
+          const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+          appendMsg(container, text);
+        }
+      } catch (e) {
+        appendMsg(container, `Error: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    bar.appendChild(btn);
+  }
+
+  return bar;
+}
+
+async function _promptSaveWorkflow(client, appendMsg, container) {
+  const path = prompt("Save workflow to path:");
+  if (!path) return null;
+  const result = await client.saveWorkflow(path);
+  return result;
+}
+
+async function _fetchWiring(client) {
+  const r = await fetch("/superduper-panel/suggest-wiring");
+  return r.json();
+}
+
+/* ── Model Browser ──────────────────────────────────────────────── */
+
+function _openModelBrowser(container, client, appendMsg) {
+  // Remove existing browser if open
+  const existing = container.querySelector(".sdp-browser");
+  if (existing) { existing.remove(); return; }
+
+  const overlay = document.createElement("div");
+  overlay.className = "sdp-browser";
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "sdp-browser__header";
+
+  const title = document.createElement("span");
+  title.className = "sdp-browser__title";
+  title.textContent = "Model Browser";
+  header.appendChild(title);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "sdp-header__btn";
+  closeBtn.textContent = "\u2715";
+  closeBtn.addEventListener("click", () => overlay.remove());
+  header.appendChild(closeBtn);
+
+  overlay.appendChild(header);
+
+  // Search bar
+  const searchRow = document.createElement("div");
+  searchRow.className = "sdp-browser__search";
+
+  const searchInput = document.createElement("input");
+  searchInput.className = "sdp-browser__input";
+  searchInput.type = "text";
+  searchInput.placeholder = "Search models...";
+  searchRow.appendChild(searchInput);
+
+  const sourceSelect = document.createElement("select");
+  sourceSelect.className = "sdp-browser__select";
+  for (const src of ["All", "civitai", "huggingface", "registry"]) {
+    const opt = document.createElement("option");
+    opt.value = src === "All" ? "" : src;
+    opt.textContent = src;
+    sourceSelect.appendChild(opt);
+  }
+  searchRow.appendChild(sourceSelect);
+
+  const searchBtn = document.createElement("button");
+  searchBtn.className = "sdp-action-btn";
+  searchBtn.textContent = "Search";
+  searchRow.appendChild(searchBtn);
+
+  overlay.appendChild(searchRow);
+
+  // Results
+  const results = document.createElement("div");
+  results.className = "sdp-browser__results";
+  results.innerHTML = `<div class="sdp-browser__empty">Search for models above</div>`;
+  overlay.appendChild(results);
+
+  // Search handler
+  async function doSearch() {
+    const query = searchInput.value.trim();
+    if (!query) return;
+    results.innerHTML = `<div class="sdp-browser__empty">Searching...</div>`;
+    searchBtn.disabled = true;
+    try {
+      const opts = {};
+      const source = sourceSelect.value;
+      if (source) opts.source = source;
+      const data = await client.discover(query, opts);
+      _renderBrowserResults(results, data, client, appendMsg, container);
+    } catch (e) {
+      results.innerHTML = `<div class="sdp-browser__empty">Error: ${_escText(e.message)}</div>`;
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  searchBtn.addEventListener("click", doSearch);
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); doSearch(); }
+  });
+
+  // Insert before the input bar
+  const inputBar = container.querySelector(".sdp-input-bar");
+  if (inputBar) {
+    container.insertBefore(overlay, inputBar);
+  } else {
+    container.appendChild(overlay);
+  }
+
+  searchInput.focus();
+}
+
+function _renderBrowserResults(resultsEl, data, client, appendMsg, container) {
+  resultsEl.innerHTML = "";
+  const items = data.results || data.items || [];
+  if (items.length === 0) {
+    resultsEl.innerHTML = `<div class="sdp-browser__empty">No results found</div>`;
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.className = "sdp-browser__item";
+
+    const info = document.createElement("div");
+    info.className = "sdp-browser__item-info";
+
+    const name = document.createElement("span");
+    name.className = "sdp-browser__item-name";
+    name.textContent = item.name || item.title || "Unknown";
+    info.appendChild(name);
+
+    const meta = document.createElement("span");
+    meta.className = "sdp-browser__item-meta";
+    const parts = [];
+    if (item.source) parts.push(item.source);
+    if (item.type) parts.push(item.type);
+    if (item.installed) parts.push("installed");
+    meta.textContent = parts.join(" \u00B7 ");
+    info.appendChild(meta);
+
+    row.appendChild(info);
+
+    if (item.installed) {
+      const badge = document.createElement("span");
+      badge.className = "sdp-browser__badge";
+      badge.textContent = "Installed";
+      row.appendChild(badge);
+    } else if (item.url || item.download_url) {
+      const dlBtn = document.createElement("button");
+      dlBtn.className = "sdp-action-btn";
+      dlBtn.textContent = "Install";
+      dlBtn.addEventListener("click", async () => {
+        dlBtn.disabled = true;
+        dlBtn.textContent = "...";
+        try {
+          const url = item.download_url || item.url;
+          let result;
+          if (item.type === "node_pack" || item.type === "custom_node") {
+            result = await client.installNodePack(url, item.name);
+          } else {
+            result = await client.downloadModel(url, item.model_type, item.filename);
+          }
+          dlBtn.textContent = "Done";
+          appendMsg(container, `Installed: ${item.name || url}`);
+        } catch (e) {
+          dlBtn.textContent = "Fail";
+          appendMsg(container, `Install failed: ${e.message}`);
+        }
+      });
+      row.appendChild(dlBtn);
+    }
+
+    resultsEl.appendChild(row);
+  }
+}
+
+function _escText(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
 }
