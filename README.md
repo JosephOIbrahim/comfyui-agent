@@ -2,90 +2,123 @@
 
 **The first AI generation tool that gets better at your job by doing your job.**
 
-AI co-pilot for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — 108 tools, a cognitive architecture that learns from every generation, and a Pentagram-inspired UI panel. Instead of manually editing JSON, hunting for node packs, or debugging broken workflows, just describe what you want.
+AI co-pilot for [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — 108+ tools, a cognitive architecture that learns from every generation, and a Pentagram-inspired UI panel. Instead of manually editing JSON, hunting for node packs, or debugging broken workflows, just describe what you want.
 
 ```mermaid
 graph LR
     Artist([VFX Artist]) --> Panel[SuperDuper Panel<br/>ComfyUI Sidebar]
     Artist --> CLI[CLI / MCP]
-    Panel --> Agent[Agent<br/>108 Tools]
+    Panel --> Agent[Agent<br/>108+ Tools]
     CLI --> Agent
+    Agent --> DAG[Intelligence DAG<br/>Pure Computation]
+    Agent --> Gate[Pre-Dispatch Gate<br/>5-Check Safety]
     Agent --> Cognitive[Cognitive Brain<br/>LIVRPS Engine]
     Agent --> ComfyUI[ComfyUI<br/>localhost:8188]
     Cognitive --> Experience[(Experience<br/>Accumulator)]
     Cognitive --> CWM[CWM<br/>Prediction]
 
     style Panel fill:#0066FF,color:#fff
+    style DAG fill:#d97706,color:#fff
+    style Gate fill:#ef4444,color:#fff
     style Cognitive fill:#8b5cf6,color:#fff
     style ComfyUI fill:#ef4444,color:#fff
 ```
 
+---
+
 ## What It Does
 
-- **"Cinematic portrait, golden hour, film grain"** — composes a workflow from capability matching, predicts quality, generates
-- **"Load this workflow and change the seed to 42"** — reads, modifies via non-destructive delta layers, saves with full undo
-- **"Repair this workflow"** — detects missing nodes, finds the packs, installs them all in one shot
-- **"Reconfigure for my local models"** — scans model references, fuzzy-matches closest local alternative
-- **"Download the LTX-2 FP8 checkpoint"** — downloads models directly to the correct directory
-- **"Run this with 30 steps"** — patches via LIVRPS composition, validates against schema, queues to ComfyUI
-- **"Analyze this output"** — Claude Vision diagnoses image issues with parameter-aware suggestions
-- **"Optimize this portrait workflow overnight"** — autoresearch ratchet iterates parameters, quality only goes up
+| You say | The agent does |
+|---------|---------------|
+| **"Cinematic portrait, golden hour, film grain"** | Composes a workflow from capability matching, predicts quality, generates |
+| **"Load this workflow and change the seed to 42"** | Reads, modifies via non-destructive delta layers, saves with full undo |
+| **"Repair this workflow"** | Detects missing nodes, finds the packs, installs them all in one shot |
+| **"Reconfigure for my local models"** | Scans model references, fuzzy-matches closest local alternative |
+| **"Download the LTX-2 FP8 checkpoint"** | Downloads models directly to the correct directory |
+| **"Run this with 30 steps"** | Patches via LIVRPS composition, validates against schema, queues to ComfyUI |
+| **"Analyze this output"** | Claude Vision diagnoses image issues with parameter-aware suggestions |
+| **"Optimize this portrait workflow overnight"** | Autoresearch ratchet iterates parameters, quality only goes up |
 
 The agent gets measurably better over time. Session 1 is a capable tool. Session 100 is a capable tool that knows your style.
 
+---
+
 ## Architecture
 
-### Cognitive Brain (The Scaffolded Brain)
+### Seven Structural Subsystems
 
-The agent is built on a cognitive architecture with six layers. Each layer adds capability on top of the previous:
+The agent is built on seven architectural subsystems that work together to make workflow operations deterministic, safe, and extensible. Each subsystem degrades independently via kill switches.
 
 ```mermaid
 graph TB
-    subgraph Phase1 ["Phase 1: State Spine"]
-        Engine[CognitiveGraphEngine<br/>LIVRPS Composition]
-        Delta[Delta Layers<br/>SHA-256 Integrity]
-        Models[ComfyNode / WorkflowGraph<br/>Typed Models]
+    subgraph Foundation ["Foundation Layer"]
+        DAG["Workflow Intelligence DAG<br/><i>6 pure computation nodes</i><br/><i>topologically sorted</i>"]
+        OBS["Time-Sampled State<br/><i>Monotonic step_index</i><br/><i>read_previous() never None</i>"]
+        CAP["Capability Registry<br/><i>109 tools indexed</i><br/><i>filter + sort dispatch</i>"]
     end
 
-    subgraph Phase2 ["Phase 2: Transport"]
-        Schema[SchemaCache<br/>Mutation Validation]
-        Events[ExecutionEvent<br/>Typed WS Messages]
-        Interrupt[Interrupt<br/>Mid-Execution Abort]
+    subgraph Safety ["Safety Layer"]
+        GATE["Pre-Dispatch Gate<br/><i>5 checks, default-deny</i><br/><i>Risk levels 0-4</i>"]
+        BRIDGE["Mutation Bridge<br/><i>LIVRPS composition</i><br/><i>Audit trail per mutation</i>"]
     end
 
-    subgraph Phase3 ["Phase 3: Macro-Tools"]
-        Analyze[analyze_workflow]
-        Mutate[mutate_workflow]
-        Compose[compose_workflow]
-        Execute[execute_workflow]
-        Research[autoresearch]
+    subgraph Integration ["Integration Layer"]
+        ADAPT["Inter-Module Adapters<br/><i>Pure-function translators</i><br/><i>Vision↔Memory, Planner↔Orchestrator</i>"]
+        DEGRADE["Degradation Manager<br/><i>Per-subsystem fallbacks</i><br/><i>8 independent kill switches</i>"]
     end
 
-    subgraph Phase4 ["Phase 4: Experience"]
-        Chunk[ExperienceChunk<br/>Params → Outcome]
-        Sig[ContextSignature<br/>Fast Matching]
-        Acc[Accumulator<br/>3-Phase Learning]
-    end
+    Foundation --> Safety --> Integration
 
-    subgraph Phase5 ["Phase 5: Prediction"]
-        CWM[Cognitive World Model<br/>LIVRPS Prediction]
-        Arbiter[Simulation Arbiter<br/>Silent / Soft / Explicit]
-        CF[Counterfactuals<br/>What-If Experiments]
-    end
+    style Foundation fill:#1a1a2e,color:#F0F0F0,stroke:#3b82f6
+    style Safety fill:#1a1a2e,color:#F0F0F0,stroke:#ef4444
+    style Integration fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
+```
 
-    subgraph Phase6 ["Phase 6: Autonomous Pipeline"]
-        Pipeline[Intent → Compose → Predict<br/>→ Execute → Evaluate → Learn]
-    end
+### Workflow Intelligence DAG
 
-    Phase1 --> Phase2 --> Phase3
-    Phase3 --> Phase4 --> Phase5 --> Phase6
+Pure stateless computation functions, topologically sorted. Zero internal state. Every function reads inputs and returns outputs — deterministic and independently testable.
 
-    style Phase1 fill:#1a1a2e,color:#F0F0F0
-    style Phase2 fill:#1a1a2e,color:#F0F0F0
-    style Phase3 fill:#1a1a2e,color:#F0F0F0
-    style Phase4 fill:#1a1a2e,color:#F0F0F0
-    style Phase5 fill:#1a1a2e,color:#F0F0F0
-    style Phase6 fill:#1a1a2e,color:#F0F0F0
+```mermaid
+graph LR
+    C[compute_complexity<br/><i>TRIVIAL → EXTREME</i>] --> M[compute_model_reqs<br/><i>VRAM, family, LoRA</i>]
+    M --> O[compute_optimization<br/><i>TensorRT, batching</i>]
+    O --> R[compute_risk<br/><i>SAFE → BLOCKED</i>]
+    R --> RD[compute_readiness<br/><i>READY → BLOCKED</i>]
+    TS[compute_tool_scope<br/><i>recommended tools</i>]
+
+    style C fill:#3b82f6,color:#fff
+    style R fill:#ef4444,color:#fff
+    style RD fill:#10b981,color:#fff
+    style TS fill:#8b5cf6,color:#fff
+```
+
+### Pre-Dispatch Gate
+
+Default-deny. All 5 checks must pass. Risk-level classification determines which checks apply.
+
+```mermaid
+flowchart LR
+    Tool([Tool Call]) --> Risk{Risk Level?}
+    Risk -->|"Level 0<br/>READ_ONLY"| Bypass[Bypass<br/><i>zero latency</i>]
+    Risk -->|"Level 1-2<br/>REVERSIBLE / EXECUTION"| Checks[5 Checks]
+    Risk -->|"Level 3<br/>PROVISION"| Escalate[Escalate<br/><i>user confirm</i>]
+    Risk -->|"Level 4<br/>DESTRUCTIVE"| Locked[Locked<br/><i>never auto-opens</i>]
+
+    Checks --> H[System Health]
+    Checks --> CN[Consent]
+    Checks --> CO[Constitution]
+    Checks --> RV[Reversibility]
+    Checks --> SC[Scope]
+
+    H & CN & CO & RV & SC --> Decision{All Pass?}
+    Decision -->|Yes| Allow[ALLOW]
+    Decision -->|No| Deny[DENY]
+
+    style Bypass fill:#10b981,color:#fff
+    style Allow fill:#10b981,color:#fff
+    style Deny fill:#ef4444,color:#fff
+    style Locked fill:#ef4444,color:#fff
+    style Escalate fill:#FF9900,color:#000
 ```
 
 ### LIVRPS Composition
@@ -118,6 +151,57 @@ graph LR
 - **Safety** says CFG above 30 is degenerate (Safety, priority 6)
 - Resolution: Safety overrides everything. Then your local edits. Then experience. Every conflict is deterministic, transparent, and reversible.
 
+### Cognitive Brain
+
+Six layers of capability, each building on the previous:
+
+```mermaid
+graph TB
+    subgraph Phase1 ["Phase 1: State Spine"]
+        Engine[CognitiveGraphEngine<br/>LIVRPS Composition]
+        Delta[Delta Layers<br/>SHA-256 Integrity]
+        Models[ComfyNode / WorkflowGraph<br/>Typed Models]
+    end
+
+    subgraph Phase2 ["Phase 2: Transport"]
+        Schema[SchemaCache<br/>Mutation Validation]
+        Events[ExecutionEvent<br/>Typed WS Messages]
+    end
+
+    subgraph Phase3 ["Phase 3: Macro-Tools"]
+        Analyze[analyze_workflow]
+        Mutate[mutate_workflow]
+        Compose[compose_workflow]
+        Execute[execute_workflow]
+    end
+
+    subgraph Phase4 ["Phase 4: Experience"]
+        Chunk[ExperienceChunk<br/>Params → Outcome]
+        Sig[ContextSignature<br/>Fast Matching]
+        Acc[Accumulator<br/>3-Phase Learning]
+    end
+
+    subgraph Phase5 ["Phase 5: Prediction"]
+        CWM[Cognitive World Model<br/>LIVRPS Prediction]
+        Arbiter[Simulation Arbiter<br/>Silent / Soft / Explicit]
+        CF[Counterfactuals<br/>What-If Experiments]
+    end
+
+    subgraph Phase6 ["Phase 6: Autonomous Pipeline"]
+        Pipeline[Intent → Compose → Predict<br/>→ Execute → Evaluate → Learn]
+    end
+
+    Phase1 --> Phase2 --> Phase3
+    Phase3 --> Phase4 --> Phase5 --> Phase6
+
+    style Phase1 fill:#1a1a2e,color:#F0F0F0
+    style Phase2 fill:#1a1a2e,color:#F0F0F0
+    style Phase3 fill:#1a1a2e,color:#F0F0F0
+    style Phase4 fill:#1a1a2e,color:#F0F0F0
+    style Phase5 fill:#1a1a2e,color:#F0F0F0
+    style Phase6 fill:#1a1a2e,color:#F0F0F0
+```
+
 ### Experience Loop
 
 Every generation is an experiment with a typed result:
@@ -138,134 +222,86 @@ flowchart LR
 ```
 
 Three learning phases:
-- **Phase 1** (0–30 generations): Prior rules only
-- **Phase 2** (30–100): Blended prior + experience
-- **Phase 3** (100+): Experience-dominant — the agent knows your style
+- **Phase 1** (0-30 generations): Prior rules only
+- **Phase 2** (30-100): Blended prior + experience
+- **Phase 3** (100+): Experience-dominant -- the agent knows your style
 
-### Autonomous Pipeline
+### Graceful Degradation
+
+Every subsystem has an independent kill switch and fallback. The MCP server never crashes.
 
 ```mermaid
 flowchart TB
-    Intent[INTENT<br/>Parse creative request] --> Compose[COMPOSE<br/>Build workflow from<br/>intent + experience]
-    Compose --> Predict[PREDICT<br/>CWM quality estimate]
-    Predict --> Gate{GATE<br/>Arbiter Decision}
-    Gate -->|"Silent / Soft<br/>(proceed)"| Execute[EXECUTE<br/>Queue to ComfyUI]
-    Gate -->|"Explicit<br/>(interrupt)"| Warn[Surface Warning<br/>to Artist]
-    Warn -->|"Override"| Execute
-    Execute --> Evaluate[EVALUATE<br/>Quality Assessment]
-    Evaluate --> Learn[LEARN<br/>Store Experience +<br/>Counterfactual]
-    Learn -->|"Quality < threshold"| Compose
-    Learn -->|"Quality OK"| Done([Complete])
+    subgraph Switches ["Kill Switches (env vars, all default ON)"]
+        direction LR
+        S1[STAGE_ENABLED]
+        S2[BRAIN_ENABLED]
+        S3[CWM_ENABLED]
+        S4[DAG_ENABLED]
+        S5[GATE_ENABLED]
+        S6[OBSERVATION_ENABLED]
+        S7[VISION_ENABLED]
+        S8[DISCOVERY_ENABLED]
+    end
 
-    style Intent fill:#1a1a2e,color:#F0F0F0
-    style Predict fill:#0066FF,color:#fff
-    style Gate fill:#FF9900,color:#000
-    style Execute fill:#ef4444,color:#fff
-    style Learn fill:#10b981,color:#fff
+    Switches --> DM[Degradation Manager]
+    DM --> CB[Circuit Breaker<br/><i>per subsystem</i>]
+    CB -->|Healthy| Primary[Primary Path]
+    CB -->|Unhealthy| Fallback[Fallback Path]
+    Primary --> Result([Tool Result])
+    Fallback --> Result
+
+    style Switches fill:#1a1a2e,color:#F0F0F0
+    style Primary fill:#10b981,color:#fff
+    style Fallback fill:#FF9900,color:#000
 ```
+
+---
 
 ## Installation
 
-You'll need:
-
-- **Python 3.10 or newer** (check with `python --version`)
-- **ComfyUI** running on your machine (the agent talks to it over HTTP)
-- **An Anthropic API key** (sign up at [console.anthropic.com](https://console.anthropic.com/))
-
-### Step 1: Download
+**Requirements:**
+- Python 3.10+
+- ComfyUI running on your machine
+- An Anthropic API key ([console.anthropic.com](https://console.anthropic.com/))
 
 ```bash
 git clone https://github.com/JosephOIbrahim/comfyui-agent.git
 cd comfyui-agent
-```
-
-### Step 2: Install
-
-```bash
-pip install -e .
-```
-
-For development (includes test tools):
-
-```bash
 pip install -e ".[dev]"
-```
-
-### Step 3: Configure
-
-```bash
 cp .env.example .env
+# Edit .env — add your ANTHROPIC_API_KEY
 ```
 
-Open `.env` in any text editor and add your API key:
-
-```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-```
-
-If your ComfyUI database is somewhere other than `G:/COMFYUI_Database`, also set:
-
-```
-COMFYUI_DATABASE=/path/to/your/comfyui/database
-```
-
-### Step 4: Run
-
-Make sure ComfyUI is running first, then:
+### Run
 
 ```bash
-agent run
+agent run              # Interactive CLI session
+agent mcp              # MCP server (primary interface)
 ```
 
-That's it. Type what you want in plain English. Type `quit` to exit.
+### MCP Configuration
 
-## Commands
-
-### Interactive session
-
-```bash
-agent run                             # Start chatting with the agent
-agent run --session my-project        # Auto-save your progress to resume later
-agent run --verbose                   # Show what's happening under the hood
+```json
+{
+  "mcpServers": {
+    "comfyui-agent": {
+      "command": "agent",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
-### Offline tools (no API key needed)
+---
 
-```bash
-agent inspect                         # See what models and nodes you have installed
-agent parse workflow.json             # Analyze a workflow file
-agent sessions                        # See your saved sessions
-```
-
-### Search
-
-```bash
-agent search "controlnet" --nodes           # Find node packs
-agent search "KSampler" --node-type         # Which pack provides this node?
-agent search "sdxl" --models                # Search model registry
-agent search "flux lora" --hf              # Search HuggingFace
-agent search "anime" --models --type lora   # Filter by model type
-```
-
-### Orchestration
-
-```bash
-agent orchestrate workflow.json             # Load > validate > execute > verify pipeline
-agent autoresearch "flux lora"              # Multi-source model/node discovery
-agent autoresearch --program program.md     # FORESIGHT autoresearch pipeline
-```
-
-## How It Works
-
-The agent uses Claude (Anthropic's AI) with 108 specialized tools across three tiers:
-
-### Tool Layer Architecture
+## Tool Layer Architecture
 
 ```mermaid
 graph TB
     User([Artist / MCP Client]) --> MCP[MCP Server<br/>stdio transport]
-
-    MCP --> Router{Tool Router}
+    MCP --> Gate[Pre-Dispatch Gate<br/>5-check default-deny]
+    Gate --> Router{Tool Router}
 
     Router --> Intel[Intelligence Layer<br/>58 tools]
     Router --> Brain[Brain Layer<br/>27 tools]
@@ -296,27 +332,31 @@ graph TB
         HyperAgent[Hyperagent<br/>Self-Improvement]
     end
 
+    Intel --> Observe[Observation Log<br/>Time-Sampled State]
+    Brain --> Observe
     Intel --> ComfyAPI[ComfyUI API<br/>localhost:8188]
     Brain --> ComfyAPI
 
     style MCP fill:#4a9eff,color:#fff
+    style Gate fill:#ef4444,color:#fff
     style Intel fill:#2d8659,color:#fff
     style Brain fill:#8b5cf6,color:#fff
     style Stage fill:#d97706,color:#fff
+    style Observe fill:#10b981,color:#fff
     style ComfyAPI fill:#ef4444,color:#fff
 ```
 
-**Intelligence Layer (58 tools)**
+### Intelligence Layer (58 tools)
 
-| Layer | Tools | What they do |
+| Phase | Tools | What they do |
 |-------|-------|-------------|
-| **UNDERSTAND** | 13 | Parse workflows (including component/subgraph format), scan models/nodes, query ComfyUI API, detect format |
-| **DISCOVER** | 15 | Search local catalog + ComfyUI Manager (31k+ nodes) + HuggingFace + CivitAI, model compatibility, install instructions, GitHub releases |
-| **PILOT** | 16 | Non-destructive delta patches via CognitiveGraphEngine, semantic node ops, session persistence |
-| **PROVISION** | 5 | Install node packs (git clone), download models (httpx), disable node packs, one-shot workflow repair, model reference reconfiguration |
-| **VERIFY** | 9 | Schema-validated execution, WebSocket progress monitoring, post-execution verification, creative metadata embedding |
+| **UNDERSTAND** | 13 | Parse workflows (including component/subgraph format), scan models/nodes, query ComfyUI API |
+| **DISCOVER** | 15 | Search local catalog + ComfyUI Manager (31k+ nodes) + HuggingFace + CivitAI |
+| **PILOT** | 16 | Non-destructive delta patches via CognitiveGraphEngine, semantic node ops |
+| **PROVISION** | 5 | Install node packs, download models, one-shot workflow repair |
+| **VERIFY** | 9 | Schema-validated execution, WebSocket progress, creative metadata embedding |
 
-**Brain Layer (27 tools)**
+### Brain Layer (27 tools)
 
 | Module | Tools | What they do |
 |--------|-------|-------------|
@@ -329,7 +369,7 @@ graph TB
 | **Intent** | 4 | Artistic intent capture, MoE pipeline with iterative refinement |
 | **Iteration** | 3 | Refinement journey tracking across generation cycles |
 
-**Stage Layer (23 tools)**
+### Stage Layer (23 tools)
 
 | Module | Tools | What they do |
 |--------|-------|-------------|
@@ -339,53 +379,9 @@ graph TB
 | **Compositor** | 4 | USD scene composition, validation, conditioning extraction |
 | **Hyperagent** | 5 | Meta-layer self-improvement proposals, calibration tracking |
 
-## Cognitive Layer
-
-The cognitive layer (`src/cognitive/`) adds structured learning on top of the 108 tools:
-
-```
-src/cognitive/
-├── core/           # CognitiveGraphEngine, DeltaLayer, LIVRPS resolver
-├── transport/      # SchemaCache, ExecutionEvent types, interrupt
-├── tools/          # 8 macro-tools (analyze, mutate, compose, execute, research...)
-├── experience/     # ExperienceChunk, ContextSignature, 3-phase accumulator
-├── prediction/     # Cognitive World Model, Simulation Arbiter, counterfactuals
-└── pipeline/       # Autonomous pipeline: intent → compose → predict → execute → learn
-```
-
-**Key properties:**
-- **Non-destructive mutations** — every workflow change is a delta layer, never an in-place edit
-- **SHA-256 integrity** — tamper detection on all delta layers
-- **Link preservation** — `["node_id", output_index]` connection arrays survive all operations
-- **Temporal decay** — recent experience weights more heavily (7-day half-life)
-- **Safety overrides** — degenerate parameter combinations are blocked at the LIVRPS Safety tier
-- **Graceful degradation** — if the cognitive module isn't available, tools work unchanged
-
-## Workflow Lifecycle
-
-```mermaid
-flowchart LR
-    Load[Load Workflow] --> Validate[Validate<br/>Schema + Structure]
-    Validate --> Fields[Get Editable<br/>Fields]
-    Fields --> Mutate[Mutate via<br/>Delta Layer]
-    Mutate --> PreExec[Pre-Execute<br/>Validation]
-    PreExec --> Execute[Queue to<br/>ComfyUI]
-    Execute --> Monitor[WebSocket<br/>Progress]
-    Monitor --> Verify[Verify<br/>Outputs]
-    Verify --> Learn[Record<br/>Experience]
-
-    Mutate -->|Rollback| Fields
-    Verify -->|Iterate| Mutate
-
-    style Load fill:#3b82f6,color:#fff
-    style Execute fill:#ef4444,color:#fff
-    style Verify fill:#10b981,color:#fff
-    style Learn fill:#8b5cf6,color:#fff
-```
+---
 
 ## Model Profiles
-
-The agent ships with model-specific profiles that encode real behavioral knowledge:
 
 | Profile | Architecture | Key Insight |
 |---------|-------------|-------------|
@@ -396,21 +392,55 @@ The agent ships with model-specific profiles that encode real behavioral knowled
 | **WAN 2.x** | UNet (video) | CFG 1-3.5, 4-20 steps, dual-noise architecture, CLIP encoder |
 
 Each profile has three sections consumed by different agents:
-- **prompt_engineering** (Intent Agent) — how to write prompts for this model
-- **parameter_space** (Execution Agent) — correct CFG, steps, sampler, resolution ranges
-- **quality_signatures** (Verify Agent) — how to judge output quality and suggest fixes
+- **prompt_engineering** (Intent Agent) -- how to write prompts for this model
+- **parameter_space** (Execution Agent) -- correct CFG, steps, sampler, resolution ranges
+- **quality_signatures** (Verify Agent) -- how to judge output quality and suggest fixes
+
+---
+
+## Workflow Lifecycle
+
+```mermaid
+flowchart LR
+    Load[Load Workflow] --> Validate[Validate<br/>Schema + Structure]
+    Validate --> DAG[DAG Analysis<br/>Complexity / Risk]
+    DAG --> Fields[Get Editable<br/>Fields]
+    Fields --> Gate[Gate Check<br/>5-Point Safety]
+    Gate --> Mutate[Mutate via<br/>Delta Layer]
+    Mutate --> Bridge[Mutation Bridge<br/>LIVRPS Compose]
+    Bridge --> PreExec[Pre-Execute<br/>Validation]
+    PreExec --> Execute[Queue to<br/>ComfyUI]
+    Execute --> Monitor[WebSocket<br/>Progress]
+    Monitor --> Verify[Verify<br/>Outputs]
+    Verify --> Observe[Record<br/>Observation]
+    Observe --> Learn[Record<br/>Experience]
+
+    Mutate -->|Rollback| Fields
+    Verify -->|Iterate| Mutate
+
+    style Load fill:#3b82f6,color:#fff
+    style DAG fill:#d97706,color:#fff
+    style Gate fill:#ef4444,color:#fff
+    style Bridge fill:#8b5cf6,color:#fff
+    style Execute fill:#ef4444,color:#fff
+    style Verify fill:#10b981,color:#fff
+    style Observe fill:#10b981,color:#fff
+    style Learn fill:#8b5cf6,color:#fff
+```
+
+---
 
 ## SuperDuper Panel (ComfyUI Sidebar)
 
 Pentagram-inspired UI panel inside ComfyUI with two modes:
 
-**APP Mode** — Chat interface with streaming responses, tool cards, and prediction overlays
-**GRAPH Mode** — Live workflow inspector showing delta layers, LIVRPS opinions per parameter, and inline editing
+**APP Mode** -- Chat interface with streaming responses, tool cards, and prediction overlays
+**GRAPH Mode** -- Live workflow inspector showing delta layers, LIVRPS opinions per parameter, and inline editing
 
 Plus dedicated views:
-- **Experience Dashboard** — learning phase progress, quality stats, top patterns, prediction accuracy chart
-- **Autoresearch Monitor** — quality trajectory, winning parameters, apply-with-one-click
-- **Prediction Overlay** — inline cards when the Simulation Arbiter surfaces a recommendation
+- **Experience Dashboard** -- learning phase progress, quality stats, top patterns, prediction accuracy chart
+- **Autoresearch Monitor** -- quality trajectory, winning parameters, apply-with-one-click
+- **Prediction Overlay** -- inline cards when the Simulation Arbiter surfaces a recommendation
 
 ```mermaid
 graph TB
@@ -425,7 +455,7 @@ graph TB
     end
 
     subgraph Backend ["Agent Backend"]
-        Routes[REST Routes] --> Tools[108 Tools]
+        Routes[REST Routes] --> Tools[108+ Tools]
         Routes --> Engine[CognitiveGraphEngine]
         Routes --> AccEng[ExperienceAccumulator]
     end
@@ -441,13 +471,20 @@ graph TB
 
 Design system: monochrome + one accent (#0066FF on #0D0D0D). Inter typography. No gradients, no shadows, 4px max radius. 1px borders. Every pixel earns its place.
 
+---
+
 ## Security Model
 
 ```mermaid
 flowchart TB
-    Input([Tool Input]) --> PathVal{Path Validation}
-    Input --> URLVal{URL Validation}
-    Input --> NameVal{Name Validation}
+    Input([Tool Input]) --> Gate{Pre-Dispatch Gate}
+    Gate -->|"Risk 0: READ_ONLY"| Bypass[Bypass]
+    Gate -->|"Risk 1-2"| Checks[5-Check Pipeline]
+    Gate -->|"Risk 3: PROVISION"| Escalate[User Confirmation]
+    Gate -->|"Risk 4: DESTRUCTIVE"| Locked[Locked]
+
+    Checks --> PathVal{Path Validation}
+    Checks --> URLVal{URL Validation}
 
     PathVal -->|validate_path| SafeDirs[Allowed Directories<br/>COMFYUI_DATABASE<br/>Templates / Sessions]
     PathVal -->|Traversal blocked| Reject1[Reject]
@@ -456,41 +493,18 @@ flowchart TB
     HTTPS -->|Private IP / localhost| Reject2[Reject]
     HTTPS -->|Public host| Allow1[Allow]
 
-    NameVal -->|_validate_session_name<br/>_safe_path_component| Clean{No separators<br/>No .. / No null}
-    Clean -->|Invalid| Reject3[Reject]
-    Clean -->|Valid| Allow2[Allow]
-
     SafeDirs --> Resolve[resolve + containment check]
     Resolve --> Allow3[Allow]
 
     style Reject1 fill:#ef4444,color:#fff
     style Reject2 fill:#ef4444,color:#fff
-    style Reject3 fill:#ef4444,color:#fff
+    style Locked fill:#ef4444,color:#fff
     style Allow1 fill:#10b981,color:#fff
-    style Allow2 fill:#10b981,color:#fff
     style Allow3 fill:#10b981,color:#fff
+    style Escalate fill:#FF9900,color:#000
 ```
 
-## MCP Server (Primary Interface)
-
-All 108 tools are available via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with Claude Code, Claude Desktop, or other MCP clients:
-
-```bash
-agent mcp
-```
-
-Configure in Claude Code / Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "comfyui-agent": {
-      "command": "agent",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+---
 
 ## Configuration
 
@@ -501,65 +515,85 @@ All settings go in your `.env` file:
 | `ANTHROPIC_API_KEY` | (required) | Your API key for Claude |
 | `COMFYUI_HOST` | `127.0.0.1` | Where ComfyUI is running |
 | `COMFYUI_PORT` | `8188` | ComfyUI port |
-| `COMFYUI_DATABASE` | `G:/COMFYUI_Database` | Your ComfyUI database folder (models, nodes, workflows) |
-| `COMFYUI_INSTALL_DIR` | auto-detected | ComfyUI installation directory (if separate from database) |
+| `COMFYUI_DATABASE` | `~/ComfyUI` | Your ComfyUI database folder |
+| `COMFYUI_INSTALL_DIR` | auto-detected | ComfyUI installation directory |
 | `COMFYUI_OUTPUT_DIR` | auto-detected | Where ComfyUI saves generated images |
-| `AGENT_MODEL` | `claude-sonnet-4-20250514` | Which Claude model to use (CLI mode only — MCP inherits from Claude Code) |
+| `AGENT_MODEL` | `claude-sonnet-4-20250514` | Claude model (CLI mode only) |
 
-## Component Workflow Support
+### Kill Switches
 
-ComfyUI 0.16+ introduced component nodes — workflows-within-workflows where a single node on the canvas contains an entire subgraph internally. The agent handles these natively:
+Each architectural subsystem can be independently disabled via environment variables (all default to ON):
 
-- **Detects** component instance nodes (UUID-style class types)
-- **Parses** `definitions.subgraphs` to inspect internal node graphs
-- **Validates** nodes inside components (catches missing nodes in subgraphs)
-- **Supports** `COMFY_AUTOGROW_V3` dynamic inputs (dotted names like `values.a`)
+| Switch | Subsystem |
+|--------|-----------|
+| `STAGE_ENABLED` | USD Cognitive Stage (LIVRPS composition) |
+| `BRAIN_ENABLED` | Brain layer (Vision, Planner, Memory, etc.) |
+| `CWM_ENABLED` | Cognitive World Model predictions |
+| `DAG_ENABLED` | Workflow Intelligence DAG |
+| `GATE_ENABLED` | Pre-dispatch safety gate |
+| `OBSERVATION_ENABLED` | Time-sampled workflow state logging |
+| `VISION_ENABLED` | Image analysis via Anthropic API |
+| `DISCOVERY_ENABLED` | CivitAI / HuggingFace federation |
 
-## Testing
-
-Tests run without ComfyUI — everything is mocked:
-
-```bash
-python -m pytest tests/ -v
-# 2350+ tests (2140 original + 210 cognitive), all mocked, under 60 seconds
-```
+---
 
 ## Project Structure
 
 ```
 comfyui-agent/
-├── agent/                  # Agent package (108 tools)
-│   ├── tools/              # Intelligence layer (58 tools)
-│   ├── brain/              # Brain layer (27 tools)
-│   ├── stage/              # Stage layer (23 tools)
-│   ├── mcp_server.py       # MCP server exposing all tools
-│   ├── cli.py              # CLI entry points
-│   └── session_context.py  # Per-session state management
-├── src/cognitive/          # Cognitive architecture
-│   ├── core/               # CognitiveGraphEngine, DeltaLayer, WorkflowGraph
-│   ├── transport/          # SchemaCache, ExecutionEvent, interrupt
-│   ├── tools/              # 8 macro-tools
-│   ├── experience/         # ExperienceChunk, signatures, accumulator
-│   ├── prediction/         # CWM, Arbiter, counterfactuals
-│   └── pipeline/           # Autonomous end-to-end pipeline
-├── tests/                  # 2350+ tests, all mocked
-├── PRODUCT_VISION.md       # What this product feels like
-├── SYSTEM_DESIGN_REVIEW.md # Architecture findings (SOLID/ROUGH/BROKEN)
-└── PANEL_DESIGN.md         # SuperDuper Panel component architecture
+├── agent/                      # Agent package (108+ tools)
+│   ├── tools/                  # Intelligence layer (58 tools)
+│   │   ├── capability_registry.py   # Capability-matching dispatch (Hydra)
+│   │   └── capability_defaults.py   # 109 tool capability definitions
+│   ├── brain/                  # Brain layer (27 tools)
+│   │   └── adapters/           # Inter-module translators (pure functions)
+│   ├── stage/                  # Stage layer (23 tools)
+│   │   ├── dag/                # Workflow Intelligence DAG (6 computations)
+│   │   ├── mutation_bridge.py  # LIVRPS mutation routing + audit trail
+│   │   └── cognitive_stage.py  # USD-native LIVRPS composition
+│   ├── gate/                   # Pre-dispatch gate (5-check safety)
+│   │   ├── pre_dispatch.py     # Default-deny gate pipeline
+│   │   ├── risk_levels.py      # Risk classification for all tools
+│   │   └── checks.py           # 5 individual check implementations
+│   ├── degradation.py          # Fault isolation manager
+│   ├── workflow_observation.py # Time-sampled state (IntEnums + dataclasses)
+│   ├── workflow_observation_log.py  # Observation log (BASELINE never None)
+│   ├── mcp_server.py           # MCP server exposing all tools
+│   ├── cli.py                  # CLI entry points
+│   ├── config.py               # Environment + kill switches
+│   └── session_context.py      # Per-session state management
+├── tests/                      # 2800+ tests, all mocked, <60s
+├── PRODUCT_VISION.md           # What this product feels like
+└── PANEL_DESIGN.md             # SuperDuper Panel component architecture
 ```
+
+---
+
+## Testing
+
+Tests run without ComfyUI -- everything is mocked:
+
+```bash
+python -m pytest tests/ -v        # 2800+ tests, all mocked, under 60 seconds
+ruff check agent/ tests/          # Lint
+ruff format agent/ tests/         # Format
+```
+
+---
 
 ## Production Hardening
 
-The codebase has been hardened across five domains:
+| Domain | Implementation |
+|--------|---------------|
+| **Safety Gate** | Default-deny pre-dispatch gate with 5 checks (health, consent, constitution, reversibility, scope). Risk levels 0-4. Destructive ops never auto-open. |
+| **Fault Isolation** | DegradationManager with per-subsystem circuit breakers. 8 independent kill switches. MCP server never crashes regardless of subsystem state. |
+| **Determinism** | Pure computation DAG (networkx topological sort). He2025 deterministic JSON (`sort_keys=True`). Ordinal IntEnums for inequality comparisons. |
+| **Auditability** | Mutation Bridge records every change (who, what, when, overridden by whom). Time-sampled observation log with monotonic step_index. |
+| **Security** | Path traversal protection, SSRF prevention (HTTPS-only, private IP blocking), session name validation. SHA-256 on all delta layers. |
+| **State Safety** | Atomic file writes, TOCTOU race fixes, thread-safety via RLock across all mutable state. `BASELINE_OBSERVATION` guarantee: `read_previous(0)` never returns None. |
 
-| Domain | Changes |
-|--------|---------|
-| **Security** | Path traversal protection, SSRF prevention (HTTPS-only, private IP blocking), session name validation |
-| **Error Handling** | Structured exception hierarchy (`AgentError` → `ToolError` / `TransportError` / `ValidationError`) |
-| **Async Safety** | Blocking calls wrapped with `run_in_executor`, explicit timeouts on every HTTP call |
-| **State Management** | Atomic file writes, TOCTOU race fixes, thread-safety audit across singletons |
-| **Cognitive Integrity** | SHA-256 on all delta layers, LIVRPS composition with safety overrides, link preservation verified across 54 adversarial tests |
+---
 
 ## License
 
-[MIT](LICENSE) — use it however you want.
+[MIT](LICENSE) -- use it however you want.
