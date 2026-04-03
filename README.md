@@ -43,9 +43,9 @@ graph LR
 
 **Before you start, you need three things:**
 
-- [ ] **Python 3.10+** installed ([python.org/downloads](https://python.org/downloads) -- grab the latest)
-- [ ] **ComfyUI** installed and running on your machine ([github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI))
-- [ ] **An API key** from any supported LLM provider (see [Configuration](#configuration))
+- [ ] **Python 3.10+** ([python.org/downloads](https://python.org/downloads))
+- [ ] **ComfyUI** running on your machine ([github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI))
+- [ ] **One LLM backend** -- an API key from Anthropic, OpenAI, or Google, OR [Ollama](https://ollama.com) installed locally (free, no API key)
 
 Got all three? Here we go.
 
@@ -74,13 +74,25 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Open the `.env` file in any text editor and paste your key:
+Open `.env` and configure your LLM provider -- pick any one:
 
-```
+```bash
+# Option 1: Anthropic (default)
 ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+# Option 2: OpenAI (requires: pip install openai)
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key-here
+
+# Option 3: Gemini (requires: pip install google-genai)
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key-here
+
+# Option 4: Ollama (requires: ollama installed locally — no API key)
+LLM_PROVIDER=ollama
 ```
 
-Or use any of the [four supported LLM providers](#pick-your-llm).
+See [Pick Your LLM](#pick-your-llm) for full details.
 
 **If your ComfyUI folder isn't in the default location**, also add:
 
@@ -102,16 +114,91 @@ Type what you want. Type `quit` when you're done. That's it.
 
 ## Pick Your LLM
 
-Comfy Cozy works with four LLM providers. Set `LLM_PROVIDER` in your `.env`:
+Comfy Cozy is **provider-agnostic**. The same 113 tools, the same streaming interface, the same vision analysis -- just swap the backend.
 
-| Provider | `.env` setup | Default model |
-|----------|-------------|---------------|
-| **Anthropic** (default) | `LLM_PROVIDER=anthropic`<br/>`ANTHROPIC_API_KEY=sk-ant-...` | claude-sonnet-4-20250514 |
-| **OpenAI** | `LLM_PROVIDER=openai`<br/>`OPENAI_API_KEY=sk-...` | gpt-4o |
-| **Gemini** | `LLM_PROVIDER=gemini`<br/>`GEMINI_API_KEY=AI...` | gemini-2.5-flash |
-| **Ollama** (local) | `LLM_PROVIDER=ollama`<br/>`OLLAMA_BASE_URL=http://localhost:11434/v1` | llama3.1 |
+### Anthropic (default)
 
-Override the model with `AGENT_MODEL=your-model-name`. OpenAI and Gemini SDKs are optional -- install `openai` or `google-genai` only if you use them.
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+# Run
+agent run
+```
+
+Ships as the default. No extra install needed. Supports prompt caching for lower costs on long sessions.
+
+### OpenAI
+
+```bash
+# Install the SDK (one time)
+pip install openai
+
+# .env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key-here
+AGENT_MODEL=gpt-4o           # or gpt-4o-mini for faster/cheaper
+
+# Run
+agent run
+```
+
+Full tool-use support with streaming. Works with any OpenAI-compatible endpoint.
+
+### Google Gemini
+
+```bash
+# Install the SDK (one time)
+pip install google-genai
+
+# .env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key-here
+AGENT_MODEL=gemini-2.5-flash  # or gemini-2.5-pro
+
+# Run
+agent run
+```
+
+Function declarations mapped automatically. Supports Gemini's thinking mode.
+
+### Ollama (fully local, no API key)
+
+```bash
+# Install Ollama: https://ollama.com
+# Pull a model
+ollama pull llama3.1
+
+# .env
+LLM_PROVIDER=ollama
+AGENT_MODEL=llama3.1          # or any model you've pulled
+
+# Run (no API key needed)
+agent run
+```
+
+Uses Ollama's OpenAI-compatible endpoint at `localhost:11434`. Override with `OLLAMA_BASE_URL` if running remotely. **No data leaves your machine.**
+
+### Architecture
+
+All four providers share the same abstraction layer (`agent/llm/`):
+
+```mermaid
+graph LR
+    Agent[Agent Loop<br/>113 tools] --> LLM{LLM_PROVIDER}
+    LLM -->|anthropic| A["Claude<br/>Streaming + Cache"]
+    LLM -->|openai| B["GPT-4o<br/>Tool Calls"]
+    LLM -->|gemini| C["Gemini<br/>Function Decl."]
+    LLM -->|ollama| D["Ollama<br/>Local + Private"]
+
+    style Agent fill:#8b5cf6,color:#fff
+    style A fill:#d97706,color:#fff
+    style B fill:#10b981,color:#fff
+    style C fill:#3b82f6,color:#fff
+    style D fill:#ef4444,color:#fff
+```
+
+Common types (`TextBlock`, `ToolUseBlock`, `LLMResponse`), unified error hierarchy, provider-specific format conversion handled internally. Switch providers with one env var -- no code changes.
 
 ---
 
@@ -311,25 +398,6 @@ graph TB
     style Safety fill:#1a1a2e,color:#F0F0F0,stroke:#ef4444
     style Integration fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
 ```
-
-### Multi-Provider LLM Architecture
-
-```mermaid
-graph LR
-    Agent[Agent Loop] --> Provider{LLM Provider}
-    Provider -->|anthropic| Claude[Claude API<br/>Streaming + Caching]
-    Provider -->|openai| GPT[OpenAI API<br/>Tool Calls]
-    Provider -->|gemini| Gemini[Gemini API<br/>Function Declarations]
-    Provider -->|ollama| Ollama[Ollama<br/>Local + OpenAI-compat]
-
-    style Agent fill:#8b5cf6,color:#fff
-    style Claude fill:#d97706,color:#fff
-    style GPT fill:#10b981,color:#fff
-    style Gemini fill:#3b82f6,color:#fff
-    style Ollama fill:#ef4444,color:#fff
-```
-
-Common abstraction layer (`agent/llm/`) with unified types, error hierarchy, and streaming interface. Each provider handles format conversion, caching, and error translation internally.
 
 ### Workflow Intelligence DAG
 
