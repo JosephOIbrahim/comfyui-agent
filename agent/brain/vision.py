@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-import anthropic
+from ..llm import get_provider, ImageBlock, TextBlock, LLMError
 
 from ._protocol import brain_message, dispatch_brain_message
 from ._sdk import BrainAgent
@@ -174,23 +174,24 @@ class VisionAgent(BrainAgent):
         return data, media_type
 
     def _call_vision(self, system_prompt: str, user_content: list) -> str:
-        """Make a separate Claude Vision API call. Returns the text response."""
+        """Make a Vision API call via the active LLM provider. Returns text."""
         if not self.cfg.vision_limiter().acquire(timeout=10.0):
             return self.to_json({"error": "Rate limited — too many Vision API calls. Try again shortly."})
 
         try:
-            client = anthropic.Anthropic(timeout=_VISION_TIMEOUT)
-            response = client.messages.create(
+            provider = get_provider()
+            response = provider.create(
                 model=self.cfg.agent_model,
                 max_tokens=_VISION_MAX_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_content}],
+                timeout=_VISION_TIMEOUT,
             )
             for block in response.content:
-                if hasattr(block, "text"):
+                if isinstance(block, TextBlock):
                     return block.text
             return ""
-        except anthropic.APIError as e:
+        except LLMError as e:
             log.error("Vision API error: %s", e)
             return self.to_json({"error": f"Vision API error: {e}"})
         except Exception as e:
@@ -236,10 +237,7 @@ class VisionAgent(BrainAgent):
         )
 
         user_content = [
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": img_data},
-            },
+            ImageBlock(data=img_data, media_type=media_type),
             {
                 "type": "text",
                 "text": (
@@ -301,15 +299,9 @@ class VisionAgent(BrainAgent):
 
         user_content = [
             {"type": "text", "text": "Image A (before):"},
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": type_a, "data": data_a},
-            },
+            ImageBlock(data=data_a, media_type=type_a),
             {"type": "text", "text": "Image B (after):"},
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": type_b, "data": data_b},
-            },
+            ImageBlock(data=data_b, media_type=type_b),
             {
                 "type": "text",
                 "text": (
@@ -372,10 +364,7 @@ class VisionAgent(BrainAgent):
         )
 
         user_content = [
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": img_data},
-            },
+            ImageBlock(data=img_data, media_type=media_type),
             {
                 "type": "text",
                 "text": (

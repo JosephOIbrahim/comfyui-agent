@@ -8,10 +8,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Anthropic
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# LLM Provider selection — anthropic (default), openai, gemini, ollama
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
 
-# Validate API key format (warn, don't block — key may be valid in other formats)
+# Provider API keys
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
+# Validate Anthropic key format (warn, don't block — key may be valid in other formats)
 if ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
     print(
         "WARNING: ANTHROPIC_API_KEY doesn't match expected format (sk-ant-...). "
@@ -21,9 +27,19 @@ if ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
 
 # MCP auth token (optional — for future HTTP/SSE transport auth)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
-AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-sonnet-4-20250514")
+
+# Model selection — if not set, uses the default for the active LLM_PROVIDER.
+# Defaults per provider: anthropic=claude-sonnet-4-20250514, openai=gpt-4o,
+# gemini=gemini-2.5-flash, ollama=llama3.1
+_DEFAULT_MODELS = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o",
+    "gemini": "gemini-2.5-flash",
+    "ollama": "llama3.1",
+}
+AGENT_MODEL = os.getenv("AGENT_MODEL", _DEFAULT_MODELS.get(LLM_PROVIDER, "claude-sonnet-4-20250514"))
 # ^ Only affects CLI mode (agent run). MCP mode inherits the model from Claude Code.
-# Override in .env: AGENT_MODEL=claude-opus-4-6-20250929 for higher quality CLI sessions.
+# Override in .env: AGENT_MODEL=gpt-4o or AGENT_MODEL=claude-opus-4-6-20250929
 MAX_TOKENS = 16384
 MAX_AGENT_TURNS = 30
 

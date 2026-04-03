@@ -1,7 +1,8 @@
 """Agent loop -- the core of the ComfyUI Agent.
 
-Uses the Anthropic API with streaming tool-use to run an interactive agent.
-The agent decides which tools to call; we execute them and feed results back.
+Uses a pluggable LLM provider (Anthropic, OpenAI, Gemini, Ollama) with
+streaming tool-use to run an interactive agent. The agent decides which
+tools to call; we execute them and feed results back.
 
 Includes streaming responses, context management, retry logic, and logging.
 """
@@ -11,40 +12,27 @@ import logging
 import threading
 import time
 
-import anthropic
-
 from .config import (
     AGENT_MODEL, MAX_TOKENS, MAX_AGENT_TURNS,
     COMPACT_THRESHOLD, API_MAX_RETRIES, API_RETRY_DELAY,
 )
 from .context import compact, mask_processed_results
+from .llm import (
+    get_provider,
+    LLMProvider,
+    LLMRateLimitError,
+    LLMConnectionError,
+    LLMServerError,
+    LLMError,
+    ToolUseBlock,
+    ToolResultBlock,
+)
 from .logging_config import set_correlation_id
 from .streaming import StreamHandler, NullHandler
 from .system_prompt import build_system_prompt
 from .tools import ALL_TOOLS, handle as handle_tool
 
 log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Prompt caching -- mark tool definitions and system prompt for caching
-# ---------------------------------------------------------------------------
-
-
-def _cached_tools(tools: list[dict]) -> list[dict]:
-    """Add cache_control to the last tool so the entire tools block is cached."""
-    if not tools:
-        return tools
-    cached = [dict(t) for t in tools]
-    cached[-1] = {**cached[-1], "cache_control": {"type": "ephemeral"}}
-    return cached
-
-
-def _cached_system(system: str) -> list[dict]:
-    """Wrap system prompt in a cacheable text block."""
-    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-
-
-_TOOLS_CACHED = _cached_tools(ALL_TOOLS)
 
 # Graceful shutdown flag -- checked at top of each agent turn
 _shutdown = threading.Event()
@@ -55,9 +43,12 @@ def request_shutdown() -> None:
     _shutdown.set()
 
 
-def create_client() -> anthropic.Anthropic:
-    """Create Anthropic client (reads ANTHROPIC_API_KEY from env)."""
-    return anthropic.Anthropic()
+def create_client():
+    """Create LLM provider (reads LLM_PROVIDER from env, default: anthropic).
+
+    Backward-compatible: returns an LLMProvider instance.
+    """
+    return get_provider()
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +57,7 @@ def create_client() -> anthropic.Anthropic:
 
 
 def _stream_with_retry(
-    client,
+    provider: LLMProvider,
     *,
     model,
     max_tokens,
@@ -77,30 +68,24 @@ def _stream_with_retry(
 ):
     """Stream a message with retry on transient failures.
 
-    Returns the final Message object.
+    Returns an LLMResponse with common content types.
     """
     h = handler or NullHandler()
     last_error = None
 
     for attempt in range(API_MAX_RETRIES + 1):
         try:
-            with client.messages.stream(
+            return provider.stream(
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
                 tools=tools,
                 messages=messages,
-            ) as stream:
-                for event in stream:
-                    if event.type == "content_block_delta":
-                        delta = event.delta
-                        if hasattr(delta, "text"):
-                            h.on_text(delta.text)
-                        elif hasattr(delta, "thinking"):
-                            h.on_thinking(delta.thinking)
-            return stream.get_final_message()
+                on_text=h.on_text,
+                on_thinking=h.on_thinking,
+            )
 
-        except anthropic.RateLimitError as e:
+        except LLMRateLimitError as e:
             last_error = e
             if attempt < API_MAX_RETRIES:
                 delay = API_RETRY_DELAY * (2 ** attempt)
@@ -111,7 +96,7 @@ def _stream_with_retry(
             else:
                 raise
 
-        except anthropic.APIConnectionError as e:
+        except LLMConnectionError as e:
             last_error = e
             if attempt < API_MAX_RETRIES:
                 delay = API_RETRY_DELAY * (2 ** attempt)
@@ -120,7 +105,7 @@ def _stream_with_retry(
             else:
                 raise
 
-        except anthropic.APIStatusError as e:
+        except LLMServerError as e:
             last_error = e
             if e.status_code >= 500 and attempt < API_MAX_RETRIES:
                 delay = API_RETRY_DELAY * (2 ** attempt)
@@ -140,7 +125,7 @@ def _stream_with_retry(
 
 
 def run_agent_turn(
-    client: anthropic.Anthropic,
+    client,
     messages: list[dict],
     system: str,
     *,
@@ -168,8 +153,8 @@ def run_agent_turn(
         client,
         model=AGENT_MODEL,
         max_tokens=MAX_TOKENS,
-        system=_cached_system(system),
-        tools=_TOOLS_CACHED,
+        system=system,
+        tools=ALL_TOOLS,
         messages=messages,
         handler=handler,
     )
@@ -186,7 +171,7 @@ def run_agent_turn(
     tool_results = []
 
     # Collect tool calls
-    tool_calls = [block for block in assistant_content if block.type == "tool_use"]
+    tool_calls = [block for block in assistant_content if isinstance(block, ToolUseBlock)]
     has_tool_use = len(tool_calls) > 0
 
     if len(tool_calls) > 1:
@@ -211,11 +196,9 @@ def run_agent_turn(
 
         # Preserve original order, notify on results
         for tc in tool_calls:
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tc.id,
-                "content": results_map[tc.id],
-            })
+            tool_results.append(
+                ToolResultBlock(tool_use_id=tc.id, content=results_map[tc.id])
+            )
             h.on_tool_result(tc.name, tc.input, results_map[tc.id])
     elif len(tool_calls) == 1:
         # Single tool call -- run directly (no thread overhead)
@@ -226,11 +209,9 @@ def run_agent_turn(
         log.debug(
             "Tool %s completed in %.2fs", tc.name, time.monotonic() - t_tool
         )
-        tool_results.append({
-            "type": "tool_result",
-            "tool_use_id": tc.id,
-            "content": result,
-        })
+        tool_results.append(
+            ToolResultBlock(tool_use_id=tc.id, content=result)
+        )
         h.on_tool_result(tc.name, tc.input, result)
 
     # Append assistant message
@@ -291,7 +272,7 @@ def run_interactive(
                     system,
                     handler=handler,
                 )
-            except anthropic.APIError as e:
+            except LLMError as e:
                 log.error("API error after retries: %s", e)
                 h.on_text(f"\n[API error: {e}. Try again.]\n")
                 h.on_stream_end()

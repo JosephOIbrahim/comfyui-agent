@@ -14,6 +14,7 @@ from agent.context import (
     compact,
     mask_processed_results,
 )
+from agent.llm import LLMResponse, LLMRateLimitError, TextBlock, ToolUseBlock, ToolResultBlock
 from agent.main import (
     _shutdown,
     _stream_with_retry,
@@ -218,59 +219,43 @@ class TestMaskProcessedResults:
 
 class TestStreamWithRetry:
     def test_success_first_try(self):
-        mock_msg = SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="hello")],
+        expected = LLMResponse(
+            content=[TextBlock(text="hello")],
             stop_reason="end_turn",
         )
-        mock_stream = MagicMock()
-        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
-        mock_stream.__exit__ = MagicMock(return_value=False)
-        mock_stream.__iter__ = MagicMock(return_value=iter([]))
-        mock_stream.get_final_message.return_value = mock_msg
-
-        client = MagicMock()
-        client.messages.stream.return_value = mock_stream
+        provider = MagicMock()
+        provider.stream.return_value = expected
 
         result = _stream_with_retry(
-            client,
+            provider,
             model="test",
             max_tokens=100,
             system="sys",
             tools=[],
             messages=[],
         )
-        assert result == mock_msg
+        assert result == expected
 
     def test_rate_limit_retry(self):
-        import anthropic
-
-        mock_msg = SimpleNamespace(content=[], stop_reason="end_turn")
-        mock_stream = MagicMock()
-        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
-        mock_stream.__exit__ = MagicMock(return_value=False)
-        mock_stream.__iter__ = MagicMock(return_value=iter([]))
-        mock_stream.get_final_message.return_value = mock_msg
-
-        client = MagicMock()
+        expected = LLMResponse(content=[], stop_reason="end_turn")
+        provider = MagicMock()
         # Fail first, succeed second
-        rate_err = anthropic.RateLimitError(
-            message="Rate limited",
-            response=MagicMock(status_code=429),
-            body=None,
-        )
-        client.messages.stream.side_effect = [rate_err, mock_stream]
+        provider.stream.side_effect = [
+            LLMRateLimitError("Rate limited"),
+            expected,
+        ]
 
         with patch("agent.main.API_RETRY_DELAY", 0.01):
             result = _stream_with_retry(
-                client,
+                provider,
                 model="test",
                 max_tokens=100,
                 system="sys",
                 tools=[],
                 messages=[],
             )
-        assert result == mock_msg
-        assert client.messages.stream.call_count == 2
+        assert result == expected
+        assert provider.stream.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -280,17 +265,15 @@ class TestStreamWithRetry:
 
 class TestRunAgentTurn:
     def _make_response(self, *, text_blocks=None, tool_blocks=None):
-        """Helper to create a mock API response."""
+        """Helper to create a mock LLMResponse."""
         content = []
         if text_blocks:
             for t in text_blocks:
-                content.append(SimpleNamespace(type="text", text=t))
+                content.append(TextBlock(text=t))
         if tool_blocks:
             for name, inp, tid in tool_blocks:
-                content.append(SimpleNamespace(
-                    type="tool_use", name=name, input=inp, id=tid,
-                ))
-        return SimpleNamespace(
+                content.append(ToolUseBlock(id=tid, name=name, input=inp))
+        return LLMResponse(
             content=content,
             stop_reason="end_turn" if not tool_blocks else "tool_use",
         )
@@ -320,7 +303,7 @@ class TestRunAgentTurn:
         # Should have assistant message + tool result
         assert msgs[-2]["role"] == "assistant"
         assert msgs[-1]["role"] == "user"
-        assert msgs[-1]["content"][0]["type"] == "tool_result"
+        assert isinstance(msgs[-1]["content"][0], ToolResultBlock)
         mock_handle.assert_called_once_with("is_comfyui_running", {})
 
     @patch("agent.main.handle_tool")
@@ -344,8 +327,8 @@ class TestRunAgentTurn:
         results = msgs[-1]["content"]
         assert len(results) == 2
         # Results should be in original order (t1 then t2)
-        assert results[0]["tool_use_id"] == "t1"
-        assert results[1]["tool_use_id"] == "t2"
+        assert results[0].tool_use_id == "t1"
+        assert results[1].tool_use_id == "t2"
 
     @patch("agent.main._stream_with_retry")
     def test_handler_on_stream_end_called(self, mock_stream):

@@ -1,4 +1,4 @@
-"""Tests for brain/vision.py — image analysis via Claude Vision."""
+"""Tests for brain/vision.py — image analysis via LLM Vision."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -6,6 +6,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.brain import handle
+from agent.llm import LLMResponse, TextBlock
+
+
+def _mock_vision_response(text: str) -> LLMResponse:
+    """Create a mock LLMResponse with a single text block."""
+    return LLMResponse(
+        content=[TextBlock(text=text)],
+        stop_reason="end_turn",
+        model="test-model",
+    )
 
 
 @pytest.fixture
@@ -23,6 +33,13 @@ def fake_image(tmp_path):
     return str(img_path)
 
 
+def _patch_provider(response_text: str):
+    """Patch get_provider to return a mock provider with the given response."""
+    mock_provider = MagicMock()
+    mock_provider.create.return_value = _mock_vision_response(response_text)
+    return patch("agent.brain.vision.get_provider", return_value=mock_provider)
+
+
 class TestAnalyzeImage:
     def test_file_not_found(self):
         result = json.loads(handle("analyze_image", {
@@ -31,9 +48,7 @@ class TestAnalyzeImage:
         assert "error" in result
 
     def test_analyze_calls_vision_api(self, fake_image):
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = json.dumps({
+        response_json = json.dumps({
             "quality_score": 0.85,
             "artifacts": [],
             "composition": "Good composition",
@@ -41,13 +56,8 @@ class TestAnalyzeImage:
             "strengths": ["sharp details"],
             "suggestions": ["try higher CFG"],
         })
-        mock_response.content = [mock_block]
 
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
+        with _patch_provider(response_json) as mock_get:
             result = json.loads(handle("analyze_image", {
                 "image_path": fake_image,
                 "prompt_used": "a red pixel",
@@ -55,21 +65,11 @@ class TestAnalyzeImage:
 
         assert result["quality_score"] == 0.85
         assert result["image_path"] == fake_image
-        # Verify the API was called with image content
-        call_args = mock_client.messages.create.call_args
-        assert call_args is not None
+        # Verify the provider was called
+        mock_get.return_value.create.assert_called_once()
 
     def test_handles_non_json_response(self, fake_image):
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = "This is not JSON"
-        mock_response.content = [mock_block]
-
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
+        with _patch_provider("This is not JSON"):
             result = json.loads(handle("analyze_image", {
                 "image_path": fake_image,
             }))
@@ -87,21 +87,14 @@ class TestCompareOutputs:
         assert "error" in result
 
     def test_compare_calls_api(self, fake_image):
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = json.dumps({
+        response_json = json.dumps({
             "improved": True,
             "differences": ["sharper details"],
             "quality_delta": 0.15,
             "recommendation": "The change improved quality.",
         })
-        mock_response.content = [mock_block]
 
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
+        with _patch_provider(response_json):
             result = json.loads(handle("compare_outputs", {
                 "image_a": fake_image,
                 "image_b": fake_image,
@@ -114,9 +107,7 @@ class TestCompareOutputs:
 
 class TestSuggestImprovements:
     def test_suggest_calls_api(self, fake_image):
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = json.dumps({
+        response_json = json.dumps({
             "suggestions": [
                 {
                     "parameter": "steps",
@@ -129,13 +120,8 @@ class TestSuggestImprovements:
             ],
             "priority_order": ["steps"],
         })
-        mock_response.content = [mock_block]
 
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
+        with _patch_provider(response_json):
             result = json.loads(handle("suggest_improvements", {
                 "image_path": fake_image,
                 "workflow_summary": "SDXL, 20 steps, Euler, CFG 7.0",
@@ -229,9 +215,7 @@ class TestBrainMessageActivation:
 
     def test_analyze_image_emits_brain_message(self, fake_image):
         """analyze_image should create a brain_message with analysis results."""
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = json.dumps({
+        response_json = json.dumps({
             "quality_score": 0.85,
             "artifacts": [],
             "composition": "Good",
@@ -239,14 +223,9 @@ class TestBrainMessageActivation:
             "strengths": [],
             "suggestions": [],
         })
-        mock_response.content = [mock_block]
 
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls, \
+        with _patch_provider(response_json), \
              patch("agent.brain.vision.brain_message") as mock_brain_msg:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
             handle("analyze_image", {
                 "image_path": fake_image,
                 "prompt_used": "test prompt",
@@ -262,22 +241,15 @@ class TestBrainMessageActivation:
 
     def test_compare_outputs_emits_brain_message(self, fake_image):
         """compare_outputs should create a brain_message with comparison results."""
-        mock_response = MagicMock()
-        mock_block = MagicMock()
-        mock_block.text = json.dumps({
+        response_json = json.dumps({
             "improved": True,
             "differences": ["better details"],
             "quality_delta": 0.1,
             "recommendation": "Keep the change.",
         })
-        mock_response.content = [mock_block]
 
-        with patch("agent.brain.vision.anthropic.Anthropic") as mock_client_cls, \
+        with _patch_provider(response_json), \
              patch("agent.brain.vision.brain_message") as mock_brain_msg:
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
             handle("compare_outputs", {
                 "image_a": fake_image,
                 "image_b": fake_image,
