@@ -2,6 +2,10 @@
   <img src="assets/comfy-cozy-logo.jpg" alt="Comfy Cozy" width="600">
 </p>
 
+<p align="center">
+  <strong>Patent Pending</strong> &nbsp;|&nbsp; <a href="LICENSE">MIT License</a> &nbsp;|&nbsp; <a href="https://github.com/JosephOIbrahim/Harlo/blob/main/PATENTS.md">Patent Details</a>
+</p>
+
 # Comfy Cozy
 
 **Talk to ComfyUI like a colleague. It talks back.**
@@ -565,6 +569,13 @@ python -m pytest tests/ -v        # 2600+ tests, under 30 seconds
 
 ---
 
-## License
+## License & Patents
 
-[MIT](LICENSE) -- use it however you want.
+**Patent Pending** | [MIT](LICENSE)
+
+Aspects of this architecture -- including deterministic state-evolution, LIVRPS non-destructive composition, predictive experiment pipelines, and the cognitive experience loop -- are the subject of pending US provisional patent applications filed by Joseph O. Ibrahim.
+
+This project shares structural patterns with [Harlo](https://github.com/JosephOIbrahim/Harlo), a USD-native cognitive architecture for persistent AI memory. See Harlo's [PATENTS.md](https://github.com/JosephOIbrahim/Harlo/blob/main/PATENTS.md) for patent details and grant terms.
+
+For questions about patent licensing, commercial licensing, or enterprise arrangements:
+**Joseph O. Ibrahim** -- jomar.ibrahim@gmail.com
