@@ -354,6 +354,72 @@ function await_api_import() {
   }
 }
 
+/* ── Agent → Canvas Reverse Bridge ────────────────────────────── */
+
+/**
+ * Fetch the current agent workflow and push literal input values
+ * onto the live ComfyUI canvas.  Only updates widget values that
+ * differ; connections (arrays) are left untouched.
+ */
+async function pushAgentToCanvas() {
+  try {
+    const workflow = await client.getWorkflowApi();
+    if (!workflow) return;
+    if (!app.graph) return;
+
+    for (const [nodeId, nodeData] of Object.entries(workflow)) {
+      if (!nodeData || !nodeData.inputs) continue;
+      const node = app.graph.getNodeById(parseInt(nodeId, 10));
+      if (!node || !node.widgets) continue;
+
+      for (const widget of node.widgets) {
+        const apiValue = nodeData.inputs[widget.name];
+        // Only update literal values, skip connections (arrays)
+        if (apiValue !== undefined && !Array.isArray(apiValue)) {
+          if (widget.value !== apiValue) {
+            widget.value = apiValue;
+          }
+        }
+      }
+    }
+
+    app.canvas.setDirty(true, true);
+    console.log("[Comfy Cozy Panel] Canvas updated from agent state");
+  } catch (e) {
+    console.debug("[Comfy Cozy Panel] Canvas push failed:", e);
+  }
+}
+
+/**
+ * Briefly highlight a node on the canvas after the agent touches it.
+ * Draws a coloured outline for ~600ms then fades.
+ */
+function highlightNode(nodeId) {
+  if (!app.graph) return;
+  const node = app.graph.getNodeById(parseInt(nodeId, 10));
+  if (!node) return;
+
+  const prev = node.color;
+  node.color = "#7c3aed";               // vivid purple flash
+  app.canvas.setDirty(true, true);
+
+  setTimeout(() => {
+    node.color = prev;
+    app.canvas.setDirty(true, true);
+  }, 600);
+}
+
+// Listen for the event that mutation methods in agentClient fire
+document.addEventListener("comfycozy:workflow-changed", () => {
+  pushAgentToCanvas();
+});
+
+// Listen for per-node touch events
+document.addEventListener("superduper:node_touch", (e) => {
+  const nid = e.detail?.nodeId;
+  if (nid) highlightNode(nid);
+});
+
 /* ── Register Extension ───────────────────────────────────────── */
 
 app.registerExtension({

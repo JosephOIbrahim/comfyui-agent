@@ -172,6 +172,9 @@ class TestToolRegistry:
             "uninstall_node_pack",
             "repair_workflow",
             "reconfigure_workflow",
+            # Auto-wire
+            "wire_model",
+            "suggest_wiring",
         }
         assert expected == names, (
             f"Tool mismatch!\n"
@@ -180,7 +183,7 @@ class TestToolRegistry:
         )
 
     def test_total_tool_count(self):
-        assert len(ALL_TOOLS) == 108, f"Expected 108 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 110, f"Expected 110 tools, got {len(ALL_TOOLS)}"
 
     def test_brain_tool_error_returns_json(self):
         """Brain tool exceptions should be caught and returned as JSON errors."""

@@ -5,7 +5,6 @@ Each route translates HTTP requests into agent tool calls.
 Covers the full tool surface: load, edit, execute, discover.
 """
 
-import json
 import logging
 
 from aiohttp import web
@@ -84,6 +83,25 @@ def setup_routes():
                         }
 
             return web.json_response(result)
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Workflow API (Reverse Bridge) ─────────────────────────────
+
+    @routes.get("/superduper-panel/get-workflow-api")
+    async def get_workflow_api(request):
+        """Return the current agent workflow in API format.
+
+        This is the reverse bridge: the frontend polls this to push
+        agent-side mutations back onto the ComfyUI canvas.
+        """
+        try:
+            from agent.tools.workflow_patch import get_current_workflow
+            workflow = get_current_workflow()
+            if workflow is None:
+                return web.json_response({"error": "No workflow loaded"}, status=404)
+            return web.json_response({"workflow": workflow})
         except Exception as e:
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
@@ -350,4 +368,319 @@ def setup_routes():
             "message": "No autoresearch run active",
         })
 
-    log.info("Comfy Cozy Panel routes mounted (%d routes)", 20)
+    # ── Discovery ─────────────────────────────────────────────────
+
+    @routes.post("/superduper-panel/discover")
+    async def discover(request):
+        """Search for models, nodes, or workflows."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("discover", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/list-custom-nodes")
+    async def list_custom_nodes(request):
+        """List installed custom node packs."""
+        try:
+            result = _tool_call("list_custom_nodes", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/models-summary")
+    async def models_summary(request):
+        """Get summary of all installed models."""
+        try:
+            result = _tool_call("get_models_summary", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/queue-status")
+    async def queue_status(request):
+        """Get ComfyUI queue status."""
+        try:
+            result = _tool_call("get_queue_status", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/history")
+    async def history(request):
+        """Get execution history."""
+        try:
+            max_items = int(request.query.get("max_items", "10"))
+            result = _tool_call("get_history", {"max_items": max_items})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Provisioning ──────────────────────────────────────────────
+
+    @routes.post("/superduper-panel/install-node-pack")
+    async def install_node_pack(request):
+        """Install a custom node pack from a URL."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("install_node_pack", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/download-model")
+    async def download_model(request):
+        """Download a model from a URL."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("download_model", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/uninstall-node-pack")
+    async def uninstall_node_pack(request):
+        """Uninstall a custom node pack."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("uninstall_node_pack", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Repair ────────────────────────────────────────────────────
+
+    @routes.post("/superduper-panel/repair-workflow")
+    async def repair_workflow(request):
+        """Repair workflow by finding and installing missing nodes."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("repair_workflow", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/reconfigure-workflow")
+    async def reconfigure_workflow(request):
+        """Reconfigure workflow to fix compatibility issues."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("reconfigure_workflow", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/check-deprecations")
+    async def check_deprecations(request):
+        """Check for deprecated nodes in the loaded workflow."""
+        try:
+            result = _tool_call("check_workflow_deprecations", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/migrate-deprecated")
+    async def migrate_deprecated(request):
+        """Migrate deprecated nodes to replacements."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json() if request.content_length else {}
+            result = _tool_call("migrate_deprecated_nodes", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Session ───────────────────────────────────────────────────
+
+    @routes.post("/superduper-panel/save-session")
+    async def save_session(request):
+        """Save current session state."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("save_session", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/load-session-data")
+    async def load_session_data(request):
+        """Load a saved session."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("load_session", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/list-sessions")
+    async def list_sessions(request):
+        """List all saved sessions."""
+        try:
+            result = _tool_call("list_sessions", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Workflow Persistence ──────────────────────────────────────
+
+    @routes.post("/superduper-panel/save-workflow")
+    async def save_workflow(request):
+        """Save workflow to a file path."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("save_workflow", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.post("/superduper-panel/preview-patch")
+    async def preview_patch(request):
+        """Preview a patch without applying it."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("preview_workflow_patch", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/classify-workflow")
+    async def classify_workflow(request):
+        """Classify the loaded workflow type."""
+        try:
+            result = _tool_call("classify_workflow", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/workflow-templates")
+    async def workflow_templates(request):
+        """List available workflow templates."""
+        try:
+            result = _tool_call("list_workflow_templates", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── CivitAI ───────────────────────────────────────────────────
+
+    @routes.get("/superduper-panel/civitai-model")
+    async def civitai_model(request):
+        """Get CivitAI model details."""
+        try:
+            model_id = request.query.get("model_id", "")
+            result = _tool_call("get_civitai_model", {"model_id": model_id})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/trending-models")
+    async def trending_models(request):
+        """Get trending models from CivitAI."""
+        try:
+            params = {}
+            for key in ("model_type", "base_model", "period", "max_results"):
+                val = request.query.get(key)
+                if val is not None:
+                    params[key] = int(val) if key == "max_results" else val
+            result = _tool_call("get_trending_models", params)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Model Compatibility ───────────────────────────────────────
+
+    @routes.post("/superduper-panel/check-compatibility")
+    async def check_compatibility(request):
+        """Check compatibility between models."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("check_model_compatibility", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    # ── Auto-Wire ─────────────────────────────────────────────────
+
+    @routes.post("/superduper-panel/wire-model")
+    async def wire_model(request):
+        """Wire a downloaded model into the loaded workflow."""
+        try:
+            rejected = _too_large(request)
+            if rejected:
+                return rejected
+            body = await request.json()
+            result = _tool_call("wire_model", body)
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    @routes.get("/superduper-panel/suggest-wiring")
+    async def suggest_wiring(request):
+        """Analyze workflow and suggest model wiring."""
+        try:
+            result = _tool_call("suggest_wiring", {})
+            return web.Response(text=result, content_type="application/json")
+        except Exception as e:
+            log.error("Route %s error: %s", request.path, e, exc_info=True)
+            return web.json_response({"error": "Internal server error"}, status=500)
+
+    log.info("Comfy Cozy Panel routes mounted (%d routes)", 46)
