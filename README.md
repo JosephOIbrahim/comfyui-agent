@@ -10,7 +10,7 @@ You describe what you want in plain English. The agent loads workflows, swaps mo
 
 ```mermaid
 graph LR
-    You([You]) -->|"make it dreamier"| Agent[ComfyUI Agent]
+    You([You]) -->|"make it dreamier"| Agent[Comfy Cozy]
     Agent -->|loads, patches, runs| ComfyUI[ComfyUI]
     ComfyUI -->|image| Agent
     Agent -->|"Done. Lowered CFG to 5,<br/>switched to DPM++ 2M Karras.<br/>Here's your render."| You
@@ -30,10 +30,10 @@ graph LR
 | You say | What happens |
 |---------|-------------|
 | *"Load my portrait workflow and make it dreamier"* | Loads the file, lowers CFG, switches sampler, saves with full undo |
-| *"Repair this workflow"* | Finds the missing nodes, installs the packs, fixes the connections |
-| *"Download the Flux dev checkpoint"* | Downloads it to the right folder, verifies the hash |
+| *"I want to use Flux"* | Searches CivitAI + HuggingFace, downloads the model, wires it into your workflow |
+| *"Repair this workflow"* | Finds missing nodes, installs the packs, fixes connections, migrates deprecated nodes |
 | *"Run this with 30 steps"* | Patches the workflow, validates it, queues it to ComfyUI, shows progress |
-| *"Analyze this output"* | Uses Claude Vision to diagnose issues and suggest parameter changes |
+| *"Analyze this output"* | Uses Vision AI to diagnose issues and suggest parameter changes |
 | *"What model should I use for anime?"* | Searches CivitAI + HuggingFace + your local models, recommends the best fit |
 | *"Optimize this for speed"* | Profiles GPU usage, checks TensorRT eligibility, applies optimizations |
 
@@ -45,17 +45,15 @@ graph LR
 
 - [ ] **Python 3.10+** installed ([python.org/downloads](https://python.org/downloads) -- grab the latest)
 - [ ] **ComfyUI** installed and running on your machine ([github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI))
-- [ ] **An Anthropic API key** ([console.anthropic.com](https://console.anthropic.com/) -- sign up, create a key)
+- [ ] **An API key** from any supported LLM provider (see [Configuration](#configuration))
 
 Got all three? Here we go.
 
 ### Step 1: Download the agent
 
-Open a terminal (Command Prompt, PowerShell, or Terminal) and run:
-
 ```bash
-git clone https://github.com/JosephOIbrahim/comfyui-agent.git
-cd comfyui-agent
+git clone https://github.com/JosephOIbrahim/Comfy-Cozy.git
+cd Comfy-Cozy
 ```
 
 ### Step 2: Install it
@@ -82,6 +80,8 @@ Open the `.env` file in any text editor and paste your key:
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
+Or use any of the [four supported LLM providers](#pick-your-llm).
+
 **If your ComfyUI folder isn't in the default location**, also add:
 
 ```
@@ -100,11 +100,26 @@ Type what you want. Type `quit` when you're done. That's it.
 
 ---
 
+## Pick Your LLM
+
+Comfy Cozy works with four LLM providers. Set `LLM_PROVIDER` in your `.env`:
+
+| Provider | `.env` setup | Default model |
+|----------|-------------|---------------|
+| **Anthropic** (default) | `LLM_PROVIDER=anthropic`<br/>`ANTHROPIC_API_KEY=sk-ant-...` | claude-sonnet-4-20250514 |
+| **OpenAI** | `LLM_PROVIDER=openai`<br/>`OPENAI_API_KEY=sk-...` | gpt-4o |
+| **Gemini** | `LLM_PROVIDER=gemini`<br/>`GEMINI_API_KEY=AI...` | gemini-2.5-flash |
+| **Ollama** (local) | `LLM_PROVIDER=ollama`<br/>`OLLAMA_BASE_URL=http://localhost:11434/v1` | llama3.1 |
+
+Override the model with `AGENT_MODEL=your-model-name`. OpenAI and Gemini SDKs are optional -- install `openai` or `google-genai` only if you use them.
+
+---
+
 ## Two Ways to Use It
 
 ### Option A: Inside Claude Code / Claude Desktop (recommended)
 
-The agent runs as an MCP server -- Claude can use all 108+ tools directly.
+The agent runs as an MCP server -- Claude can use all 113 tools directly.
 
 Add this to your Claude Code or Claude Desktop MCP config:
 
@@ -169,11 +184,11 @@ The agent ships with built-in knowledge about how each model family actually beh
 
 ---
 
-## How It Works (The Short Version)
+## How It Works
 
 ```mermaid
 graph LR
-    You([You]) --> Agent[108+ Tools]
+    You([You]) --> Agent[113 Tools]
     Agent --> Understand[UNDERSTAND<br/>What do you have?]
     Understand --> Discover[DISCOVER<br/>What do you need?]
     Discover --> Pilot[PILOT<br/>Make the changes]
@@ -190,7 +205,7 @@ graph LR
 **Four phases, always in order:**
 
 1. **UNDERSTAND** -- Reads your workflow, scans your models, checks what's installed
-2. **DISCOVER** -- Searches for what you need across CivitAI, HuggingFace, ComfyUI Manager (31k+ nodes)
+2. **DISCOVER** -- Searches CivitAI, HuggingFace, ComfyUI Manager (31k+ nodes)
 3. **PILOT** -- Makes changes through safe, reversible delta layers (never edits your original)
 4. **VERIFY** -- Runs the workflow, checks the output, records what worked
 
@@ -202,12 +217,66 @@ Every change is undoable. Every generation teaches the agent something.
 
 A minimal, typography-forward sidebar that lives right inside ComfyUI:
 
-- **APP Mode** -- Chat with the agent, see tool cards and streaming responses
-- **GRAPH Mode** -- Inspect your workflow's delta layers and LIVRPS opinions per parameter
-- **Experience Dashboard** -- See what the agent has learned about your style
-- **Autoresearch Monitor** -- Watch quality improve across iterations
+```mermaid
+graph TB
+    subgraph Panel ["Comfy Cozy Panel"]
+        APP["APP Mode<br/>Chat + Quick Actions"]
+        GRAPH["GRAPH Mode<br/>Node Inspector + Status"]
+        BROWSE["Model Browser<br/>Search + Install"]
+    end
+
+    subgraph Bridge ["Bidirectional Canvas Bridge"]
+        C2A["Canvas → Agent<br/>Auto-sync on change"]
+        A2C["Agent → Canvas<br/>Push mutations live"]
+    end
+
+    subgraph Actions ["Quick Actions"]
+        Q["Queue Prompt"]
+        R["Repair Workflow"]
+        S["Save Workflow"]
+        W["Wire Model"]
+    end
+
+    Panel --> Bridge
+    APP --> Actions
+
+    style Panel fill:#1a1a2e,color:#F0F0F0,stroke:#0066FF
+    style Bridge fill:#1a1a2e,color:#F0F0F0,stroke:#8b5cf6
+    style Actions fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
+```
+
+- **APP Mode** -- Chat with the agent, quick actions (Repair, Save, Browse, Wiring), model browser overlay
+- **GRAPH Mode** -- Inspect delta layers, LIVRPS opinions per parameter, workflow health status bar
+- **Queue Prompt** -- One-click execution from the panel header
+- **Model Browser** -- Search CivitAI + HuggingFace + registry, one-click download and install
+- **Self-Healing** -- Missing node warnings with [Repair] buttons, deprecated node migration
+- **Bidirectional Canvas Bridge** -- Agent changes sync to the canvas live, with node highlighting
+
+**49 panel routes** expose the full tool surface: discovery, provisioning, repair, sessions, execution, and more.
 
 Design: monochrome + one accent (#0066FF on #0D0D0D). Inter typography. No gradients, no shadows. Every pixel earns its place.
+
+---
+
+## One-Click Model Provisioning
+
+The agent handles the entire pipeline from "I want Flux" to a wired workflow:
+
+```mermaid
+flowchart LR
+    Search["Search<br/>CivitAI + HF + Registry"] --> Download["Download<br/>to correct folder"]
+    Download --> Verify["Verify<br/>family + compat"]
+    Verify --> Wire["Auto-Wire<br/>find loader → set input"]
+    Wire --> Ready["Ready to<br/>Queue"]
+
+    style Search fill:#3b82f6,color:#fff
+    style Download fill:#d97706,color:#fff
+    style Verify fill:#ef4444,color:#fff
+    style Wire fill:#8b5cf6,color:#fff
+    style Ready fill:#10b981,color:#fff
+```
+
+**`provision_model`** -- one tool call that discovers, downloads, verifies compatibility, finds the right loader node in your workflow, and wires the model in. Also: `provision_status` for gap analysis and `provision_verify` for post-download checks.
 
 ---
 
@@ -223,7 +292,7 @@ graph TB
     subgraph Foundation ["Foundation Layer"]
         DAG["Workflow Intelligence DAG<br/>6 pure computation nodes"]
         OBS["Time-Sampled State<br/>Monotonic step index"]
-        CAP["Capability Registry<br/>109 tools indexed"]
+        CAP["Capability Registry<br/>113 tools indexed"]
     end
 
     subgraph Safety ["Safety Layer"]
@@ -242,6 +311,25 @@ graph TB
     style Safety fill:#1a1a2e,color:#F0F0F0,stroke:#ef4444
     style Integration fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
 ```
+
+### Multi-Provider LLM Architecture
+
+```mermaid
+graph LR
+    Agent[Agent Loop] --> Provider{LLM Provider}
+    Provider -->|anthropic| Claude[Claude API<br/>Streaming + Caching]
+    Provider -->|openai| GPT[OpenAI API<br/>Tool Calls]
+    Provider -->|gemini| Gemini[Gemini API<br/>Function Declarations]
+    Provider -->|ollama| Ollama[Ollama<br/>Local + OpenAI-compat]
+
+    style Agent fill:#8b5cf6,color:#fff
+    style Claude fill:#d97706,color:#fff
+    style GPT fill:#10b981,color:#fff
+    style Gemini fill:#3b82f6,color:#fff
+    style Ollama fill:#ef4444,color:#fff
+```
+
+Common abstraction layer (`agent/llm/`) with unified types, error hierarchy, and streaming interface. Each provider handles format conversion, caching, and error translation internally.
 
 ### Workflow Intelligence DAG
 
@@ -315,11 +403,11 @@ Every generation is an experiment. The agent tracks what worked:
 
 ### Tool Inventory
 
-**108+ tools across three layers:**
+**113 tools across three layers:**
 
 | Layer | Count | Highlights |
 |-------|-------|-----------|
-| **Intelligence** | 58 | Workflow parsing, model search (CivitAI + HF + 31k nodes), delta patching, execution, verification |
+| **Intelligence** | 63 | Workflow parsing, model search (CivitAI + HF + 31k nodes), delta patching, auto-wire, provisioning pipeline, execution |
 | **Brain** | 27 | Vision analysis, goal planning, pattern memory, GPU optimization, artistic intent capture |
 | **Stage** | 23 | USD cognitive state, LIVRPS composition, predictive experiments, scene composition |
 
@@ -350,16 +438,20 @@ flowchart LR
 
 ```
 agent/
-  tools/              58 tools — workflow ops, model search, execution
+  llm/               Multi-provider abstraction (Anthropic, OpenAI, Gemini, Ollama)
+  tools/              63 tools — workflow ops, model search, provisioning, auto-wire
   brain/              27 tools — vision, planning, memory, optimization
     adapters/         Pure-function translators between brain modules
   stage/              23 tools — USD state, prediction, composition
     dag/              Workflow intelligence (6 computation nodes)
   gate/               Pre-dispatch safety (5-check pipeline)
   degradation.py      Fault isolation manager
-  config.py           Environment + 8 kill switches
+  config.py           Environment + 8 kill switches + LLM provider selection
   mcp_server.py       MCP server (primary interface)
-tests/                2800+ tests, all mocked, <60s
+panel/
+  server/routes.py    49 REST routes — full tool surface
+  web/js/             Panel UI — chat, graph inspector, model browser
+tests/                2600+ tests, all mocked, <30s
 ```
 
 ### Production Hardening
@@ -370,7 +462,8 @@ tests/                2800+ tests, all mocked, <60s
 | **Fault Isolation** | Each subsystem fails independently. Circuit breakers prevent cascading failures. |
 | **Determinism** | Pure computation DAG. Deterministic JSON. Ordinal state enums. Same input = same output. |
 | **Audit Trail** | Every mutation logged: who changed what, when, and what got overridden. |
-| **Security** | Path traversal blocked. SSRF prevented. Private IPs rejected. SHA-256 on all delta layers. |
+| **Security** | Path traversal blocked. SSRF prevented. Private IPs rejected. XSS sanitized. 10MB request limits. Atomic file writes. |
+| **Bounded Resources** | Intent history (100), iteration steps (200), demo checkpoints (100). No unbounded growth. |
 
 </details>
 
@@ -382,11 +475,15 @@ All settings live in your `.env` file:
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `ANTHROPIC_API_KEY` | *(required)* | Your Claude API key |
+| `ANTHROPIC_API_KEY` | *(required for Anthropic)* | Your Claude API key |
+| `OPENAI_API_KEY` | | Your OpenAI API key |
+| `GEMINI_API_KEY` | | Your Google Gemini API key |
+| `LLM_PROVIDER` | `anthropic` | Which LLM to use: `anthropic`, `openai`, `gemini`, `ollama` |
+| `AGENT_MODEL` | *(auto per provider)* | Override the model name |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama server URL |
 | `COMFYUI_HOST` | `127.0.0.1` | Where ComfyUI runs |
 | `COMFYUI_PORT` | `8188` | ComfyUI port |
 | `COMFYUI_DATABASE` | `~/ComfyUI` | Your ComfyUI folder (models, nodes, workflows) |
-| `AGENT_MODEL` | `claude-sonnet-4-20250514` | Which Claude model (CLI mode only) |
 
 ---
 
@@ -395,7 +492,7 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 2800+ tests, under 60 seconds
+python -m pytest tests/ -v        # 2600+ tests, under 30 seconds
 ```
 
 ---
