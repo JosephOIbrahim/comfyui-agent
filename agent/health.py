@@ -30,27 +30,41 @@ def check_health() -> dict:
 
 
 def _check_comfyui() -> dict:
-    """Check ComfyUI reachability."""
+    """Check ComfyUI reachability.
+
+    The panel runs *inside* ComfyUI's aiohttp server, so HTTP-calling
+    127.0.0.1:8188 from within a route handler deadlocks the single-worker
+    event loop. Instead, check the in-process PromptServer instance and read
+    GPU stats directly via comfy.model_management.
+    """
     try:
-        with httpx.Client() as client:
-            resp = client.get(f"{COMFYUI_URL}/system_stats", timeout=3.0)
-            resp.raise_for_status()
-            data = resp.json()
-            # Extract GPU info if available
-            gpu_info = {}
-            devices = data.get("devices", [])
-            if devices:
-                dev = devices[0]
+        # Look up the running PromptServer via sys.modules — avoids re-importing
+        # `server` (which can collide with other top-level `utils` packages in
+        # standalone test contexts).
+        import sys
+        server_mod = sys.modules.get("server")
+        if server_mod is None or getattr(server_mod, "PromptServer", None) is None \
+                or server_mod.PromptServer.instance is None:
+            return {"status": "error", "url": COMFYUI_URL, "error": "PromptServer not initialized"}
+
+        gpu_info = {}
+        try:
+            import comfy.model_management as mm  # type: ignore
+            import torch
+            dev = mm.get_torch_device()
+            if dev.type == "cuda":
+                idx = dev.index if dev.index is not None else torch.cuda.current_device()
+                props = torch.cuda.get_device_properties(idx)
+                free, total = torch.cuda.mem_get_info(idx)
                 gpu_info = {
-                    "name": dev.get("name", "unknown"),
-                    "vram_total_gb": round(dev.get("vram_total", 0) / 1e9, 1),
-                    "vram_free_gb": round(dev.get("vram_free", 0) / 1e9, 1),
+                    "name": props.name,
+                    "vram_total_gb": round(total / 1e9, 1),
+                    "vram_free_gb": round(free / 1e9, 1),
                 }
-            return {"status": "ok", "url": COMFYUI_URL, "gpu": gpu_info}
-    except httpx.ConnectError:
-        return {"status": "error", "url": COMFYUI_URL, "error": "Connection refused"}
-    except httpx.TimeoutException:
-        return {"status": "error", "url": COMFYUI_URL, "error": "Timeout (3s)"}
+        except Exception as e:
+            gpu_info = {"error": f"gpu probe failed: {e}"}
+
+        return {"status": "ok", "url": COMFYUI_URL, "gpu": gpu_info}
     except Exception as e:
         return {"status": "error", "url": COMFYUI_URL, "error": str(e)}
 
