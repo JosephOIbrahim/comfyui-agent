@@ -5,9 +5,9 @@
 
 import pytest
 
-from src.cognitive.prediction.cwm import CognitiveWorldModel
-from src.cognitive.prediction.arbiter import SimulationArbiter, DeliveryMode
-from src.cognitive.prediction.counterfactual import CounterfactualGenerator, Counterfactual
+from cognitive.prediction.cwm import CognitiveWorldModel
+from cognitive.prediction.arbiter import SimulationArbiter, DeliveryMode
+from cognitive.prediction.counterfactual import CounterfactualGenerator, Counterfactual
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ class TestCWM:
 
     def test_livrps_priority_ordering(self, cwm):
         """Verify LIVRPS ordering: R < V < I < L < S for predictions."""
-        from src.cognitive.core.delta import LIVRPS_PRIORITY
+        from cognitive.core.delta import LIVRPS_PRIORITY
         assert LIVRPS_PRIORITY["R"] < LIVRPS_PRIORITY["I"]
         assert LIVRPS_PRIORITY["I"] < LIVRPS_PRIORITY["L"]
         assert LIVRPS_PRIORITY["L"] < LIVRPS_PRIORITY["S"]

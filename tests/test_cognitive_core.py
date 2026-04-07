@@ -10,9 +10,9 @@ import json
 
 import pytest
 
-from src.cognitive.core.models import ComfyNode, WorkflowGraph
-from src.cognitive.core.delta import DeltaLayer, LIVRPS_PRIORITY, _compute_hash
-from src.cognitive.core.graph import CognitiveGraphEngine
+from cognitive.core.models import ComfyNode, WorkflowGraph
+from cognitive.core.delta import DeltaLayer, LIVRPS_PRIORITY, _compute_hash
+from cognitive.core.graph import CognitiveGraphEngine
 
 
 # ---------------------------------------------------------------------------

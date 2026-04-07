@@ -9,9 +9,9 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.cognitive.transport.schema_cache import SchemaCache, InputSpec
-from src.cognitive.transport.events import ExecutionEvent, EventType
-from src.cognitive.transport.interrupt import interrupt_execution, get_system_stats
+from cognitive.transport.schema_cache import SchemaCache, InputSpec
+from cognitive.transport.events import ExecutionEvent, EventType
+from cognitive.transport.interrupt import interrupt_execution, get_system_stats
 
 
 # ---------------------------------------------------------------------------
@@ -308,21 +308,21 @@ class TestExecutionEvent:
 
 class TestInterrupt:
 
-    @patch("src.cognitive.transport.interrupt.httpx.post")
+    @patch("cognitive.transport.interrupt.httpx.post")
     def test_successful_interrupt(self, mock_post):
         mock_post.return_value = MagicMock(status_code=200)
         ok, msg = interrupt_execution()
         assert ok is True
         assert "interrupted" in msg.lower()
 
-    @patch("src.cognitive.transport.interrupt.httpx.post")
+    @patch("cognitive.transport.interrupt.httpx.post")
     def test_interrupt_http_error(self, mock_post):
         mock_post.return_value = MagicMock(status_code=500)
         ok, msg = interrupt_execution()
         assert ok is False
         assert "500" in msg
 
-    @patch("src.cognitive.transport.interrupt.httpx.post")
+    @patch("cognitive.transport.interrupt.httpx.post")
     def test_interrupt_connect_error(self, mock_post):
         import httpx
         mock_post.side_effect = httpx.ConnectError("refused")
@@ -330,7 +330,7 @@ class TestInterrupt:
         assert ok is False
         assert "Could not connect" in msg
 
-    @patch("src.cognitive.transport.interrupt.httpx.get")
+    @patch("cognitive.transport.interrupt.httpx.get")
     def test_system_stats_success(self, mock_get):
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -340,7 +340,7 @@ class TestInterrupt:
         stats = get_system_stats()
         assert "devices" in stats
 
-    @patch("src.cognitive.transport.interrupt.httpx.get")
+    @patch("cognitive.transport.interrupt.httpx.get")
     def test_system_stats_error(self, mock_get):
         import httpx
         mock_get.side_effect = httpx.ConnectError("refused")

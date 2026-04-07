@@ -8,9 +8,9 @@ import time
 
 import pytest
 
-from src.cognitive.experience.chunk import ExperienceChunk, QualityScore
-from src.cognitive.experience.signature import GenerationContextSignature
-from src.cognitive.experience.accumulator import (
+from cognitive.experience.chunk import ExperienceChunk, QualityScore
+from cognitive.experience.signature import GenerationContextSignature
+from cognitive.experience.accumulator import (
     ExperienceAccumulator,
     LearningPhase,
 )

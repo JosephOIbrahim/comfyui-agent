@@ -23,6 +23,8 @@ from pathlib import Path
 
 import jsonpatch
 
+from cognitive.core.graph import CognitiveGraphEngine
+
 from ._util import to_json
 from ..workflow_session import get_session
 
@@ -38,14 +40,9 @@ _state_lock = _state._lock
 _MAX_HISTORY = 50
 
 
-def _try_create_engine(workflow_data: dict):
-    """Try to create a CognitiveGraphEngine. Returns None on failure."""
-    try:
-        from src.cognitive.core.graph import CognitiveGraphEngine
-        return CognitiveGraphEngine(workflow_data)
-    except (ImportError, Exception) as exc:
-        log.debug("CognitiveGraphEngine not available: %s", exc)
-        return None
+def _create_engine(workflow_data: dict) -> CognitiveGraphEngine:
+    """Create a CognitiveGraphEngine for the given workflow."""
+    return CognitiveGraphEngine(workflow_data)
 
 
 def _get_engine():
@@ -118,7 +115,7 @@ def _load_workflow(path_str: str) -> str | None:
     _state["history"] = []
 
     # Create engine from the loaded workflow (session-scoped)
-    _set_engine(_try_create_engine(api_nodes))
+    _set_engine(_create_engine(api_nodes))
 
     return None
 
@@ -436,7 +433,7 @@ def _handle_apply_patch(tool_input: dict) -> str:
 
         # Rebuild engine from current state to keep it in sync
         if engine is not None:
-            _set_engine(_try_create_engine(_state["current_workflow"]))
+            _set_engine(_create_engine(_state["current_workflow"]))
 
     # Build change report
     changes = []
@@ -505,7 +502,7 @@ def _handle_undo() -> str:
             _sync_state_from_engine()
         else:
             # Engine stack empty but history had entries — rebuild engine
-            _set_engine(_try_create_engine(_state["current_workflow"]))
+            _set_engine(_create_engine(_state["current_workflow"]))
 
     remaining = len(
         jsonpatch.make_patch(_state["base_workflow"], _state["current_workflow"]).patch
@@ -590,7 +587,7 @@ def _handle_reset() -> str:
 
     # Reset engine from base workflow
     if _get_engine() is not None:
-        _set_engine(_try_create_engine(_state["base_workflow"]))
+        _set_engine(_create_engine(_state["base_workflow"]))
 
     return to_json({
         "reset": True,
@@ -849,7 +846,7 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
         _state["history"] = []
 
         # Create engine from loaded workflow (session-scoped)
-        _set_engine(_try_create_engine(nodes))
+        _set_engine(_create_engine(nodes))
 
     return None
 

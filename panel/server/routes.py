@@ -398,7 +398,7 @@ def setup_routes():
             rejected = _guard(request, "read")
             if rejected:
                 return rejected
-            from src.cognitive.experience.accumulator import ExperienceAccumulator
+            from cognitive.experience.accumulator import ExperienceAccumulator
             acc = ExperienceAccumulator()
             return web.json_response(acc.get_stats())
         except ImportError:

@@ -6,16 +6,16 @@ degradation, retry, ratchet direction, and zero-intervention mode.
 
 import pytest
 
-from src.cognitive.pipeline.autonomous import (
+from cognitive.pipeline.autonomous import (
     AutonomousPipeline,
     PipelineConfig,
     PipelineStage,
 )
-from src.cognitive.experience.accumulator import ExperienceAccumulator
-from src.cognitive.experience.chunk import QualityScore
-from src.cognitive.prediction.cwm import CognitiveWorldModel
-from src.cognitive.prediction.arbiter import SimulationArbiter
-from src.cognitive.prediction.counterfactual import CounterfactualGenerator
+from cognitive.experience.accumulator import ExperienceAccumulator
+from cognitive.experience.chunk import QualityScore
+from cognitive.prediction.cwm import CognitiveWorldModel
+from cognitive.prediction.arbiter import SimulationArbiter
+from cognitive.prediction.counterfactual import CounterfactualGenerator
 
 
 # ---------------------------------------------------------------------------
