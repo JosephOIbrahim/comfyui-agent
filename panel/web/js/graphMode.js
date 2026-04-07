@@ -19,7 +19,7 @@ export function createGraphMode(container, client) {
     stats.className = "sdp-graph__stats";
 
     if (!state.has_workflow) {
-      stats.innerHTML = `<span style="color:var(--p-text-muted)">No workflow loaded</span>`;
+      stats.innerHTML = `<span style="color:var(--cz-text-muted)">No workflow loaded</span>`;
       el.appendChild(stats);
       return;
     }
@@ -36,7 +36,7 @@ export function createGraphMode(container, client) {
           ? state.integrity.intact
             ? `<span class="sdp-integrity--ok">\u2713 verified</span>`
             : `<span class="sdp-integrity--fail">\u2717 tampered</span>`
-          : `<span style="color:var(--p-text-muted)">\u2014</span>`
+          : `<span style="color:var(--cz-text-muted)">\u2014</span>`
       }</span>
     `;
     el.appendChild(stats);
@@ -46,8 +46,8 @@ export function createGraphMode(container, client) {
       const nodesSection = document.createElement("div");
       nodesSection.style.display = "flex";
       nodesSection.style.flexDirection = "column";
-      nodesSection.style.gap = "var(--p-2)";
-      nodesSection.style.marginTop = "var(--p-4)";
+      nodesSection.style.gap = "var(--cz-2)";
+      nodesSection.style.marginTop = "var(--cz-4)";
 
       for (const [nid, node] of Object.entries(state.nodes)) {
         nodesSection.appendChild(_nodeCard(nid, node, state.deltas, client));
@@ -58,7 +58,7 @@ export function createGraphMode(container, client) {
     // Delta history
     if (state.deltas && state.deltas.length > 0) {
       const deltaSection = document.createElement("div");
-      deltaSection.style.marginTop = "var(--p-5)";
+      deltaSection.style.marginTop = "var(--cz-5)";
       _section(deltaSection, "Delta History");
 
       for (const delta of [...state.deltas].reverse()) {
@@ -68,8 +68,8 @@ export function createGraphMode(container, client) {
       // Controls
       const controls = document.createElement("div");
       controls.style.display = "flex";
-      controls.style.gap = "var(--p-2)";
-      controls.style.marginTop = "var(--p-3)";
+      controls.style.gap = "var(--cz-2)";
+      controls.style.marginTop = "var(--cz-3)";
 
       const rollbackBtn = document.createElement("button");
       rollbackBtn.className = "sdp-btn";
@@ -90,7 +90,7 @@ export function createGraphMode(container, client) {
       const state = await client.getGraphState();
       render(state);
     } catch (e) {
-      el.innerHTML = `<div style="color:var(--p-text-muted);padding:var(--p-4)">Could not load graph state</div>`;
+      el.innerHTML = `<div style="color:var(--cz-text-muted);padding:var(--cz-4)">Could not load graph state</div>`;
     }
   }
 
@@ -171,7 +171,7 @@ function _nodeCard(nid, node, deltas, client) {
         const badge = document.createElement("span");
         badge.className = "sdp-opinion";
         badge.textContent = `(${op})`;
-        badge.style.color = `var(--p-opinion-${op})`;
+        badge.style.color = `var(--cz-opinion-${op})`;
         valEl.appendChild(badge);
       }
 
@@ -266,13 +266,13 @@ function _deltaRow(delta) {
   const chevron = document.createElement("span");
   chevron.textContent = "\u25B8";
   chevron.style.fontSize = "10px";
-  chevron.style.transition = "transform var(--p-ease)";
+  chevron.style.transition = "transform var(--cz-ease)";
   row.appendChild(chevron);
 
   const opinion = document.createElement("span");
   opinion.className = "sdp-delta__opinion";
   opinion.textContent = delta.opinion;
-  opinion.style.color = `var(--p-opinion-${delta.opinion})`;
+  opinion.style.color = `var(--cz-opinion-${delta.opinion})`;
   row.appendChild(opinion);
 
   const desc = document.createElement("span");

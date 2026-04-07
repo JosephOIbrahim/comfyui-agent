@@ -10,7 +10,7 @@ export function createExperienceDash(container, client) {
       const data = await client.getExperience();
       render(data);
     } catch (e) {
-      el.innerHTML = `<div style="color:var(--p-text-muted);padding:var(--p-4)">Could not load experience data</div>`;
+      el.innerHTML = `<div style="color:var(--cz-text-muted);padding:var(--cz-4)">Could not load experience data</div>`;
     }
   }
 
@@ -46,7 +46,7 @@ export function createExperienceDash(container, client) {
     // Stats
     if (data.avg_quality !== undefined || data.best_quality !== undefined) {
       const statsSection = document.createElement("div");
-      statsSection.style.marginTop = "var(--p-4)";
+      statsSection.style.marginTop = "var(--cz-4)";
       _section(statsSection, "Quality Stats");
 
       const statsLine = document.createElement("div");
@@ -65,7 +65,7 @@ export function createExperienceDash(container, client) {
     // Generation counts
     if (data.successful !== undefined) {
       const countsSection = document.createElement("div");
-      countsSection.style.marginTop = "var(--p-4)";
+      countsSection.style.marginTop = "var(--cz-4)";
       _section(countsSection, "Generations");
 
       const countsLine = document.createElement("div");
@@ -82,7 +82,7 @@ export function createExperienceDash(container, client) {
     // Prediction accuracy chart placeholder
     if (data.accuracy_history && data.accuracy_history.length > 0) {
       const chartSection = document.createElement("div");
-      chartSection.style.marginTop = "var(--p-4)";
+      chartSection.style.marginTop = "var(--cz-4)";
       _section(chartSection, "Prediction Accuracy");
       chartSection.appendChild(_drawChart(data.accuracy_history));
       el.appendChild(chartSection);
@@ -91,7 +91,7 @@ export function createExperienceDash(container, client) {
     // Message if empty
     if (!data.total_generations) {
       const msg = document.createElement("div");
-      msg.style.cssText = "color:var(--p-text-muted);font-size:var(--p-body-sm);margin-top:var(--p-4)";
+      msg.style.cssText = "color:var(--cz-text-muted);font-size:var(--cz-body-sm);margin-top:var(--cz-4)";
       msg.textContent = data.message || "No experience data yet. Generate some images to start learning.";
       el.appendChild(msg);
     }

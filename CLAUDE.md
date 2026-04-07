@@ -28,7 +28,7 @@ ruff format agent/ tests/                  # Format
     "comfyui-agent": {
       "command": "agent",
       "args": ["mcp"],
-      "cwd": "C:/Users/User/comfyui-agent"
+      "cwd": "G:/Comfy-Cozy"
     }
   }
 }

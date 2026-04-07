@@ -10,7 +10,7 @@ export function createAutoresearchMonitor(container, client) {
       const data = await client.getAutoresearch();
       render(data);
     } catch (e) {
-      el.innerHTML = `<div style="color:var(--p-text-muted);padding:var(--p-4)">Could not load autoresearch data</div>`;
+      el.innerHTML = `<div style="color:var(--cz-text-muted);padding:var(--cz-4)">Could not load autoresearch data</div>`;
     }
   }
 
@@ -19,7 +19,7 @@ export function createAutoresearchMonitor(container, client) {
 
     if (data.status === "idle" || !data.title) {
       const msg = document.createElement("div");
-      msg.style.cssText = "color:var(--p-text-muted);font-size:var(--p-body-sm)";
+      msg.style.cssText = "color:var(--cz-text-muted);font-size:var(--cz-body-sm)";
       msg.textContent = data.message || "No autoresearch run active. Start one from the chat with a prompt like: \"optimize this portrait workflow overnight\"";
       el.appendChild(msg);
       return;
@@ -54,7 +54,7 @@ export function createAutoresearchMonitor(container, client) {
     // Quality trajectory chart
     if (data.quality_trajectory && data.quality_trajectory.length > 0) {
       const chartSection = document.createElement("div");
-      chartSection.style.marginTop = "var(--p-4)";
+      chartSection.style.marginTop = "var(--cz-4)";
       _sectionLabel(chartSection, "Quality Trajectory");
       chartSection.appendChild(_drawTrajectory(data.quality_trajectory));
       el.appendChild(chartSection);
@@ -63,7 +63,7 @@ export function createAutoresearchMonitor(container, client) {
     // Winning parameters
     if (data.winning_params && Object.keys(data.winning_params).length > 0) {
       const paramsSection = document.createElement("div");
-      paramsSection.style.marginTop = "var(--p-4)";
+      paramsSection.style.marginTop = "var(--cz-4)";
       _sectionLabel(paramsSection, "Winning Parameters");
 
       for (const [param, info] of Object.entries(data.winning_params)) {
@@ -96,7 +96,7 @@ export function createAutoresearchMonitor(container, client) {
     if (data.variants_tried !== undefined) {
       const summary = document.createElement("div");
       summary.className = "sdp-stats-line";
-      summary.style.marginTop = "var(--p-4)";
+      summary.style.marginTop = "var(--cz-4)";
       summary.innerHTML = `
         <span>Tried: <span class="sdp-stats-line__val">${data.variants_tried}</span></span>
         <span class="sdp-stats-line__sep">\u00b7</span>
@@ -110,7 +110,7 @@ export function createAutoresearchMonitor(container, client) {
     // Actions
     const actions = document.createElement("div");
     actions.className = "sdp-research__actions";
-    actions.style.marginTop = "var(--p-3)";
+    actions.style.marginTop = "var(--cz-3)";
 
     if (data.status === "complete") {
       const applyBtn = document.createElement("button");
