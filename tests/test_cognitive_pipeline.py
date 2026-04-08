@@ -6,6 +6,8 @@ degradation, retry, ratchet direction, and zero-intervention mode.
 
 import pytest
 
+import cognitive.pipeline.autonomous as _auto_mod
+from cognitive.pipeline import create_default_pipeline
 from cognitive.pipeline.autonomous import (
     AutonomousPipeline,
     PipelineConfig,
@@ -265,3 +267,38 @@ class TestFullPipeline:
         assert all(r.success for r in results)
         # Experience should grow
         assert pipeline._accumulator.generation_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap Factory
+# ---------------------------------------------------------------------------
+
+class TestCreateDefaultPipeline:
+
+    def test_returns_autonomous_pipeline(self):
+        p = create_default_pipeline()
+        assert isinstance(p, AutonomousPipeline)
+
+    def test_components_are_correct_types(self):
+        p = create_default_pipeline()
+        assert isinstance(p._accumulator, ExperienceAccumulator)
+        assert isinstance(p._cwm, CognitiveWorldModel)
+        assert isinstance(p._arbiter, SimulationArbiter)
+        assert isinstance(p._cf_gen, CounterfactualGenerator)
+
+    def test_two_calls_return_independent_pipelines(self):
+        p1 = create_default_pipeline()
+        p2 = create_default_pipeline()
+        assert p1 is not p2
+        assert p1._accumulator is not p2._accumulator
+
+    def test_pipeline_can_run_after_create(self, monkeypatch):
+        """create_default_pipeline() returns a pipeline that can run()."""
+        monkeypatch.setattr(
+            _auto_mod,
+            "_execute_workflow_default",
+            lambda wf: type("R", (), {"success": True, "output_filenames": []})(),
+        )
+        p = create_default_pipeline()
+        result = p.run(PipelineConfig(intent="test intent"))
+        assert result.stage == PipelineStage.COMPLETE
