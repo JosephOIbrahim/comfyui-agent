@@ -15,3 +15,5 @@
 - [x] 11. Autoresearch Runner — autoresearch_runner.py + test_autoresearch_runner.py (15 tests)
 - [x] 12. Autoresearch CLI — cli.py updated with --program, --budget-hours, --max-experiments, --report, --resume
 - [x] 13. Orchestrate CLI — cli.py updated with scene composition + validation + experience recording steps
+- [ ] 14. Fix test_health.py mock leak — 4 failing tests (MEDIUM, target 2717 passing)
+- [ ] 15. Windows grep portability — test_workflow_patch_engine_live.py subprocess→pathlib (LOW, target 2718 passing)
