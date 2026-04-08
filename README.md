@@ -63,14 +63,12 @@ cd Comfy-Cozy
 ### Step 2: Install it
 
 ```bash
-pip install -e .
+pip install -e .                  # core install
+pip install -e ".[dev]"           # + test suite (2673 passing tests)
+pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, optional)
 ```
 
-That's it. One command. If you want to run the test suite too:
-
-```bash
-pip install -e ".[dev]"
-```
+The default install gives you the agent + cognitive engine + panel. Add `[dev]` to run the tests. Add `[stage]` only if you need the USD-backed provisioner (heavy native dep — most users don't).
 
 ### Step 3: Add your API key
 
@@ -457,6 +455,51 @@ All workflow changes are non-destructive layers. When two opinions conflict:
 
 Your edit beats experience. Safety beats everything. Every conflict is deterministic, transparent, and reversible.
 
+This is an intentional inversion of USD's native LIVRPS (where Specializes is weakest). Safety is promoted to strongest for safety-critical override -- the architectural decision documented in the patent application.
+
+### Cognitive State Engine (Phase 0.5 — live in production)
+
+LIVRPS is no longer a table on a slide. Since Phase 0.5 the engine is a real top-level package (`cognitive/`) installed alongside `agent/`, and `agent/tools/workflow_patch.py` imports it directly at module load — no try/except, no silent fallback. Every PILOT mutation is recorded as a delta layer with SHA-256 tamper detection, then resolved on demand.
+
+```mermaid
+graph LR
+    User([Tool Call<br/>via MCP]) --> WP["agent/tools/<br/>workflow_patch.py"]
+    WP -->|"from cognitive.core.graph<br/>import CognitiveGraphEngine"| CGE["CognitiveGraphEngine<br/>(session-scoped)"]
+    CGE --> Stack["Delta Stack<br/>P → R → V → I → L → S"]
+    Stack -->|"sort weakest→strongest<br/>apply, preserve link arrays"| Resolved["Resolved WorkflowGraph"]
+    Resolved -->|"to_api_json()"| Comfy["ComfyUI /prompt"]
+
+    style User fill:#0066FF,color:#fff
+    style WP fill:#3b82f6,color:#fff
+    style CGE fill:#8b5cf6,color:#fff
+    style Stack fill:#d97706,color:#fff
+    style Resolved fill:#10b981,color:#fff
+    style Comfy fill:#ef4444,color:#fff
+```
+
+The `cognitive/` package is layered by phase — the core engine (Phase 1) is fully tested at 54/54 adversarial cases; later phases are present on disk and being verified incrementally.
+
+```mermaid
+graph TB
+    Cognitive["cognitive/<br/>(installed top-level package)"]
+    Cognitive --> Core["core/<br/>graph · delta · models<br/>54/54 tests passing"]
+    Cognitive --> Exp["experience/<br/>chunk · signature · accumulator"]
+    Cognitive --> Pred["prediction/<br/>cwm · arbiter · counterfactual"]
+    Cognitive --> Trans["transport/<br/>schema_cache · events · interrupt"]
+    Cognitive --> Pipe["pipeline/<br/>autonomous"]
+    Cognitive --> Tools["tools/<br/>analyze · mutate · query · compose<br/>execute · series · research · dependencies"]
+
+    style Cognitive fill:#8b5cf6,color:#fff
+    style Core fill:#0066FF,color:#fff
+    style Exp fill:#3b82f6,color:#fff
+    style Pred fill:#d97706,color:#fff
+    style Trans fill:#10b981,color:#fff
+    style Pipe fill:#ef4444,color:#fff
+    style Tools fill:#3b82f6,color:#fff
+```
+
+Each delta layer carries its `creation_hash` (SHA-256 of `opinion + sorted-JSON mutations`). `verify_stack_integrity()` walks the stack and flags any layer whose `layer_hash` no longer matches its `creation_hash` — making post-hoc tampering detectable. Link arrays (`["node_id", output_index]`) are preserved through every parse/mutate/serialize round-trip, which is the #1 failure mode in ComfyUI agents.
+
 ### Graceful Degradation
 
 Every subsystem has an independent kill switch. Set any of these to `0` in your `.env` to disable:
@@ -510,20 +553,28 @@ flowchart LR
 
 ```
 agent/
-  llm/               Multi-provider abstraction (Anthropic, OpenAI, Gemini, Ollama)
+  llm/                Multi-provider abstraction (Anthropic, OpenAI, Gemini, Ollama)
   tools/              63 tools — workflow ops, model search, provisioning, auto-wire
+                      workflow_patch.py wraps the cognitive engine for non-destructive PILOT
   brain/              27 tools — vision, planning, memory, optimization
     adapters/         Pure-function translators between brain modules
-  stage/              23 tools — USD state, prediction, composition
+  stage/              23 tools — USD state, prediction, composition (USD optional via [stage])
     dag/              Workflow intelligence (6 computation nodes)
   gate/               Pre-dispatch safety (5-check pipeline)
   degradation.py      Fault isolation manager
   config.py           Environment + 8 kill switches + LLM provider selection
   mcp_server.py       MCP server (primary interface)
+cognitive/            LIVRPS state engine — installed as top-level package (Phase 0.5)
+  core/               CognitiveGraphEngine, DeltaLayer, WorkflowGraph (link-preserving)
+  experience/         ExperienceChunk, GenerationContextSignature, Accumulator
+  prediction/         CognitiveWorldModel, SimulationArbiter, CounterfactualGenerator
+  transport/          SchemaCache, ExecutionEvent, interrupt, system_stats
+  pipeline/           Autonomous end-to-end orchestration
+  tools/              Phase 3 macro-tools (analyze, mutate, query, compose, ...)
 panel/
   server/routes.py    49 REST routes — full tool surface
   web/js/             Panel UI — chat, graph inspector, model browser
-tests/                2600+ tests, all mocked, <30s
+tests/                2673 passing tests, all mocked, ~53s under .venv312
 ```
 
 ### Production Hardening
@@ -564,8 +615,10 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 2600+ tests, under 30 seconds
+python -m pytest tests/ -v        # 2673 passing tests, ~53s
 ```
+
+The default `[dev]` install runs all 2673 tests. The 27 `test_provisioner.py` collection errors and 4 `test_health.py` failures are pre-existing known issues tracked in `MIGRATION_MAP_2026-04-07.md`. Adding `[stage]` resolves the provisioner errors by installing `usd-core`.
 
 ---
 
