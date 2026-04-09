@@ -53,7 +53,10 @@ _cache_lock: threading.Lock = threading.Lock()
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Read and parse a YAML file with explicit UTF-8 encoding."""
     with open(path, encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+        try:
+            data = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Profile at {path} contains invalid YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Profile at {path} did not parse to a dict")
     return data
