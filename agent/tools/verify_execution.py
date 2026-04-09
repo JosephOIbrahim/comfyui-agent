@@ -430,6 +430,10 @@ def _verify_prompt(
         "outputs": outputs,
         "output_count": len(outputs),
         "all_exist": all_exist,
+        # True only when ComfyUI reported success AND all output files exist on disk.
+        # "status == complete" alone is insufficient — ComfyUI can report success
+        # with zero outputs (e.g., failed save node, misrouted subfolder).
+        "outputs_verified": mapped_status == "complete" and all_exist and bool(outputs),
         "vision_analysis": vision_analysis,
         "outcome_recorded": outcome_recorded,
         "workflow_hash": workflow_hash,

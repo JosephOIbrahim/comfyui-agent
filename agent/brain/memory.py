@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -27,6 +28,18 @@ OUTCOME_BACKUP_COUNT = 5
 # Temporal decay: outcomes older than this half-life contribute less to aggregations.
 # Default: 7 days. Recent outcomes matter more than ancient ones.
 DECAY_HALF_LIFE_S = 7 * 24 * 3600  # 604800 seconds
+
+# Per-session write locks — prevents interleaved JSONL lines from concurrent tool dispatch.
+_outcomes_locks: dict[str, threading.Lock] = {}
+_outcomes_locks_mutex = threading.Lock()
+
+
+def _get_outcomes_lock(session: str) -> threading.Lock:
+    """Return (creating if needed) the write lock for a given session's JSONL file."""
+    with _outcomes_locks_mutex:
+        if session not in _outcomes_locks:
+            _outcomes_locks[session] = threading.Lock()
+        return _outcomes_locks[session]
 
 
 def _temporal_weight(timestamp: float, now: float | None = None) -> float:
@@ -243,18 +256,25 @@ class MemoryAgent(BrainAgent):
         return all_outcomes
 
     def _append_outcome(self, session: str, outcome: dict) -> None:
-        """Append an outcome to the JSONL file, rotating if size exceeded."""
-        path = self._outcomes_path(session)
-        if path.exists():
-            try:
-                if path.stat().st_size > OUTCOME_MAX_BYTES:
-                    _rotate_outcomes(path)
-            except OSError:
-                pass
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(outcome, sort_keys=True) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        """Append an outcome to the JSONL file, rotating if size exceeded.
+
+        Thread-safe: per-session lock prevents interleaved writes from concurrent
+        tool dispatch (e.g., two record_outcome calls for the same session in a
+        ThreadPoolExecutor context).
+        """
+        lock = _get_outcomes_lock(session)
+        with lock:
+            path = self._outcomes_path(session)
+            if path.exists():
+                try:
+                    if path.stat().st_size > OUTCOME_MAX_BYTES:
+                        _rotate_outcomes(path)
+                except OSError:
+                    pass
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(outcome, sort_keys=True) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
 
     # --- Handlers ---
 
