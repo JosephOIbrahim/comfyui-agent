@@ -14,6 +14,13 @@ try:
     # but ComfyUI only puts `panel/`'s parent (custom_nodes/) on sys.path.
     # Resolve the real Comfy-Cozy root via the symlinked file location and
     # prepend it so `from agent...` imports work.
+    #
+    # NOTE on intentional duplication: panel/server/chat.py and ui/server/routes.py
+    # also inject project root into sys.path, but they do so lazily inside
+    # _ensure_brain() (called at WebSocket/HTTP request time, not import time).
+    # This call runs at ComfyUI node-load time — before any request arrives — so
+    # all three guards are needed. The `if x not in sys.path` check prevents
+    # multiple insertions within the same process.
     import os, sys
     _cozy_root = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     if _cozy_root not in sys.path:

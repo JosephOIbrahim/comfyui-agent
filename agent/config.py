@@ -28,6 +28,10 @@ if ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
 # MCP auth token (optional — for future HTTP/SSE transport auth)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
 
+# Third-party API keys (optional — improve rate limits for external services)
+CIVITAI_API_KEY = os.getenv("CIVITAI_API_KEY")    # Optional — improves CivitAI rate limits
+GITHUB_API_TOKEN = os.getenv("GITHUB_API_TOKEN")   # Optional — improves GitHub API rate limits
+
 # Model selection — if not set, uses the default for the active LLM_PROVIDER.
 # Defaults per provider: anthropic=claude-sonnet-4-20250514, openai=gpt-4o,
 # gemini=gemini-2.5-flash, ollama=llama3.1
@@ -133,6 +137,9 @@ COMFYUI_BLUEPRINTS_DIR = COMFYUI_INSTALL_DIR / "blueprints"
 
 # Model catalog (rich metadata about installed models)
 MODEL_CATALOG_PATH = COMFYUI_DATABASE / "model_catalog.json"
+
+# Experience accumulator persistence — JSONL file that survives between sessions
+EXPERIENCE_FILE = COMFYUI_DATABASE / "comfy-cozy-experience.jsonl"
 
 # Auto-initialization (see startup.py)
 AUTO_SCAN_MODELS = os.getenv("AUTO_SCAN_MODELS", "false").lower() == "true"

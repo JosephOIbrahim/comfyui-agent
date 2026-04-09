@@ -139,6 +139,8 @@ tests/             # 2000+ tests, all mocked, pytest + pytest-asyncio
 
 **Tool module pattern:** Every module in `tools/` and `brain/` exports `TOOLS: list[dict]` + `handle(name, tool_input) -> str`. Registration in `tools/__init__.py` and `brain/__init__.py`.
 
+**Exception — `cognitive/tools/`:** This layer intentionally uses standalone async functions (e.g. `analyze_workflow()`, `execute_workflow()`) rather than the TOOLS+handle() pattern. Cognitive tools are consumed directly by the cognitive pipeline (`cognitive/pipeline/`) — they are not registered in the MCP/agent tool registry and are never called through `handle()`. This is by design: the cognitive layer is forbidden from importing `agent.*` to keep the dependency boundary clean.
+
 ## Key Conventions
 
 - **Deterministic JSON**: `sort_keys=True` everywhere (He2025 pattern). Use `_util.py:to_json()`.

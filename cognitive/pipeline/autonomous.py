@@ -31,6 +31,7 @@ from ..prediction.counterfactual import CounterfactualGenerator
 from ..tools.analyze import analyze_workflow
 from ..tools.compose import compose_workflow
 from ..tools.execute import execute_workflow as _execute_workflow_default
+from agent.config import EXPERIENCE_FILE
 
 
 _FALLBACK_WORKFLOW_SD15: dict = {
@@ -340,6 +341,13 @@ class AutonomousPipeline:
         self._accumulator.record(chunk)
         result.experience_chunk = chunk
         result.log(f"Recorded experience (total: {self._accumulator.generation_count})")
+
+        # Persist accumulated experience so it survives between sessions
+        try:
+            saved = self._accumulator.save(str(EXPERIENCE_FILE))
+            result.log(f"Experience persisted ({saved} chunks → {EXPERIENCE_FILE.name})")
+        except OSError as _exc:
+            result.log(f"Experience save failed (non-fatal): {_exc}")
 
         # Record prediction accuracy
         if result.quality.is_scored and result.prediction is not None:

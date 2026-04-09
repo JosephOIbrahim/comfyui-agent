@@ -8,19 +8,18 @@ API reference: https://github.com/civitai/civitai/wiki/REST-API-Reference
 """
 
 import logging
-import os
 import re
 
 import httpx
 
-from ..config import MODELS_DIR
+from ..config import CIVITAI_API_KEY, MODELS_DIR
 from ..rate_limiter import CIVITAI_LIMITER
 from ._util import to_json
 
 log = logging.getLogger(__name__)
 
 CIVITAI_API = "https://civitai.com/api/v1"
-CIVITAI_API_KEY = os.getenv("CIVITAI_API_KEY")  # Optional — improves rate limits
+# CIVITAI_API_KEY imported from agent.config — set CIVITAI_API_KEY in .env to improve rate limits
 
 # Our lowercase types -> CivitAI API enum values
 _TYPE_MAP = {

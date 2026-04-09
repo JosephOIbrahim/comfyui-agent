@@ -10,19 +10,20 @@ Optional: GITHUB_API_TOKEN env var for higher rate limits.
 
 import json
 import logging
-import os
 import re
 import subprocess
 
 import httpx
 
+from ..config import GITHUB_API_TOKEN
 from ..rate_limiter import GITHUB_LIMITER
 from ._util import to_json
 
 log = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
-GITHUB_TOKEN = os.getenv("GITHUB_API_TOKEN")
+# GITHUB_API_TOKEN imported from agent.config — set GITHUB_API_TOKEN in .env for higher rate limits
+GITHUB_TOKEN = GITHUB_API_TOKEN
 
 # ---------------------------------------------------------------------------
 # Tool schemas

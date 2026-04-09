@@ -65,7 +65,7 @@ packages = ["agent", "cognitive"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "integration: end-to-end integration tests exercising the full tool pipeline",
+    "integration: marks tests requiring a real ComfyUI server, real API keys, or real filesystem (not mocked). Exclude in CI with -m 'not integration'.",
 ]
 
 [tool.coverage.run]

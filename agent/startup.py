@@ -19,10 +19,16 @@ When AUTO_SCAN_WORKFLOWS is enabled, the agent:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+
+from .config import (
+    AUTO_LOAD_SESSION,
+    AUTO_LOAD_WORKFLOW,
+    AUTO_SCAN_MODELS,
+    AUTO_SCAN_WORKFLOWS,
+)
 
 if TYPE_CHECKING:
     from .session_context import SessionContext
@@ -30,13 +36,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Config flags (read from env / .env)
+# Config flags — imported from agent.config (which reads from .env)
 # ---------------------------------------------------------------------------
-
-AUTO_SCAN_MODELS = os.getenv("AUTO_SCAN_MODELS", "false").lower() == "true"
-AUTO_SCAN_WORKFLOWS = os.getenv("AUTO_SCAN_WORKFLOWS", "false").lower() == "true"
-AUTO_LOAD_WORKFLOW = os.getenv("AUTO_LOAD_WORKFLOW", "")
-AUTO_LOAD_SESSION = os.getenv("AUTO_LOAD_SESSION", "")
 
 # Guard: only run auto-init once per process
 _initialized = False
