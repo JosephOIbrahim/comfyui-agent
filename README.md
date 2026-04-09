@@ -278,6 +278,39 @@ The agent ships with built-in knowledge about how each model family actually beh
 ## How It Works
 
 ```mermaid
+graph TB
+    subgraph Browser ["ComfyUI Browser"]
+        Panel["Comfy Cozy Panel<br/>APP · GRAPH · Browse"]
+    end
+    subgraph Backend ["Agent Backend (Python)"]
+        Routes["49 REST Routes<br/>+ WebSocket"]
+        Tools["113 Tools<br/>workflow · models · vision · session"]
+        Cog["Cognitive Engine<br/>LIVRPS delta stack · CWM · experience"]
+    end
+    subgraph ComfyUI ["ComfyUI"]
+        API["/prompt · /history · /ws"]
+        Canvas["Live Canvas"]
+    end
+    subgraph Disk ["Persistence"]
+        EXP[("experience.jsonl<br/>cross-session learning")]
+        Sessions[("sessions/<br/>workflow state")]
+    end
+
+    Panel <-->|"fetch / ws"| Routes
+    Panel <-->|"canvas sync"| Canvas
+    Routes --> Tools
+    Tools --> Cog
+    Tools -->|httpx| API
+    Cog --> EXP
+    Tools --> Sessions
+
+    style Browser fill:#1a1a2e,color:#F0F0F0,stroke:#0066FF
+    style Backend fill:#1a1a2e,color:#F0F0F0,stroke:#8b5cf6
+    style ComfyUI fill:#1a1a2e,color:#F0F0F0,stroke:#ef4444
+    style Disk fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
+```
+
+```mermaid
 graph LR
     You([You]) --> Agent[113 Tools]
     Agent --> Understand[UNDERSTAND<br/>What do you have?]
@@ -347,7 +380,23 @@ print(result.success, result.quality.overall, result.stage.value)
 - **No executor required.** The pipeline calls ComfyUI directly via the real `execute_workflow` implementation.
 - **No evaluator required.** Rule-based scoring (success = 0.7, failure = 0.1) enables CWM calibration from day one. Vision-based scoring comes in Session N+2.
 - **Template library.** Workflows are loaded from `agent/templates/` (SD 1.5 · SDXL · img2img · LoRA). If no template matches the detected model family, a hardcoded 7-node SD 1.5 fallback ensures the pipeline always has a valid starting point.
-- **Experience accumulates.** Every run's parameters and quality score are stored. After 30+ runs, the composition stage starts using your personal generation history to bias parameter selection.
+- **Experience persists across sessions.** Every run's quality score and parameters are saved to `comfy-cozy-experience.jsonl` in your `COMFYUI_DATABASE` folder and reloaded on the next startup. After 30+ runs, composition starts using your personal generation history to bias parameter selection.
+
+```mermaid
+graph LR
+    subgraph Session1 ["Session 1"]
+        I1["Intent"] --> C1["Compose"] --> E1["Execute"] --> S1["Score"]
+    end
+    subgraph Session2 ["Session 2+"]
+        I2["Intent"] --> C2["Compose\n(+prior runs)"] --> E2["Execute"] --> S2["Score"]
+    end
+    S1 -->|"save()"| JSONL[("experience.jsonl")]
+    JSONL -->|"load() on startup"| C2
+    S2 -->|"save() — cumulative"| JSONL
+
+    style JSONL fill:#8b5cf6,color:#fff
+    style C2 fill:#10b981,color:#fff
+```
 
 ---
 
@@ -623,7 +672,7 @@ cognitive/            LIVRPS state engine — installed as top-level package (Ph
 panel/
   server/routes.py    49 REST routes — full tool surface
   web/js/             Panel UI — chat, graph inspector, model browser
-tests/                2705 passing tests, all mocked, ~60s
+tests/                2717 passing tests, all mocked, ~60s
 ```
 
 ### Production Hardening
@@ -664,10 +713,13 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 2717 passing tests
+python -m pytest tests/ -v        # 2717 passing tests, ~60s
+
+# Skip tests that require a real ComfyUI server or API keys
+python -m pytest tests/ -v -m "not integration"
 ```
 
-The `[dev]` install runs the full test suite — no ComfyUI server or API keys required, everything is mocked. The 27 `test_provisioner.py` collection errors are a pre-existing known issue tracked in `MIGRATION_MAP_2026-04-07.md`. Adding `[stage]` resolves them by installing `usd-core`.
+The `[dev]` install runs the full test suite — no ComfyUI server or API keys required, everything is mocked. The 27 `test_provisioner.py` collection errors require `usd-core` (install with `pip install -e ".[stage]"` to resolve them).
 
 ---
 
