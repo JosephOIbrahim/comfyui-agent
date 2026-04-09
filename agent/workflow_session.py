@@ -143,6 +143,7 @@ class WorkflowSession:
 
 _sessions: dict[str, WorkflowSession] = {}
 _registry_lock = threading.Lock()
+_MAX_SESSIONS = 100  # Evict oldest non-default when cap is reached
 
 
 def get_session(session_id: str = "default") -> WorkflowSession:
@@ -150,9 +151,19 @@ def get_session(session_id: str = "default") -> WorkflowSession:
 
     Thread-safe: concurrent calls with the same session_id return
     the same WorkflowSession instance.
+
+    Eviction: when _MAX_SESSIONS is reached, the oldest non-default
+    session is removed to prevent unbounded memory growth in long-running
+    MCP servers with many unique connection IDs.
     """
     with _registry_lock:
         if session_id not in _sessions:
+            if len(_sessions) >= _MAX_SESSIONS:
+                # Evict the oldest non-default entry (dict preserves insertion order)
+                for oldest_id in _sessions:
+                    if oldest_id != "default":
+                        del _sessions[oldest_id]
+                        break
             _sessions[session_id] = WorkflowSession(session_id)
         return _sessions[session_id]
 

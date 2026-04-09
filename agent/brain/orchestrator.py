@@ -261,8 +261,14 @@ class OrchestratorAgent(BrainAgent):
             finally:
                 executor.shutdown(wait=False)
 
-        future = executor.submit(self._run_subtask, task_id, profile, tool_calls)
-        future.add_done_callback(_on_done)
+        try:
+            future = executor.submit(self._run_subtask, task_id, profile, tool_calls)
+            future.add_done_callback(_on_done)
+        except Exception:
+            # submit() failed — cancel watchdog and release the executor immediately
+            timer.cancel()
+            executor.shutdown(wait=False)
+            raise
 
         return self.to_json({
             "spawned": True,

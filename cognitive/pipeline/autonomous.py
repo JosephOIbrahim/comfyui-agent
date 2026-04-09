@@ -35,7 +35,7 @@ from ..tools.execute import execute_workflow as _execute_workflow_default
 import os
 
 EXPERIENCE_FILE = (
-    Path(os.getenv("COMFYUI_DATABASE", "G:/COMFYUI_Database"))
+    Path(os.getenv("COMFYUI_DATABASE") or str(Path.home() / ".comfy-cozy"))
     / "comfy-cozy-experience.jsonl"
 )
 

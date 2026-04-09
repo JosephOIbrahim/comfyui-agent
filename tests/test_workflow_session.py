@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from agent.workflow_session import WorkflowSession, get_session, clear_sessions
+from agent.workflow_session import WorkflowSession, get_session, clear_sessions, _MAX_SESSIONS
 
 
 @pytest.fixture(autouse=True)
@@ -319,3 +319,63 @@ class TestDeepCopy:
         s.update(original)
         assert s["loaded_path"] == "/original.json"
         assert s["format"] == "api"
+
+
+# ---------------------------------------------------------------------------
+# Session registry eviction (G3 — unbounded growth fix)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionRegistryEviction:
+    """_MAX_SESSIONS cap: oldest non-default sessions are evicted when full."""
+
+    def test_default_session_never_evicted(self):
+        """The 'default' session must survive even when the cap is hit."""
+        default = get_session("default")
+        default["loaded_path"] = "/kept.json"
+
+        # Fill to cap with non-default sessions
+        for i in range(_MAX_SESSIONS):
+            get_session(f"conn_{i:04d}")
+
+        # default must still be the same object with the same data
+        still_default = get_session("default")
+        assert still_default is default
+        assert still_default["loaded_path"] == "/kept.json"
+
+    def test_oldest_non_default_evicted_at_cap(self):
+        """When the cap is hit, the oldest non-default session is removed."""
+        # Fill registry to exactly _MAX_SESSIONS non-default sessions
+        for i in range(_MAX_SESSIONS):
+            get_session(f"conn_{i:04d}")
+
+        # Capture a reference to conn_0000 (oldest non-default)
+        oldest = get_session("conn_0000")  # re-fetch, no new entry
+
+        # Adding one more triggers eviction of conn_0000 (oldest non-default)
+        get_session("conn_extra")
+
+        # conn_0000 was evicted; fetching it again creates a brand new object
+        new_obj = get_session("conn_0000")
+        assert new_obj is not oldest
+
+    def test_existing_session_not_evicted(self):
+        """get_session() for an already-registered ID never triggers eviction."""
+        from agent.workflow_session import _sessions
+
+        s = get_session("conn_kept")
+        s["loaded_path"] = "/data.json"
+        initial_count = len(_sessions)
+
+        # Re-fetching the same ID must not grow the registry or evict anything
+        s2 = get_session("conn_kept")
+        assert s2 is s
+        assert len(_sessions) == initial_count
+
+    def test_registry_stays_at_or_below_cap(self):
+        """After N >> _MAX_SESSIONS insertions, registry size stays bounded."""
+        for i in range(_MAX_SESSIONS * 3):
+            get_session(f"conn_{i:06d}")
+
+        from agent.workflow_session import _sessions
+        assert len(_sessions) <= _MAX_SESSIONS

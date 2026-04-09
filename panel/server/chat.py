@@ -24,18 +24,28 @@ log = logging.getLogger("comfy-cozy.chat")
 
 _brain_lock = threading.Lock()
 _brain_ready = False
+_brain_disabled = False  # Set True once when BRAIN_ENABLED=0 — prevents busy-wait re-entry
 _client = None
 
 
 def _ensure_brain():
-    """Lazily import the agent brain and create the LLM client."""
-    global _brain_ready, _client
+    """Lazily import the agent brain and create the LLM client.
+
+    Thread-safe double-check locking. Returns False immediately (no lock)
+    after the first call determines BRAIN_ENABLED=0, preventing repeated
+    lock contention on every WebSocket connection.
+    """
+    global _brain_ready, _brain_disabled, _client
     if _brain_ready:
         return True
+    if _brain_disabled:
+        return False
 
     with _brain_lock:
         if _brain_ready:
             return True
+        if _brain_disabled:
+            return False
 
         try:
             project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -44,6 +54,7 @@ def _ensure_brain():
 
             from agent.config import BRAIN_ENABLED
             if not BRAIN_ENABLED:
+                _brain_disabled = True
                 log.info("Panel chat: BRAIN_ENABLED=0, skipping brain load")
                 return False
 
@@ -279,7 +290,7 @@ async def websocket_handler(request):
     if auth_err is not None:
         return auth_err
 
-    # P1-D: Reject when the connection table is at capacity.
+    # P1-D: Reject when the connection table is at capacity (pre-handshake fast path).
     if len(_conversations) >= _MAX_WS_CONNECTIONS:
         return web.Response(
             status=503,
@@ -290,6 +301,14 @@ async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
 
+    # P1-D (TOCTOU guard): re-check after the await — other coroutines may have
+    # connected between the first check and ws.prepare(). asyncio is single-threaded
+    # so no await between this check and the _conversations insert below.
+    if len(_conversations) >= _MAX_WS_CONNECTIONS:
+        await ws.send_json({"type": "error", "message": "Too many active connections"})
+        await ws.close()
+        return ws
+
     if not _ensure_brain():
         await ws.send_json({
             "type": "error",
@@ -299,7 +318,7 @@ async def websocket_handler(request):
         return ws
 
     conv = ConversationState()
-    _conversations[conv.id] = conv
+    _conversations[conv.id] = conv  # atomic in asyncio: no await between re-check and here
 
     await ws.send_json({
         "type": "connected",
