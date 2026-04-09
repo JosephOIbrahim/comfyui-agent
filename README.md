@@ -375,12 +375,15 @@ result = pipeline.run(PipelineConfig(
     quality_threshold=0.6,
 ))
 print(result.success, result.quality.overall, result.stage.value)
+if result.warnings:
+    print("warnings:", result.warnings)  # e.g. template family fallback
 ```
 
 - **No executor required.** The pipeline calls ComfyUI directly via the real `execute_workflow` implementation.
 - **No evaluator required.** Rule-based scoring (success = 0.7, failure = 0.1) enables CWM calibration from day one. Vision-based scoring comes in Session N+2.
 - **Template library.** Workflows are loaded from `agent/templates/` (SD 1.5 · SDXL · img2img · LoRA). If no template matches the detected model family, a hardcoded 7-node SD 1.5 fallback ensures the pipeline always has a valid starting point.
-- **Experience persists across sessions.** Every run's quality score and parameters are saved to `comfy-cozy-experience.jsonl` in your `COMFYUI_DATABASE` folder and reloaded on the next startup. After 30+ runs, composition starts using your personal generation history to bias parameter selection.
+- **Experience persists across sessions — crash-safe.** Every run's quality score and parameters are saved atomically to `comfy-cozy-experience.jsonl` (write-to-tmp then `os.replace()` — the live file is never truncated mid-write). After 30+ runs, composition starts using your personal generation history to bias parameter selection.
+- **Pipeline failures are graceful.** If the Cognitive World Model raises during prediction, the pipeline returns `PipelineStage.FAILED` cleanly instead of propagating an unhandled exception. Template family mismatches populate `result.warnings` so callers can detect silent fallbacks.
 
 ```mermaid
 graph LR
@@ -390,9 +393,9 @@ graph LR
     subgraph Session2 ["Session 2+"]
         I2["Intent"] --> C2["Compose\n(+prior runs)"] --> E2["Execute"] --> S2["Score"]
     end
-    S1 -->|"save()"| JSONL[("experience.jsonl")]
+    S1 -->|"atomic save()\nwrite→tmp→replace"| JSONL[("experience.jsonl\ncrash-safe")]
     JSONL -->|"load() on startup"| C2
-    S2 -->|"save() — cumulative"| JSONL
+    S2 -->|"atomic save() — cumulative"| JSONL
 
     style JSONL fill:#8b5cf6,color:#fff
     style C2 fill:#10b981,color:#fff
@@ -440,6 +443,30 @@ graph TB
 - **Bidirectional Canvas Bridge** -- Agent changes sync to the canvas live, with node highlighting; canvas also re-syncs automatically after each ComfyUI execution completes
 
 **49 panel routes** expose the full tool surface: discovery, provisioning, repair, sessions, execution, and more.
+
+Every request — including the WebSocket chat endpoint — passes through the same three-layer security chain:
+
+```mermaid
+flowchart TD
+    REST([REST Request]) --> Guard["_guard(request, category)"]
+    WS([WebSocket /ws]) --> Guard
+    Guard --> Auth{check_auth}
+    Auth -->|"no token configured"| Rate{check_rate_limit}
+    Auth -->|"bearer matches"| Rate
+    Auth -->|"missing / wrong"| R401(["401 Unauthorized"])
+    Rate -->|"tokens available"| Size{check_size}
+    Rate -->|"bucket empty"| R429(["429 · Retry-After: 1s"])
+    Size -->|"Content-Length ≤ 10 MB"| Handler(["Route handler"])
+    Size -->|"Content-Length > 10 MB"| R413(["413 Too Large"])
+    Size -->|"chunked · no length"| R411(["411 Length Required"])
+
+    style R401 fill:#ef4444,color:#fff
+    style R429 fill:#d97706,color:#fff
+    style R413 fill:#ef4444,color:#fff
+    style R411 fill:#d97706,color:#fff
+    style Handler fill:#10b981,color:#fff
+    style Guard fill:#8b5cf6,color:#fff
+```
 
 Design: monochrome + one accent (#0066FF on #0D0D0D). Inter typography. No gradients, no shadows. Every pixel earns its place.
 
@@ -683,8 +710,33 @@ tests/                2717 passing tests, all mocked, ~60s
 | **Fault Isolation** | Each subsystem fails independently. Circuit breakers prevent cascading failures. |
 | **Determinism** | Pure computation DAG. Deterministic JSON. Ordinal state enums. Same input = same output. |
 | **Audit Trail** | Every mutation logged: who changed what, when, and what got overridden. |
-| **Security** | Path traversal blocked. SSRF prevented. Private IPs rejected. XSS sanitized. 10MB request limits. Atomic file writes. |
+| **Security** | Bearer token auth on all routes including WebSocket. Path traversal blocked. SSRF prevented. Private IPs rejected. XSS sanitized. 10 MB + chunked-transfer size guards. Max 20 concurrent WebSocket connections. Atomic file writes (write→tmp→`os.replace()`). |
 | **Bounded Resources** | Intent history (100), iteration steps (200), demo checkpoints (100). No unbounded growth. |
+
+```mermaid
+graph TB
+    subgraph Sec ["Security"]
+        A1["Auth — Bearer token\n(REST + WebSocket)"]
+        A2["Rate limit — Token bucket\nper category"]
+        A3["Size guard — 10 MB limit\n+ chunked-transfer block"]
+        A4["WS cap — 20 connections max"]
+    end
+    subgraph Atom ["Persistence"]
+        B1["_save_lock\nthreading.Lock"]
+        B2["Write → .jsonl.tmp"]
+        B3["os.replace()\natomic swap"]
+        B1 --> B2 --> B3
+    end
+    subgraph Resil ["Resilience"]
+        C1["CWM exception\n→ PipelineStage.FAILED"]
+        C2["Template mismatch\n→ result.warnings"]
+        C3["Save failure\n→ non-fatal log\nexcept Exception"]
+    end
+
+    style Sec fill:#1a1a2e,color:#F0F0F0,stroke:#ef4444
+    style Atom fill:#1a1a2e,color:#F0F0F0,stroke:#8b5cf6
+    style Resil fill:#1a1a2e,color:#F0F0F0,stroke:#10b981
+```
 
 </details>
 
