@@ -269,7 +269,10 @@ def _run_execution(
             except (json.JSONDecodeError, TypeError):
                 continue
 
-            event = ExecutionEvent.from_ws_message(msg, started_at=started_at)
+            try:
+                event = ExecutionEvent.from_ws_message(msg, started_at=started_at)
+            except Exception:
+                continue  # Malformed or unrecognised message — skip, never crash the loop
             if event.event_type == EventType.EXECUTION_START:
                 started_at = event.started_at
 

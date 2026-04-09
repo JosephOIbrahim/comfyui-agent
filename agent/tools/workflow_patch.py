@@ -23,7 +23,12 @@ from pathlib import Path
 
 import jsonpatch
 
-from cognitive.core.graph import CognitiveGraphEngine
+try:
+    from cognitive.core.graph import CognitiveGraphEngine
+    _HAS_COGNITIVE = True
+except (ImportError, AttributeError, ModuleNotFoundError):
+    CognitiveGraphEngine = None  # type: ignore[assignment, misc]
+    _HAS_COGNITIVE = False
 
 from ._util import to_json
 from ..workflow_session import get_session
@@ -45,8 +50,10 @@ def _get_state():
 _MAX_HISTORY = 50
 
 
-def _create_engine(workflow_data: dict) -> CognitiveGraphEngine:
-    """Create a CognitiveGraphEngine for the given workflow."""
+def _create_engine(workflow_data: dict):
+    """Create a CognitiveGraphEngine for the given workflow, or raise if unavailable."""
+    if not _HAS_COGNITIVE or CognitiveGraphEngine is None:
+        raise RuntimeError("CognitiveGraphEngine not available (cognitive module not installed)")
     return CognitiveGraphEngine(workflow_data)
 
 
@@ -798,7 +805,11 @@ def _handle_set_input(tool_input: dict) -> str:
 
 def handle(name: str, tool_input: dict) -> str:
     """Execute a workflow_patch tool call."""
-    with _get_state()._lock:
+    # Capture session once before entering the lock — prevents a race where
+    # clear_sessions() (tests only) could swap the registry while we hold the
+    # lock, causing _get_state() inside handlers to return a different session.
+    _session = _get_state()
+    with _session._lock:
         try:
             if name == "apply_workflow_patch":
                 return _handle_apply_patch(tool_input)
