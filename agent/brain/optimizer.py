@@ -497,7 +497,8 @@ class OptimizerAgent(BrainAgent):
                         "effort": opt["effort"],
                         "description": opt["description"],
                     })
-            except Exception:
+            except Exception as _opt_err:
+                log.debug("Skipping optimization %r — filter raised: %s", opt.get("id"), _opt_err)
                 continue
 
         # Group by category
