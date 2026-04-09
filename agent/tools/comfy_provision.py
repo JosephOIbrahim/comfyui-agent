@@ -8,6 +8,7 @@ actions invoke.
 import logging
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -17,6 +18,19 @@ from ..config import CUSTOM_NODES_DIR, MODELS_DIR
 from ._util import to_json
 
 log = logging.getLogger(__name__)
+
+# Per-target install locks: prevents concurrent installs into the same directory.
+# Keyed by resolved target path string so different packs don't block each other.
+_install_locks: dict[str, threading.Lock] = {}
+_install_locks_mutex = threading.Lock()
+
+
+def _get_install_lock(target_path: str) -> threading.Lock:
+    """Return (creating if needed) the lock for a given install target path."""
+    with _install_locks_mutex:
+        if target_path not in _install_locks:
+            _install_locks[target_path] = threading.Lock()
+        return _install_locks[target_path]
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -356,75 +370,87 @@ def _handle_install_node_pack(tool_input: dict) -> str:
     except (OSError, ValueError):
         return to_json({"error": f"Invalid node pack name: {raw_name}"})
 
-    # Check if already installed
-    if target.exists():
+    # Acquire per-target lock to prevent concurrent installs into the same directory.
+    install_lock = _get_install_lock(str(resolved_target))
+    if not install_lock.acquire(timeout=5):
         return to_json({
-            "error": f"Node pack '{name}' is already installed at {target}.",
-            "hint": "If it's not working, try restarting ComfyUI.",
+            "error": f"Node pack '{name}' is already being installed by another request.",
+            "hint": "Wait for the current install to complete.",
         })
 
-    # Check Custom_Nodes dir exists
-    if not CUSTOM_NODES_DIR.exists():
-        return to_json({"error": f"Custom_Nodes directory not found: {CUSTOM_NODES_DIR}"})
-
-    # Clone the repository
     try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", url, str(target)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(CUSTOM_NODES_DIR),
-        )
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            return to_json({
-                "error": f"git clone failed: {stderr[:300]}",
-                "hint": "Check the URL is correct and accessible.",
-            })
-    except FileNotFoundError:
-        return to_json({
-            "error": "git is not installed or not on PATH.",
-            "hint": "Install git from https://git-scm.com/",
-        })
-    except subprocess.TimeoutExpired:
-        # Clean up partial clone
+        # Re-check inside lock — another thread may have installed while we waited.
         if target.exists():
-            shutil.rmtree(target, ignore_errors=True)
-        return to_json({"error": "git clone timed out after 120 seconds."})
+            return to_json({
+                "error": f"Node pack '{name}' is already installed at {target}.",
+                "hint": "If it's not working, try restarting ComfyUI.",
+            })
 
-    # Check for requirements.txt and suggest pip install
-    requirements = target / "requirements.txt"
-    has_requirements = requirements.exists()
+        # Check Custom_Nodes dir exists
+        if not CUSTOM_NODES_DIR.exists():
+            return to_json({"error": f"Custom_Nodes directory not found: {CUSTOM_NODES_DIR}"})
 
-    # Install requirements if present
-    pip_result = None
-    if has_requirements:
+        # Clone the repository
         try:
-            pip_proc = subprocess.run(
-                ["pip", "install", "-r", str(requirements)],
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", url, str(target)],
                 capture_output=True,
                 text=True,
                 timeout=120,
+                cwd=str(CUSTOM_NODES_DIR),
             )
-            if pip_proc.returncode == 0:
-                pip_result = "Dependencies installed successfully."
-            else:
-                pip_result = "The node pack installed but some dependencies may be incomplete. Restart ComfyUI — if nodes don't appear, check the ComfyUI console for details."
-        except Exception as e:
-            pip_result = f"Could not install dependencies: {e}"
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                return to_json({
+                    "error": f"git clone failed: {stderr[:300]}",
+                    "hint": "Check the URL is correct and accessible.",
+                })
+        except FileNotFoundError:
+            return to_json({
+                "error": "git is not installed or not on PATH.",
+                "hint": "Install git from https://git-scm.com/",
+            })
+        except subprocess.TimeoutExpired:
+            # Clean up partial clone
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            return to_json({"error": "git clone timed out after 120 seconds."})
 
-    return to_json({
-        "installed": name,
-        "path": str(target),
-        "has_requirements": has_requirements,
-        "pip_result": pip_result,
-        "restart_required": True,
-        "message": (
-            f"Node pack '{name}' installed successfully. "
-            "Restart ComfyUI to load the new nodes."
-        ),
-    })
+        # Check for requirements.txt and suggest pip install
+        requirements = target / "requirements.txt"
+        has_requirements = requirements.exists()
+
+        # Install requirements if present
+        pip_result = None
+        if has_requirements:
+            try:
+                pip_proc = subprocess.run(
+                    ["pip", "install", "-r", str(requirements)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if pip_proc.returncode == 0:
+                    pip_result = "Dependencies installed successfully."
+                else:
+                    pip_result = "The node pack installed but some dependencies may be incomplete. Restart ComfyUI — if nodes don't appear, check the ComfyUI console for details."
+            except Exception as e:
+                pip_result = f"Could not install dependencies: {e}"
+
+        return to_json({
+            "installed": name,
+            "path": str(target),
+            "has_requirements": has_requirements,
+            "pip_result": pip_result,
+            "restart_required": True,
+            "message": (
+                f"Node pack '{name}' installed successfully. "
+                "Restart ComfyUI to load the new nodes."
+            ),
+        })
+
+    finally:
+        install_lock.release()
 
 
 def _handle_download_model(tool_input: dict) -> str:
