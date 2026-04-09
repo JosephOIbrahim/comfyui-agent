@@ -64,7 +64,7 @@ cd Comfy-Cozy
 
 ```bash
 pip install -e .                  # core install (agent + cognitive engine + panel)
-pip install -e ".[dev]"           # + full test suite (2746 passing tests)
+pip install -e ".[dev]"           # + full test suite (2753 passing tests)
 pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, optional)
 ```
 
@@ -697,7 +697,7 @@ cognitive/            LIVRPS state engine — installed as top-level package (Ph
 panel/
   server/routes.py    49 REST routes — full tool surface
   web/js/             Panel UI — chat, graph inspector, model browser
-tests/                2746 passing tests, all mocked, ~60s
+tests/                2753 passing tests, all mocked, ~60s
 ```
 
 ### Production Hardening
@@ -705,7 +705,7 @@ tests/                2746 passing tests, all mocked, ~60s
 | Domain | What it means |
 |--------|-------------|
 | **Safety** | 5-check default-deny gate. Risk levels 0-4. Destructive ops never auto-execute. |
-| **Fault Isolation** | Each subsystem fails independently. Circuit breakers prevent cascading failures. `brain` (threshold=3, timeout=30s) and `comfyui_http` (threshold=5, timeout=60s) registered; `BRAIN_ENABLED=0` kill switch fully enforced in tool registry. |
+| **Fault Isolation** | Each subsystem fails independently. Circuit breakers prevent cascading failures. `brain` (threshold=3, timeout=30s) and `comfyui_http` (threshold=5, timeout=60s) registered; `BRAIN_ENABLED=0` kill switch fully enforced in tool registry. Session isolation: each `agent mcp` process gets a unique `conn_XXXXXXXX` namespace; ContextVar set in executor thread before dispatch. Parallel tool dispatch routes through `agent.tools.handle` live module reference — monkey-patch visible to all ThreadPoolExecutor workers. |
 | **Determinism** | Pure computation DAG. Deterministic JSON. Ordinal state enums. Same input = same output. |
 | **Audit Trail** | Every mutation logged: who changed what, when, and what got overridden. |
 | **Security** | Bearer token auth on all routes including WebSocket. Path traversal blocked. SSRF prevented on initial URL and every redirect hop (RFC 1918 + loopback + link-local + CGNAT rejected via DNS resolution). MCP tool errors return `isError=True` per protocol. Gate exceptions deny by default (no silent allow). 10 MB + chunked-transfer size guards. Max 20 concurrent WebSocket connections. Atomic file writes (write→tmp→`os.replace()`). Thread-safe token bucket rate limiter. |
@@ -763,7 +763,7 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 2746 passing tests, ~60s
+python -m pytest tests/ -v        # 2753 passing tests, ~60s
 
 # Skip tests that require a real ComfyUI server or API keys
 python -m pytest tests/ -v -m "not integration"
