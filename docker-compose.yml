@@ -19,7 +19,7 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8189/superduper-panel/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8189/comfy-cozy/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       start_period: 10s

@@ -14,7 +14,7 @@ from panel.server.middleware import (
 
 
 def _make_request(
-    path="/superduper-panel/graph-state",
+    path="/comfy-cozy/graph-state",
     auth_header=None,
     content_length=None,
 ):
@@ -71,7 +71,7 @@ class TestCheckAuth:
 
     def test_health_endpoint_skips_auth(self, monkeypatch):
         monkeypatch.setattr("panel.server.middleware.MCP_AUTH_TOKEN", "secret-abc")
-        req = _make_request(path="/superduper-panel/health")
+        req = _make_request(path="/comfy-cozy/health")
         assert check_auth(req) is None
 
     def test_rejects_non_bearer_scheme(self, monkeypatch):

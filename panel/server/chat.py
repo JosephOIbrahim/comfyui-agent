@@ -1,4 +1,4 @@
-"""WebSocket chat handler for the SuperDuper Panel.
+"""WebSocket chat handler for the Comfy Cozy Panel.
 
 Bridges the panel frontend to the LLM agent via a persistent WebSocket.
 Adapted from ui/server/routes.py but simplified for the panel context.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-log = logging.getLogger("superduper-panel.chat")
+log = logging.getLogger("comfy-cozy.chat")
 
 # ---------------------------------------------------------------------------
 # Lazy brain loading

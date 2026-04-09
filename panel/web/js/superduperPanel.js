@@ -42,7 +42,7 @@ let researchCtrl = null;
 function createPillButton() {
   pill = document.createElement("button");
   pill.className = "sdp-pill";
-  pill.textContent = "SD";
+  pill.textContent = "CC";
   pill.setAttribute("aria-label", "Toggle Comfy Cozy Panel");
   pill.addEventListener("click", togglePanel);
   document.body.appendChild(pill);
@@ -304,7 +304,7 @@ async function syncCanvasToAgent() {
     if (!apiWorkflow) return;
 
     // POST to agent backend
-    await fetch("/superduper-panel/load-workflow-data", {
+    await fetch("/comfy-cozy/load-workflow-data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ data: apiWorkflow, source: "<canvas>" }),
@@ -406,12 +406,12 @@ function highlightNode(nodeId) {
 }
 
 // Listen for the event that mutation methods in agentClient fire
-document.addEventListener("comfycozy:workflow-changed", () => {
+document.addEventListener("comfy-cozy:workflow-changed", () => {
   pushAgentToCanvas();
 });
 
 // Listen for per-node touch events
-document.addEventListener("superduper:node_touch", (e) => {
+document.addEventListener("comfy-cozy:node_touch", (e) => {
   const nid = e.detail?.nodeId;
   if (nid) highlightNode(nid);
 });
@@ -419,7 +419,7 @@ document.addEventListener("superduper:node_touch", (e) => {
 /* ── Register Extension ───────────────────────────────────────── */
 
 app.registerExtension({
-  name: "superduper.panel",
+  name: "comfy-cozy.panel",
   async setup() {
     createPillButton();
     createPanelShell();

@@ -432,7 +432,7 @@ async function _promptSaveWorkflow(client, appendMsg, container) {
 }
 
 async function _fetchWiring(client) {
-  const r = await fetch("/superduper-panel/suggest-wiring");
+  const r = await fetch("/comfy-cozy/suggest-wiring");
   return r.json();
 }
 

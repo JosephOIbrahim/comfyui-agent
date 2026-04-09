@@ -7,7 +7,7 @@ from aiohttp import web
 
 from agent.config import MCP_AUTH_TOKEN
 
-log = logging.getLogger("superduper-panel")
+log = logging.getLogger("comfy-cozy")
 
 # Rate limit categories (tokens/sec, burst capacity)
 _RATE_CONFIGS = {

@@ -11,7 +11,7 @@ from aiohttp import web
 
 from .middleware import check_auth, check_rate_limit, check_size
 
-log = logging.getLogger("superduper-panel")
+log = logging.getLogger("comfy-cozy")
 
 
 def _tool_call(tool_name, tool_input):
@@ -43,7 +43,7 @@ def setup_routes():
 
     # ── Health ─────────────────────────────────────────────────────
 
-    @routes.get("/superduper-panel/health")
+    @routes.get("/comfy-cozy/health")
     async def health(request):
         try:
             from agent.health import check_health
@@ -60,7 +60,7 @@ def setup_routes():
 
     # ── Graph State (CognitiveGraphEngine) ─────────────────────────
 
-    @routes.get("/superduper-panel/graph-state")
+    @routes.get("/comfy-cozy/graph-state")
     async def graph_state(request):
         """Read CognitiveGraphEngine state."""
         try:
@@ -108,7 +108,7 @@ def setup_routes():
 
     # ── Workflow API (Reverse Bridge) ─────────────────────────────
 
-    @routes.get("/superduper-panel/get-workflow-api")
+    @routes.get("/comfy-cozy/get-workflow-api")
     async def get_workflow_api(request):
         """Return the current agent workflow in API format.
 
@@ -130,7 +130,7 @@ def setup_routes():
 
     # ── Workflow Loading ───────────────────────────────────────────
 
-    @routes.post("/superduper-panel/load-workflow")
+    @routes.post("/comfy-cozy/load-workflow")
     async def load_workflow(request):
         """Load a workflow from a file path."""
         try:
@@ -144,7 +144,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/load-workflow-data")
+    @routes.post("/comfy-cozy/load-workflow-data")
     async def load_workflow_data(request):
         """Load a workflow from raw JSON data (canvas injection).
 
@@ -195,7 +195,7 @@ def setup_routes():
 
     # ── Workflow Mutation ──────────────────────────────────────────
 
-    @routes.post("/superduper-panel/set-input")
+    @routes.post("/comfy-cozy/set-input")
     async def set_input(request):
         """Push a delta layer via set_input tool."""
         try:
@@ -209,7 +209,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/add-node")
+    @routes.post("/comfy-cozy/add-node")
     async def add_node(request):
         """Add a new node to the workflow."""
         try:
@@ -223,7 +223,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/connect-nodes")
+    @routes.post("/comfy-cozy/connect-nodes")
     async def connect_nodes(request):
         """Connect two nodes in the workflow."""
         try:
@@ -237,7 +237,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/apply-patch")
+    @routes.post("/comfy-cozy/apply-patch")
     async def apply_patch(request):
         """Apply RFC6902 patches to the workflow."""
         try:
@@ -251,7 +251,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/rollback")
+    @routes.post("/comfy-cozy/rollback")
     async def rollback(request):
         """Undo the last delta layer."""
         try:
@@ -264,7 +264,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/reset")
+    @routes.post("/comfy-cozy/reset")
     async def reset(request):
         """Reset workflow to base state."""
         try:
@@ -277,7 +277,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/diff")
+    @routes.get("/comfy-cozy/diff")
     async def diff(request):
         """Get diff from base workflow."""
         try:
@@ -290,7 +290,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/editable-fields")
+    @routes.get("/comfy-cozy/editable-fields")
     async def editable_fields(request):
         """Get editable fields of the loaded workflow."""
         try:
@@ -305,7 +305,7 @@ def setup_routes():
 
     # ── Execution ─────────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/validate")
+    @routes.post("/comfy-cozy/validate")
     async def validate(request):
         """Pre-execution validation."""
         try:
@@ -318,7 +318,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/execute")
+    @routes.post("/comfy-cozy/execute")
     async def execute(request):
         """Execute the loaded workflow on ComfyUI."""
         try:
@@ -332,7 +332,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/execution-status")
+    @routes.get("/comfy-cozy/execution-status")
     async def execution_status(request):
         """Check execution status."""
         try:
@@ -348,7 +348,7 @@ def setup_routes():
 
     # ── Discovery ─────────────────────────────────────────────────
 
-    @routes.get("/superduper-panel/node-info")
+    @routes.get("/comfy-cozy/node-info")
     async def node_info(request):
         """Get info for a specific node type."""
         try:
@@ -362,7 +362,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/models")
+    @routes.get("/comfy-cozy/models")
     async def models(request):
         """List models by type."""
         try:
@@ -376,7 +376,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/system-stats")
+    @routes.get("/comfy-cozy/system-stats")
     async def system_stats(request):
         """Get ComfyUI system stats."""
         try:
@@ -391,7 +391,7 @@ def setup_routes():
 
     # ── Cognitive Layer ────────────────────────────────────────────
 
-    @routes.get("/superduper-panel/experience")
+    @routes.get("/comfy-cozy/experience")
     async def experience(request):
         """Read ExperienceAccumulator stats."""
         try:
@@ -412,7 +412,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/autoresearch")
+    @routes.get("/comfy-cozy/autoresearch")
     async def autoresearch(request):
         """Read autoresearch results."""
         rejected = _guard(request, "read")
@@ -425,7 +425,7 @@ def setup_routes():
 
     # ── Discovery ─────────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/discover")
+    @routes.post("/comfy-cozy/discover")
     async def discover(request):
         """Search for models, nodes, or workflows."""
         try:
@@ -439,7 +439,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/list-custom-nodes")
+    @routes.get("/comfy-cozy/list-custom-nodes")
     async def list_custom_nodes(request):
         """List installed custom node packs."""
         try:
@@ -452,7 +452,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/models-summary")
+    @routes.get("/comfy-cozy/models-summary")
     async def models_summary(request):
         """Get summary of all installed models."""
         try:
@@ -465,7 +465,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/queue-status")
+    @routes.get("/comfy-cozy/queue-status")
     async def queue_status(request):
         """Get ComfyUI queue status."""
         try:
@@ -478,7 +478,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/history")
+    @routes.get("/comfy-cozy/history")
     async def history(request):
         """Get execution history."""
         try:
@@ -494,7 +494,7 @@ def setup_routes():
 
     # ── Provisioning ──────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/install-node-pack")
+    @routes.post("/comfy-cozy/install-node-pack")
     async def install_node_pack(request):
         """Install a custom node pack from a URL."""
         try:
@@ -508,7 +508,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/download-model")
+    @routes.post("/comfy-cozy/download-model")
     async def download_model(request):
         """Download a model from a URL."""
         try:
@@ -522,7 +522,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/uninstall-node-pack")
+    @routes.post("/comfy-cozy/uninstall-node-pack")
     async def uninstall_node_pack(request):
         """Uninstall a custom node pack."""
         try:
@@ -538,7 +538,7 @@ def setup_routes():
 
     # ── Repair ────────────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/repair-workflow")
+    @routes.post("/comfy-cozy/repair-workflow")
     async def repair_workflow(request):
         """Repair workflow by finding and installing missing nodes."""
         try:
@@ -552,7 +552,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/reconfigure-workflow")
+    @routes.post("/comfy-cozy/reconfigure-workflow")
     async def reconfigure_workflow(request):
         """Reconfigure workflow to fix compatibility issues."""
         try:
@@ -566,7 +566,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/check-deprecations")
+    @routes.get("/comfy-cozy/check-deprecations")
     async def check_deprecations(request):
         """Check for deprecated nodes in the loaded workflow."""
         try:
@@ -579,7 +579,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/migrate-deprecated")
+    @routes.post("/comfy-cozy/migrate-deprecated")
     async def migrate_deprecated(request):
         """Migrate deprecated nodes to replacements."""
         try:
@@ -595,7 +595,7 @@ def setup_routes():
 
     # ── Session ───────────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/save-session")
+    @routes.post("/comfy-cozy/save-session")
     async def save_session(request):
         """Save current session state."""
         try:
@@ -609,7 +609,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/load-session-data")
+    @routes.post("/comfy-cozy/load-session-data")
     async def load_session_data(request):
         """Load a saved session."""
         try:
@@ -623,7 +623,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/list-sessions")
+    @routes.get("/comfy-cozy/list-sessions")
     async def list_sessions(request):
         """List all saved sessions."""
         try:
@@ -638,7 +638,7 @@ def setup_routes():
 
     # ── Workflow Persistence ──────────────────────────────────────
 
-    @routes.post("/superduper-panel/save-workflow")
+    @routes.post("/comfy-cozy/save-workflow")
     async def save_workflow(request):
         """Save workflow to a file path."""
         try:
@@ -652,7 +652,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/preview-patch")
+    @routes.post("/comfy-cozy/preview-patch")
     async def preview_patch(request):
         """Preview a patch without applying it."""
         try:
@@ -666,7 +666,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/classify-workflow")
+    @routes.get("/comfy-cozy/classify-workflow")
     async def classify_workflow(request):
         """Classify the loaded workflow type."""
         try:
@@ -679,7 +679,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/workflow-templates")
+    @routes.get("/comfy-cozy/workflow-templates")
     async def workflow_templates(request):
         """List available workflow templates."""
         try:
@@ -694,7 +694,7 @@ def setup_routes():
 
     # ── CivitAI ───────────────────────────────────────────────────
 
-    @routes.get("/superduper-panel/civitai-model")
+    @routes.get("/comfy-cozy/civitai-model")
     async def civitai_model(request):
         """Get CivitAI model details."""
         try:
@@ -708,7 +708,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/trending-models")
+    @routes.get("/comfy-cozy/trending-models")
     async def trending_models(request):
         """Get trending models from CivitAI."""
         try:
@@ -728,7 +728,7 @@ def setup_routes():
 
     # ── Model Compatibility ───────────────────────────────────────
 
-    @routes.post("/superduper-panel/check-compatibility")
+    @routes.post("/comfy-cozy/check-compatibility")
     async def check_compatibility(request):
         """Check compatibility between models."""
         try:
@@ -744,7 +744,7 @@ def setup_routes():
 
     # ── Auto-Wire ─────────────────────────────────────────────────
 
-    @routes.post("/superduper-panel/wire-model")
+    @routes.post("/comfy-cozy/wire-model")
     async def wire_model(request):
         """Wire a downloaded model into the loaded workflow."""
         try:
@@ -758,7 +758,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/suggest-wiring")
+    @routes.get("/comfy-cozy/suggest-wiring")
     async def suggest_wiring(request):
         """Analyze workflow and suggest model wiring."""
         try:
@@ -773,7 +773,7 @@ def setup_routes():
 
     # ── Provision Pipeline ──────────────────────────────────────
 
-    @routes.post("/superduper-panel/provision-model")
+    @routes.post("/comfy-cozy/provision-model")
     async def provision_model(request):
         """One-step model provisioning: discover, download, verify, wire."""
         try:
@@ -787,7 +787,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.get("/superduper-panel/provision-status")
+    @routes.get("/comfy-cozy/provision-status")
     async def provision_pipeline_status(request):
         """Check what the workflow needs vs what is installed."""
         try:
@@ -800,7 +800,7 @@ def setup_routes():
             log.error("Route %s error: %s", request.path, e, exc_info=True)
             return web.json_response({"error": "Internal server error"}, status=500)
 
-    @routes.post("/superduper-panel/provision-verify")
+    @routes.post("/comfy-cozy/provision-verify")
     async def provision_pipeline_verify(request):
         """Verify a model file exists and check compatibility."""
         try:
@@ -817,7 +817,7 @@ def setup_routes():
     # ── Chat WebSocket ─────────────────────────────────────────────
     try:
         from .chat import websocket_handler as chat_ws_handler
-        routes.get("/superduper-panel/ws")(chat_ws_handler)
+        routes.get("/comfy-cozy/ws")(chat_ws_handler)
     except Exception as e:
         log.debug("Chat WebSocket not available: %s", e)
 

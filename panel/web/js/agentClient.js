@@ -1,6 +1,6 @@
 /* ── Agent Client — HTTP/SSE communication ─────────────────────── */
 
-const BASE = "/superduper-panel";
+const BASE = "/comfy-cozy";
 
 export class AgentClient {
   constructor() {
@@ -32,8 +32,8 @@ export class AgentClient {
     });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
-      document.dispatchEvent(new CustomEvent("superduper:node_touch", {
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
+      document.dispatchEvent(new CustomEvent("comfy-cozy:node_touch", {
         detail: { nodeId: String(nodeId) },
       }));
     }
@@ -48,7 +48,7 @@ export class AgentClient {
     });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
     }
     return result;
   }
@@ -64,11 +64,11 @@ export class AgentClient {
     });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
-      document.dispatchEvent(new CustomEvent("superduper:node_touch", {
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
+      document.dispatchEvent(new CustomEvent("comfy-cozy:node_touch", {
         detail: { nodeId: String(srcId) },
       }));
-      document.dispatchEvent(new CustomEvent("superduper:node_touch", {
+      document.dispatchEvent(new CustomEvent("comfy-cozy:node_touch", {
         detail: { nodeId: String(dstId) },
       }));
     }
@@ -83,7 +83,7 @@ export class AgentClient {
     });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
     }
     return result;
   }
@@ -92,7 +92,7 @@ export class AgentClient {
     const r = await fetch(`${this._base}/rollback`, { method: "POST" });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
     }
     return result;
   }
@@ -101,7 +101,7 @@ export class AgentClient {
     const r = await fetch(`${this._base}/reset`, { method: "POST" });
     const result = await r.json();
     if (!result.error) {
-      document.dispatchEvent(new Event("comfycozy:workflow-changed"));
+      document.dispatchEvent(new Event("comfy-cozy:workflow-changed"));
     }
     return result;
   }
@@ -221,7 +221,7 @@ export class AgentClient {
 
   connectWs() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/superduper-panel/ws`;
+    const url = `${proto}//${location.host}/comfy-cozy/ws`;
 
     this._ws = new WebSocket(url);
     this._wsListeners = {};

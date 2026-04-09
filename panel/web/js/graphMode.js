@@ -322,8 +322,8 @@ async function _refreshStatusBar(bar, client) {
 
   try {
     const [wiringRes, deprecRes] = await Promise.allSettled([
-      fetch("/superduper-panel/suggest-wiring").then((r) => r.json()),
-      fetch("/superduper-panel/check-deprecations").then((r) => r.json()),
+      fetch("/comfy-cozy/suggest-wiring").then((r) => r.json()),
+      fetch("/comfy-cozy/check-deprecations").then((r) => r.json()),
     ]);
 
     // Process wiring issues
@@ -364,7 +364,7 @@ async function _refreshStatusBar(bar, client) {
             btn.disabled = true;
             btn.textContent = "...";
             try {
-              await fetch("/superduper-panel/migrate-deprecated", { method: "POST" });
+              await fetch("/comfy-cozy/migrate-deprecated", { method: "POST" });
               btn.textContent = "Done";
               _refreshStatusBar(bar, client);
             } catch { btn.textContent = "Failed"; }

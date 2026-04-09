@@ -23,4 +23,4 @@ try:
     setup_routes()
 except Exception as e:
     import logging
-    logging.getLogger("superduper-panel").warning("Route setup skipped: %s", e)
+    logging.getLogger("comfy-cozy").warning("Route setup skipped: %s", e)
