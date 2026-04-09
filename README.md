@@ -64,7 +64,7 @@ cd Comfy-Cozy
 
 ```bash
 pip install -e .                  # core install (agent + cognitive engine + panel)
-pip install -e ".[dev]"           # + full test suite (2705 passing tests)
+pip install -e ".[dev]"           # + full test suite (2717 passing tests)
 pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, optional)
 ```
 
@@ -388,7 +388,7 @@ graph TB
 - **Queue Prompt** -- One-click execution from the panel header
 - **Model Browser** -- Search CivitAI + HuggingFace + registry, one-click download and install
 - **Self-Healing** -- Missing node warnings with [Repair] buttons, deprecated node migration
-- **Bidirectional Canvas Bridge** -- Agent changes sync to the canvas live, with node highlighting
+- **Bidirectional Canvas Bridge** -- Agent changes sync to the canvas live, with node highlighting; canvas also re-syncs automatically after each ComfyUI execution completes
 
 **49 panel routes** expose the full tool surface: discovery, provisioning, repair, sessions, execution, and more.
 
@@ -664,10 +664,10 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 2705 passing tests
+python -m pytest tests/ -v        # 2717 passing tests
 ```
 
-The `[dev]` install runs the full test suite — no ComfyUI server or API keys required, everything is mocked. The 27 `test_provisioner.py` collection errors and 4 `test_health.py` failures are pre-existing known issues tracked in `MIGRATION_MAP_2026-04-07.md`. Adding `[stage]` resolves the provisioner errors by installing `usd-core`.
+The `[dev]` install runs the full test suite — no ComfyUI server or API keys required, everything is mocked. The 27 `test_provisioner.py` collection errors are a pre-existing known issue tracked in `MIGRATION_MAP_2026-04-07.md`. Adding `[stage]` resolves them by installing `usd-core`.
 
 ---
 

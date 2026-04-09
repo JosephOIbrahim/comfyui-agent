@@ -321,7 +321,7 @@ async function syncCanvasToAgent() {
  * Set up listeners for canvas changes.
  * ComfyUI fires events when the graph is modified.
  */
-function setupCanvasSync() {
+async function setupCanvasSync() {
   // Sync on initial load
   setTimeout(syncCanvasToAgent, 1000);
 
@@ -339,7 +339,7 @@ function setupCanvasSync() {
 
   // Also sync when execution completes (outputs may have changed)
   try {
-    const { api } = await_api_import();
+    const { api } = await import("../../../scripts/api.js");
     if (api) {
       api.addEventListener("executed", () => {
         setTimeout(syncCanvasToAgent, 200);
@@ -347,16 +347,6 @@ function setupCanvasSync() {
     }
   } catch (e) {
     // api import may not be available yet
-  }
-}
-
-// Helper to import ComfyUI's api module
-function await_api_import() {
-  try {
-    // Dynamic import of ComfyUI's api module
-    return import("../../../scripts/api.js");
-  } catch (e) {
-    return { api: null };
   }
 }
 
