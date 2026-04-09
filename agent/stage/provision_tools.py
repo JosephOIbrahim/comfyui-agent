@@ -47,8 +47,11 @@ def _get_provisioner(session_id: str = "default") -> Provisioner | None:
 
     prov = Provisioner(stage, models_dir=Path(MODELS_DIR))
     with _prov_lock:
-        _provisioners[session_id] = prov
-    return prov
+        # Re-check: another thread may have created and cached a Provisioner
+        # for this session_id while we were building ours outside the lock.
+        if session_id not in _provisioners:
+            _provisioners[session_id] = prov
+        return _provisioners[session_id]
 
 
 def _clear_provisioner_cache() -> None:

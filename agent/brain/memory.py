@@ -32,13 +32,23 @@ DECAY_HALF_LIFE_S = 7 * 24 * 3600  # 604800 seconds
 # Per-session write locks — prevents interleaved JSONL lines from concurrent tool dispatch.
 _outcomes_locks: dict[str, threading.Lock] = {}
 _outcomes_locks_mutex = threading.Lock()
+_MAX_OUTCOME_LOCKS = 200  # Matches ~2× the session registry cap (100)
 
 
 def _get_outcomes_lock(session: str) -> threading.Lock:
-    """Return (creating if needed) the write lock for a given session's JSONL file."""
+    """Return (creating if needed) the write lock for a given session's JSONL file.
+
+    Caps the lock dict at _MAX_OUTCOME_LOCKS entries using LRU-style eviction
+    (Python dicts are insertion-ordered since 3.7, so the first entry is oldest).
+    """
     with _outcomes_locks_mutex:
-        if session not in _outcomes_locks:
-            _outcomes_locks[session] = threading.Lock()
+        if session in _outcomes_locks:
+            return _outcomes_locks[session]
+        if len(_outcomes_locks) >= _MAX_OUTCOME_LOCKS:
+            # Evict oldest entry (first key in insertion order)
+            oldest = next(iter(_outcomes_locks))
+            del _outcomes_locks[oldest]
+        _outcomes_locks[session] = threading.Lock()
         return _outcomes_locks[session]
 
 

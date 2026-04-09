@@ -197,7 +197,14 @@ def run_agent_turn(
             futures = {executor.submit(_run_tool, tc): tc for tc in tool_calls}
             results_map = {}
             for future in concurrent.futures.as_completed(futures):
-                tool_id, result = future.result()
+                tc_for_future = futures[future]
+                try:
+                    tool_id, result = future.result()
+                except Exception as e:
+                    # Tool raised — return error string as the tool result so the
+                    # agent turn continues rather than crashing the entire turn.
+                    log.error("Tool %s raised during parallel execution: %s", tc_for_future.name, e, exc_info=True)
+                    tool_id, result = tc_for_future.id, f"Tool error: {e}"
                 results_map[tool_id] = result
 
         # Preserve original order, notify on results

@@ -12,6 +12,7 @@ Tool pattern: TOOLS list[dict] + handle(name, tool_input) -> str.
 from __future__ import annotations
 
 import json as _json
+import threading
 
 from .hyperagent import MetaAgent
 
@@ -21,16 +22,19 @@ def _to_json(obj: object) -> str:
     return _json.dumps(obj, sort_keys=True)
 
 # ---------------------------------------------------------------------------
-# Module-level singleton (lazy)
+# Module-level singleton (lazy, thread-safe)
 # ---------------------------------------------------------------------------
 
 _meta_agent: MetaAgent | None = None
+_meta_agent_lock = threading.Lock()
 
 
 def _get_meta_agent() -> MetaAgent:
     global _meta_agent
     if _meta_agent is None:
-        _meta_agent = MetaAgent()
+        with _meta_agent_lock:
+            if _meta_agent is None:  # Double-check after acquiring lock
+                _meta_agent = MetaAgent()
     return _meta_agent
 
 
