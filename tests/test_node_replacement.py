@@ -534,3 +534,108 @@ class TestFetchReplacements:
         result = _fetch_replacements()
         assert "B" in result
         assert mock_get.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Cycle 56: json.JSONDecodeError guard in _handle_migrate
+# ---------------------------------------------------------------------------
+
+class TestMigrateJsonDecodeGuard:
+    """Cycle 56: _handle_migrate must not crash if patch_handle returns malformed JSON."""
+
+    WORKFLOW_WITH_DEPRECATED = {
+        "1": {"class_type": "MyOldSampler", "inputs": {"steps": 20, "cfg": 7.0}},
+    }
+
+    @patch("agent.tools.comfy_api._get")
+    def test_malformed_json_from_patch_engine_returns_error(self, mock_get):
+        """If patch_handle returns non-JSON, migrate returns structured error."""
+        from unittest.mock import patch as _patch
+        mock_get.return_value = SAMPLE_REPLACEMENTS
+
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            with _patch(
+                "agent.tools.node_replacement.handle",
+                return_value="NOT VALID JSON {{{",
+                create=False,
+            ):
+                # We need to patch the imported patch_handle in node_replacement
+                import agent.tools.node_replacement as nr_mod
+                with _patch.object(
+                    nr_mod,
+                    "_handle_migrate",
+                    wraps=nr_mod._handle_migrate,
+                ):
+                    # Directly test the JSON decode guard path
+                    import json as _json
+                    from agent.tools.workflow_patch import handle as real_patch_handle
+
+                    orig = real_patch_handle
+
+                    def _bad_json(name, tool_input):
+                        return "MALFORMED {{"
+
+                    with _patch("agent.tools.node_replacement.patch_handle", _bad_json, create=True):
+                        # The guard in _handle_migrate wraps json.loads
+                        # Simulate by patching at the source
+                        pass
+
+        # Simpler path: call with dry_run=False and monkeypatch patch_handle directly
+        mock_get.return_value = SAMPLE_REPLACEMENTS
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            import agent.tools.node_replacement as nr
+
+            def _malformed(*_a, **_kw):
+                return "NOT {{ valid json"
+
+            orig_patch_handle = None
+            # Patch the local name used inside _handle_migrate
+            import importlib
+            import agent.tools.workflow_patch as wp_mod
+            orig_wp_handle = wp_mod.handle
+
+            try:
+                wp_mod.handle = _malformed
+                result = json.loads(nr.handle("migrate_deprecated_nodes", {"dry_run": False}))
+            finally:
+                wp_mod.handle = orig_wp_handle
+
+        assert "error" in result
+        assert "malformed" in result["error"].lower() or "attempted" in result
+
+    @patch("agent.tools.comfy_api._get")
+    def test_dry_run_does_not_call_patch_engine(self, mock_get):
+        """dry_run=True must return preview without touching patch engine."""
+        mock_get.return_value = SAMPLE_REPLACEMENTS
+
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            result = json.loads(
+                handle("migrate_deprecated_nodes", {"dry_run": True})
+            )
+
+        assert result.get("dry_run") is True
+        assert result.get("migrations") is not None
+        assert "error" not in result
+
+    @patch("agent.tools.comfy_api._get")
+    def test_patch_engine_error_dict_surfaced(self, mock_get):
+        """If patch engine returns {"error": ...}, migrate wraps it."""
+        import json as _json
+        import agent.tools.workflow_patch as wp_mod
+        mock_get.return_value = SAMPLE_REPLACEMENTS
+
+        def _error_handle(name, tool_input):
+            return _json.dumps({"error": "patch conflict"})
+
+        orig = wp_mod.handle
+        try:
+            wp_mod.handle = _error_handle
+            with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+                result = _json.loads(
+                    handle("migrate_deprecated_nodes", {"dry_run": False})
+                )
+        finally:
+            wp_mod.handle = orig
+
+        assert "error" in result
+        assert "patch conflict" in result["error"]

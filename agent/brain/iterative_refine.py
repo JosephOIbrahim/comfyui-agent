@@ -147,18 +147,15 @@ def _record_to_memory(
         vision_notes = []
         if diagnosed:
             vision_notes.extend(diagnosed)
-        if verification.get("model_limitations"):
-            vision_notes.extend(
-                f"model_limitation: {lim}"
-                for lim in verification["model_limitations"]
-            )
+        if model_lims := verification.get("model_limitations"):  # Cycle 56: walrus avoids double lookup
+            vision_notes.extend(f"model_limitation: {lim}" for lim in model_lims)
         if decision:
             vision_notes.append(f"verify_decision: {decision}")
 
         # Extract key_params from intent_spec mutations
         key_params: dict = {"model": model_id}
-        if intent_spec and intent_spec.get("parameter_mutations"):
-            for mut in intent_spec["parameter_mutations"]:
+        if intent_spec and (param_muts := intent_spec.get("parameter_mutations")):  # Cycle 56: walrus avoids double lookup
+            for mut in param_muts:
                 target = mut.get("target", "")
                 value = mut.get("value")
                 if target and value is not None:
@@ -521,7 +518,7 @@ def _handle_generation_or_modification(
 
     # Check confidence
     confidence_check = router.check_confidence(intent_spec)
-    if not confidence_check["proceed"]:
+    if not confidence_check.get("proceed", True):  # Cycle 56: guard bare bracket access
         return _safe_to_json({
             "status": "needs_clarification",
             "intent_type": context.intent_type,
@@ -583,7 +580,7 @@ def _handle_generation_or_modification(
         # Check loop control
         loop_decision = router.should_continue(verification, context)
 
-        if loop_decision["action"] == "accept":
+        if loop_decision.get("action") == "accept":  # Cycle 56: guard bare bracket access
             i_dict = intent_spec.to_dict()
             v_dict = verification.to_dict()
             _record_to_memory(
@@ -607,7 +604,7 @@ def _handle_generation_or_modification(
                 "schemas_used": schemas_used,
             })
 
-        if not loop_decision["continue"]:
+        if not loop_decision.get("continue", False):  # Cycle 56: guard bare bracket access
             # Escalated or max iterations
             i_dict = intent_spec.to_dict()
             v_dict = verification.to_dict()

@@ -319,7 +319,10 @@ def _handle_migrate(tool_input: dict) -> str:
         })
 
     result_json = patch_handle("apply_workflow_patch", {"patches": all_patches})
-    result = json.loads(result_json) if isinstance(result_json, str) else result_json
+    try:  # Cycle 56: patch_handle may return malformed JSON if patch engine is broken
+        result = json.loads(result_json) if isinstance(result_json, str) else result_json
+    except json.JSONDecodeError as _e:
+        return to_json({"error": f"Patch engine returned malformed JSON: {_e}", "attempted": len(migrations)})
 
     if isinstance(result, dict) and result.get("error"):
         return to_json({"error": f"Migration failed: {result['error']}", "attempted": len(migrations)})

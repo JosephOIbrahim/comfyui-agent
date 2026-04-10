@@ -5,10 +5,13 @@ custom nodes, models, and their on-disk details — without
 needing ComfyUI to be running.
 """
 
+import logging
 from pathlib import Path
 
 from ..config import CUSTOM_NODES_DIR, MODELS_DIR
 from ._util import to_json
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -166,8 +169,8 @@ def _handle_list_custom_nodes(tool_input: dict) -> str:
                 content = init_file.read_text(encoding="utf-8", errors="replace")
                 if "NODE_CLASS_MAPPINGS" in content:
                     info["registers_nodes"] = True
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Could not read __init__.py for %s: %s", item.name, _e)  # Cycle 56
 
         packs.append(info)
 
@@ -190,11 +193,11 @@ def _handle_list_models(tool_input: dict) -> str:
     model_dir = MODELS_DIR / model_type
 
     if not model_dir.exists():
-        # List available types
-        available = [d.name for d in MODELS_DIR.iterdir() if d.is_dir()]
+        # Cycle 56: guard MODELS_DIR existence before iterdir (TOCTOU / missing dir)
+        available = sorted(d.name for d in MODELS_DIR.iterdir() if d.is_dir()) if MODELS_DIR.exists() else []
         return to_json({
             "error": f"Model directory '{model_type}' not found.",
-            "available_types": sorted(available),
+            "available_types": available,
         })
 
     # Collect model paths

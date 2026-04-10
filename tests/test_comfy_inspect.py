@@ -194,3 +194,55 @@ class TestListModelsRequiredField:
         with patch.object(comfy_inspect, "MODELS_DIR", tmp_path):
             result = json.loads(comfy_inspect.handle("list_models", {"model_type": ""}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 56: MODELS_DIR existence guard when model_type not found
+# ---------------------------------------------------------------------------
+
+class TestListModelsModelsDirectoryGuard:
+    """Cycle 56: _handle_list_models must not call iterdir() on a missing MODELS_DIR."""
+
+    def test_missing_models_dir_returns_empty_available_types(self, tmp_path):
+        """If MODELS_DIR itself doesn't exist, available_types is [] not a crash."""
+        missing_dir = tmp_path / "does_not_exist"
+        with patch.object(comfy_inspect, "MODELS_DIR", missing_dir):
+            result = json.loads(
+                comfy_inspect.handle("list_models", {"model_type": "checkpoints"})
+            )
+        assert "error" in result
+        assert result.get("available_types") == []
+
+    def test_existing_models_dir_lists_available_types(self, fake_models):
+        """When MODELS_DIR exists but model_type is wrong, available_types lists real dirs."""
+        with patch.object(comfy_inspect, "MODELS_DIR", fake_models):
+            result = json.loads(
+                comfy_inspect.handle("list_models", {"model_type": "notreal"})
+            )
+        assert "error" in result
+        assert isinstance(result.get("available_types"), list)
+        assert "checkpoints" in result["available_types"]
+
+    def test_silent_exception_logs_debug_not_crashes(self, fake_custom_nodes):
+        """Cycle 56: unreadable __init__.py must log.debug and continue, not crash."""
+        import logging
+        with patch.object(comfy_inspect, "CUSTOM_NODES_DIR", fake_custom_nodes):
+            with patch.object(comfy_inspect.log, "debug") as mock_debug:
+                # Patch open to raise on the impact-pack __init__.py
+                from pathlib import Path
+                orig_read = Path.read_text
+
+                def _raise_on_impact(self, *a, **kw):
+                    if "comfyui-impact-pack" in str(self):
+                        raise PermissionError("no read")
+                    return orig_read(self, *a, **kw)
+
+                with patch.object(Path, "read_text", _raise_on_impact):
+                    result = json.loads(comfy_inspect.handle("list_custom_nodes", {}))
+
+        # Should still return packs, just without registers_nodes for impact-pack
+        assert result["count"] == 2
+        impact = next(p for p in result["packs"] if p["name"] == "comfyui-impact-pack")
+        assert "registers_nodes" not in impact
+        # Debug was called with the error
+        assert mock_debug.called
