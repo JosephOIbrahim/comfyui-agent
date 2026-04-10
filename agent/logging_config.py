@@ -62,7 +62,7 @@ class JSONFormatter(logging.Formatter):
             entry["correlation_id"] = corr_id
         if record.exc_info and record.exc_info[1]:
             entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(entry, sort_keys=True)
+        return json.dumps(entry, sort_keys=True, allow_nan=False)  # Cycle 61: NaN-safe
 
 
 class HumanFormatter(logging.Formatter):

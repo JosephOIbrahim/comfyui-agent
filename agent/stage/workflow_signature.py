@@ -90,7 +90,7 @@ class WorkflowSignature:
             "sampler_class": self.sampler_class,
             "style_target": self.style_target,
         }
-        raw = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        raw = json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False)  # Cycle 61: NaN-safe
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:

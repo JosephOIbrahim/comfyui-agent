@@ -180,3 +180,36 @@ class TestUninstallNodePackRequiredField:
         from agent.tools import comfy_provision
         result = json.loads(comfy_provision.handle("uninstall_node_pack", {"name": None}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 61 — URL validation exception logging
+# ---------------------------------------------------------------------------
+
+class TestURLValidationExceptionLogging:
+    """Cycle 61: URL validation exceptions must be logged at DEBUG level."""
+
+    def test_download_url_malformed_logs_debug(self, caplog):
+        """_validate_download_url must log.debug on unexpected parse errors."""
+        import logging
+        from unittest.mock import patch
+        from agent.tools.comfy_provision import _validate_download_url
+        # Patch urlparse to raise unexpectedly (local import so patch source module)
+        with patch("urllib.parse.urlparse", side_effect=RuntimeError("parse error")), \
+             caplog.at_level(logging.DEBUG, logger="agent.tools.comfy_provision"):
+            result = _validate_download_url("https://example.com/model.safetensors")
+        assert result == "Invalid URL format."
+        assert any("url" in r.message.lower() or "invalid" in r.message.lower()
+                   for r in caplog.records)
+
+    def test_git_url_malformed_logs_debug(self, caplog):
+        """_validate_git_url must log.debug on unexpected parse errors."""
+        import logging
+        from unittest.mock import patch
+        from agent.tools.comfy_provision import _validate_git_url
+        with patch("urllib.parse.urlparse", side_effect=RuntimeError("parse error")), \
+             caplog.at_level(logging.DEBUG, logger="agent.tools.comfy_provision"):
+            result = _validate_git_url("https://github.com/org/repo.git")
+        assert result == "Invalid URL format."
+        assert any("url" in r.message.lower() or "invalid" in r.message.lower()
+                   for r in caplog.records)

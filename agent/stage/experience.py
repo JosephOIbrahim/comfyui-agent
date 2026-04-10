@@ -190,11 +190,11 @@ def record_experience(
     cws.write(prim_path, "chunk_id", chunk_id)
     cws.write(
         prim_path, "initial_state",
-        json.dumps(initial_state, sort_keys=True),
+        json.dumps(initial_state, sort_keys=True, allow_nan=False),  # Cycle 61: NaN-safe
     )
     cws.write(
         prim_path, "decisions",
-        json.dumps(decisions, sort_keys=True),
+        json.dumps(decisions, sort_keys=True, allow_nan=False),  # Cycle 61: NaN-safe
     )
 
     # Outcome axes

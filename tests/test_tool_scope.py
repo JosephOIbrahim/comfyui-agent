@@ -212,3 +212,22 @@ class TestFullScopeDispatcher:
         fsd = FullScopeDispatcher(mock_dispatch, ctx="test-ctx")
         fsd("any_tool", {})
         assert calls[0]["ctx"] == "test-ctx"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 61 — tool_scope error JSON is allow_nan=False safe
+# ---------------------------------------------------------------------------
+
+class TestScopedDispatcherNaNSafety:
+    """Cycle 61: ScopedDispatcher error JSON must be NaN-safe (allow_nan=False)."""
+
+    def test_unauthorized_tool_returns_valid_json(self):
+        """Unauthorized tool call must return parseable JSON (not NaN-polluted)."""
+        import json
+        from agent.tool_scope import ToolScope, ScopedDispatcher
+        scope = ToolScope("test_scope", allowed_tools=frozenset({"allowed_tool"}))
+        dispatcher = ScopedDispatcher(lambda n, t, **k: '{"ok": true}', scope)
+        result = dispatcher("forbidden_tool", {})
+        parsed = json.loads(result)  # Must not raise JSONDecodeError
+        assert "error" in parsed
+        assert "test_scope" in parsed["error"] or "test_scope" in parsed.get("scope", "")

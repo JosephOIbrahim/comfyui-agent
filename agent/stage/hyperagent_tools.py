@@ -19,7 +19,7 @@ from .hyperagent import MetaAgent
 
 def _to_json(obj: object) -> str:
     """Deterministic JSON (mirrors agent.tools._util.to_json)."""
-    return _json.dumps(obj, sort_keys=True)
+    return _json.dumps(obj, sort_keys=True, allow_nan=False)  # Cycle 61: NaN-safe
 
 # ---------------------------------------------------------------------------
 # Module-level singleton (lazy, thread-safe)

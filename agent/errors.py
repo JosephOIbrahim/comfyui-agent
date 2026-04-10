@@ -63,4 +63,4 @@ def error_json(message: str, *, hint: str | None = None, **context) -> str:
         result["hint"] = hint
     if context:
         result["context"] = context
-    return _json.dumps(result, sort_keys=True)
+    return _json.dumps(result, sort_keys=True, allow_nan=False)  # Cycle 61: NaN-safe

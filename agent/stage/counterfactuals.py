@@ -70,7 +70,7 @@ class Counterfactual:
 
 def _generate_cf_id(source_chunk_id: str, hypothesis: dict, timestamp: float) -> str:
     """Generate a deterministic counterfactual ID."""
-    raw = f"{source_chunk_id}:{json.dumps(hypothesis, sort_keys=True)}:{timestamp}"
+    raw = f"{source_chunk_id}:{json.dumps(hypothesis, sort_keys=True, allow_nan=False)}:{timestamp}"  # Cycle 61: NaN-safe
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -126,7 +126,7 @@ def generate_counterfactual(
     prim_path = f"/counterfactuals/pending/cf_{cf_id}"
     cws.write(prim_path, "cf_id", cf_id)
     cws.write(prim_path, "source_chunk_id", source_chunk.chunk_id)
-    cws.write(prim_path, "hypothesis", json.dumps(hypothesis, sort_keys=True))
+    cws.write(prim_path, "hypothesis", json.dumps(hypothesis, sort_keys=True, allow_nan=False))  # Cycle 61: NaN-safe
     cws.write(prim_path, "confidence", confidence)
     cws.write(prim_path, "status", "pending")
     cws.write(prim_path, "timestamp", ts)

@@ -199,7 +199,7 @@ class OllamaProvider(LLMProvider):
                             "type": "function",
                             "function": {
                                 "name": tu.name,
-                                "arguments": json.dumps(tu.input, sort_keys=True),
+                                "arguments": json.dumps(tu.input, sort_keys=True, allow_nan=False),  # Cycle 61
                             },
                         })
                     result.append({

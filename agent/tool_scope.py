@@ -74,7 +74,7 @@ class ScopedDispatcher:
                     "This tool belongs to a different agent's authority."
                 ),
                 "scope": self.scope.name,
-            }, sort_keys=True)
+            }, sort_keys=True, allow_nan=False)  # Cycle 61: NaN-safe
         if self.ctx is not None:
             kwargs["ctx"] = self.ctx
         return self._dispatch(name, tool_input, **kwargs)

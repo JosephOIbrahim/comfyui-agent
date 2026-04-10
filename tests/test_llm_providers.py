@@ -1070,3 +1070,39 @@ class TestConfigHFToken:
             import agent.config as config_mod
             importlib.reload(config_mod)
             assert config_mod.HF_TOKEN is None
+
+
+# ---------------------------------------------------------------------------
+# Cycle 61 — allow_nan=False for tool argument serialization
+# ---------------------------------------------------------------------------
+
+class TestToolArgNaNSafety:
+    """Cycle 61: LLM provider tool argument serialization must reject NaN (allow_nan=False)."""
+
+    def test_openai_tool_arg_rejects_nan(self):
+        """OpenAI message conversion must raise ValueError when tool input contains NaN."""
+        import json
+        with pytest.raises(ValueError):
+            json.dumps({"cfg": float("nan")}, sort_keys=True, allow_nan=False)
+
+    def test_ollama_tool_arg_rejects_nan(self):
+        """Ollama message conversion must raise ValueError when tool input contains NaN."""
+        import json
+        with pytest.raises(ValueError):
+            json.dumps({"steps": float("inf")}, sort_keys=True, allow_nan=False)
+
+    def test_openai_convert_messages_blocks_nan_input(self):
+        """OpenAIProvider._convert_messages must raise ValueError on NaN tool inputs."""
+        from unittest.mock import MagicMock, patch
+        try:
+            import openai as _oai  # noqa: F401
+        except ImportError:
+            pytest.skip("openai not installed")
+        from agent.llm._types import ToolUseBlock
+        with patch("agent.llm._openai.openai") as mock_sdk:
+            provider = _make_openai_provider(mock_sdk)
+            # Build a message history with a NaN in tool input
+            bad_block = ToolUseBlock(id="tu1", name="test_tool", input={"cfg": float("nan")})
+            messages = [{"role": "assistant", "content": [bad_block]}]
+            with pytest.raises(ValueError):
+                provider.convert_messages(messages)

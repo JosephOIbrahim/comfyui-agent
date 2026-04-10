@@ -228,7 +228,8 @@ def _validate_download_url(url: str) -> str | None:
         for pattern in blocked_patterns:
             if hostname.startswith(pattern):
                 return f"Access denied: download from '{hostname}' is not allowed."
-    except Exception:
+    except Exception as _e:  # Cycle 61: log unexpected URL parse errors for debuggability
+        log.debug("Unexpected error validating download URL %r: %s", url[:100], _e)
         return "Invalid URL format."
     return None
 
@@ -324,7 +325,8 @@ def _validate_git_url(url: str) -> str | None:
                 f"Host '{parsed.hostname}' not in allowed list: "
                 f"{', '.join(sorted(_ALLOWED_GIT_HOSTS))}."
             )
-    except Exception:
+    except Exception as _e:  # Cycle 61: log unexpected URL parse errors for debuggability
+        log.debug("Unexpected error validating git URL %r: %s", url[:100], _e)
         return "Invalid URL format."
     return None
 

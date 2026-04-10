@@ -249,7 +249,7 @@ class OpenAIProvider(LLMProvider):
                             "type": "function",
                             "function": {
                                 "name": block.name,
-                                "arguments": json.dumps(block.input, sort_keys=True),
+                                "arguments": json.dumps(block.input, sort_keys=True, allow_nan=False),  # Cycle 61
                             },
                         }
                     )
@@ -279,7 +279,7 @@ class OpenAIProvider(LLMProvider):
                                 "function": {
                                     "name": block["name"],
                                     "arguments": json.dumps(
-                                        block.get("input", {}), sort_keys=True
+                                        block.get("input", {}), sort_keys=True, allow_nan=False  # Cycle 61
                                     ),
                                 },
                             }

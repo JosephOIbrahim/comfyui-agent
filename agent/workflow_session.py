@@ -128,7 +128,7 @@ class WorkflowSession:
                 action=ActionBlock(
                     tool_name=tool_name,
                     tool_input_hash=hashlib.sha256(
-                        json.dumps(tool_input, sort_keys=True, default=str).encode()
+                        json.dumps(tool_input, sort_keys=True, default=str, allow_nan=False).encode()  # Cycle 61
                     ).hexdigest()[:16],
                     action_type=tool_name.split("_")[0] if tool_name else "",
                 ),

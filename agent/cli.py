@@ -45,7 +45,7 @@ class CLIHandler(NullHandler):
         if self._streamed_any:
             print()
             self._streamed_any = False
-        inp_summary = json.dumps(input, default=str, sort_keys=True)
+        inp_summary = json.dumps(input, default=str, sort_keys=True, allow_nan=False)  # Cycle 61
         if len(inp_summary) > 80:
             inp_summary = inp_summary[:77] + "..."
         self._console.print(f"  [dim]-> {name}({inp_summary})[/dim]")

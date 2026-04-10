@@ -449,3 +449,64 @@ class TestGetStatistics:
         stats = get_statistics(usd_stage, context_signature_hash="target")
         assert stats["total_count"] == 1
         assert abs(stats["avg_outcome"]["aesthetic"] - 0.8) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Cycle 61 — allow_nan=False coverage for experience serialization
+# ---------------------------------------------------------------------------
+
+class TestNaNSafety:
+    """Cycle 61: record_experience must reject NaN in initial_state/decisions."""
+
+    def test_nan_in_initial_state_raises(self):
+        """NaN in initial_state must raise ValueError (allow_nan=False guard)."""
+        from unittest.mock import MagicMock
+        cws = MagicMock()
+        with pytest.raises(ValueError):
+            record_experience(
+                cws,
+                initial_state={"cfg": float("nan")},
+                decisions=[],
+                outcome={"aesthetic": 0.8},
+                context_signature_hash="test_c61_nan_init",
+            )
+
+    def test_inf_in_initial_state_raises(self):
+        """Infinity in initial_state must raise ValueError (allow_nan=False guard)."""
+        from unittest.mock import MagicMock
+        cws = MagicMock()
+        with pytest.raises(ValueError):
+            record_experience(
+                cws,
+                initial_state={"steps": float("inf")},
+                decisions=[],
+                outcome={"aesthetic": 0.8},
+                context_signature_hash="test_c61_inf_init",
+            )
+
+    def test_nan_in_decisions_raises(self):
+        """NaN in decisions list must raise ValueError (allow_nan=False guard)."""
+        from unittest.mock import MagicMock
+        cws = MagicMock()
+        with pytest.raises(ValueError):
+            record_experience(
+                cws,
+                initial_state={},
+                decisions=[{"cfg": float("nan"), "action": "lower"}],
+                outcome={"aesthetic": 0.8},
+                context_signature_hash="test_c61_nan_dec",
+            )
+
+    def test_valid_data_does_not_raise(self):
+        """Normal finite data must not raise (NaN guard must not block valid calls)."""
+        from unittest.mock import MagicMock
+        cws = MagicMock()
+        # Should complete without raising
+        chunk = record_experience(
+            cws,
+            initial_state={"cfg": 7.0, "steps": 20},
+            decisions=[{"action": "lower_cfg", "delta": -1.5}],
+            outcome={"aesthetic": 0.85},
+            context_signature_hash="test_c61_valid",
+        )
+        assert chunk.context_signature_hash == "test_c61_valid"
