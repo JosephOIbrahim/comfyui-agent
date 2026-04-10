@@ -221,21 +221,25 @@ When a prompt explicitly grants session-level git authorization, the agent may r
 [TEST] Add fixture for SDXL + ControlNet + IP-Adapter workflow
 ```
 
-## Current TODO (Phase 6)
+## Current TODO (Phase 7)
 
-**Queued fixes (GRAPH×FORGE):**
-1. Fix `test_health.py` mock leak — 4 tests fail with `PromptServer not initialized` because mocks don't intercept the real ComfyUI check path (see `GRAPH_FORGE_health_mock_leak.md`)
-2. Fix Windows grep portability — `test_no_legacy_src_cognitive_imports_remain` shells out to `grep` which doesn't exist on Windows; replace with `pathlib.rglob` (see `GRAPH_FORGE_windows_grep_portability.md`)
+Phase 6 complete. All 8 items verified passing (3579 tests, 30 pipeline tests).
 
-**Phase 6A — Wire the Pipe (design complete, implementation pending):**
-3. Default executor wire — EXECUTE stage calls `execute_workflow` when `config.executor` is None instead of silently skipping
-4. Template loading — COMPOSE stage passes non-empty `available_templates` list on cold start
-5. Default evaluator — EVALUATE stage applies rule-based `QualityScore` when `config.evaluator` is None
-6. `ExperienceChunk` parameter shape fix — `parameters=params` (flat) not `parameters={"composed": params}` (nested)
-7. Post-COMPOSE diagnostic — call `analyze_workflow` after COMPOSE; warn if workflow has zero nodes
-8. `create_default_pipeline()` bootstrap factory in `cognitive/pipeline/__init__.py`
+**Completed (Phase 6 — archived):**
+- ~~test_health.py mock leak~~ — fixed (6/6 passing)
+- ~~Windows grep portability~~ — fixed (pathlib.rglob)
+- ~~Default executor wire~~ — EXECUTE calls real `execute_workflow` when `config.executor` is None
+- ~~Template loading~~ — COMPOSE loads from `agent/templates/` with SD1.5 fallback
+- ~~Default evaluator~~ — rule-based QualityScore (0.7 success / 0.1 failure)
+- ~~ExperienceChunk parameter shape~~ — flat `parameters=params`
+- ~~Post-COMPOSE diagnostic~~ — `analyze_workflow` warns on zero-node workflows
+- ~~`create_default_pipeline()`~~ — bootstrap factory in `cognitive/pipeline/__init__.py`
 
-See `docs/PHASE_6A_WIRE_THE_PIPE_DESIGN.md` for the full blueprint.
+**Phase 7 — Next:**
+1. Vision-based evaluator — replace rule-based 0.7/0.1 with `analyze_image` scoring
+2. Auto-retry loop — re-COMPOSE when `quality.overall < threshold` (stub exists in pipeline)
+3. MCP resource support — expose workflow state as MCP resources
+4. Integration test harness — `@pytest.mark.integration` for live ComfyUI tests
 
 ## Non-Goals
 
