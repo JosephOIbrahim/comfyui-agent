@@ -38,6 +38,14 @@ for _bmod in _BRAIN_SUBMODULES:
     except Exception as _e:
         log.warning("Brain submodule %r failed to register: %s", _bmod, _e)
 
+# Eagerly initialize the adapter registry so dispatch_brain_message() is wired from first call.
+# Without this, adapters/__init__.py only loads when dispatch_brain_message() is invoked for the
+# first time — a race if anything inspects the registry at import time. (Cycle 59)
+try:
+    importlib.import_module(".adapters", package=__name__)
+except Exception as _e:
+    log.warning("Brain adapters failed to initialize: %s", _e)
+
 # Re-export agent classes (guarded — a submodule may have failed above)
 try:
     from .demo import DemoAgent  # noqa: F401

@@ -842,4 +842,4 @@ def handle(name: str, tool_input: dict) -> str:
     if agent is not None:
         return agent.handle(name, tool_input)
     import json as _json  # Cycle 43: return error directly; avoid circular import via brain package
-    return _json.dumps({"error": f"Unknown tool: {name}"}, sort_keys=True)
+    return _json.dumps({"error": f"Unknown tool: {name}"}, sort_keys=True, allow_nan=False)  # Cycle 59

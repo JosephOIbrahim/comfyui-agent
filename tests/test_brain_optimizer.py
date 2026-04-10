@@ -409,3 +409,77 @@ class TestApplyOptimizationRequiredField:
         }))
         # Must not be the required-field error
         assert "optimization_id" not in result.get("error", "").lower() or "required" not in result.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 59 — optimization loops log.warning on malformed patch result
+# ---------------------------------------------------------------------------
+
+class TestOptimizerSilentExceptionLogging:
+    """Cycle 59: when patch_handle returns malformed JSON, optimization loops must log a
+    warning and exclude the node from the result (not silently count it as updated)."""
+
+    def _make_cfg(self, wf: dict) -> object:
+        from agent.brain._sdk import BrainConfig
+        # Return deliberately malformed JSON so _json.loads raises JSONDecodeError
+        return BrainConfig(
+            get_workflow_state=lambda: {"current_workflow": wf},
+            patch_handle=lambda name, args: "not valid json {{{",
+        )
+
+    def test_vae_tiling_logs_warning_and_skips_node(self, caplog):
+        """vae_tiling: JSONDecodeError on patch result → warning logged, node excluded."""
+        import logging
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "VAEDecode", "inputs": {"samples": ["0", 0]}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        with caplog.at_level(logging.WARNING, logger="agent.brain.optimizer"):
+            result = json.loads(agent.handle("apply_optimization", {"optimization_id": "vae_tiling"}))
+        assert result["applied"] == "vae_tiling"
+        assert result["nodes_swapped"] == []  # Cycle 59: node must NOT be counted on parse failure
+        assert any("vae_tiling" in r.message for r in caplog.records)
+
+    def test_batch_size_logs_warning_and_skips_node(self, caplog):
+        """batch_size: JSONDecodeError on patch result → warning logged, node excluded."""
+        import logging
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "EmptyLatentImage", "inputs": {"batch_size": 1}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        with caplog.at_level(logging.WARNING, logger="agent.brain.optimizer"):
+            result = json.loads(agent.handle("apply_optimization", {
+                "optimization_id": "batch_size",
+                "params": {"batch_size": 4},
+            }))
+        assert result["applied"] == "batch_size"
+        assert result["nodes_updated"] == []
+        assert any("batch_size" in r.message for r in caplog.records)
+
+    def test_step_optimization_logs_warning_and_skips_node(self, caplog):
+        """step_optimization: JSONDecodeError on patch result → warning logged, node excluded."""
+        import logging
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "KSampler", "inputs": {"steps": 20}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        with caplog.at_level(logging.WARNING, logger="agent.brain.optimizer"):
+            result = json.loads(agent.handle("apply_optimization", {
+                "optimization_id": "step_optimization",
+                "params": {"steps": 15},
+            }))
+        assert result["applied"] == "step_optimization"
+        assert result["nodes_updated"] == []
+        assert any("step_optimization" in r.message for r in caplog.records)
+
+    def test_sampler_efficiency_logs_warning_and_skips_node(self, caplog):
+        """sampler_efficiency: JSONDecodeError on patch result → warning logged, node excluded."""
+        import logging
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "KSampler", "inputs": {"sampler_name": "euler"}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        with caplog.at_level(logging.WARNING, logger="agent.brain.optimizer"):
+            result = json.loads(agent.handle("apply_optimization", {
+                "optimization_id": "sampler_efficiency",
+                "params": {"sampler": "dpmpp_2m", "scheduler": "karras"},
+            }))
+        assert result["applied"] == "sampler_efficiency"
+        assert result["nodes_updated"] == []
+        assert any("sampler_efficiency" in r.message for r in caplog.records)

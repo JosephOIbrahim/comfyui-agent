@@ -947,3 +947,33 @@ class TestRecordOutcomeKeyParamsGuard:
         }))
         assert "error" not in result
         assert result.get("recorded") is True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 59 — allow_nan=False coverage for outcome writes and workflow hash
+# ---------------------------------------------------------------------------
+
+class TestOutcomeNaNSafety:
+    """Cycle 59: memory.py json.dumps calls must reject NaN/Infinity (allow_nan=False)."""
+
+    def test_workflow_hash_raises_on_nan_key_params(self):
+        """_workflow_hash must raise ValueError when key_params contains NaN."""
+        from agent.brain.memory import _workflow_hash
+        with pytest.raises(ValueError):
+            _workflow_hash({"cfg": float("nan")})
+
+    def test_workflow_hash_raises_on_inf_key_params(self):
+        """_workflow_hash must raise ValueError when key_params contains Infinity."""
+        from agent.brain.memory import _workflow_hash
+        with pytest.raises(ValueError):
+            _workflow_hash({"steps": float("inf")})
+
+    def test_outcome_write_raises_on_nan_in_outcome_dict(self):
+        """_append_outcome must raise ValueError if outcome dict contains NaN (allow_nan=False)."""
+        nan_outcome = {
+            "quality_score": float("nan"),
+            "session": "test_c59_nan_write",
+            "timestamp": 1.0,
+        }
+        with pytest.raises(ValueError):
+            _mem._append_outcome("test_c59_nan_write", nan_outcome)

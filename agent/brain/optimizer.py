@@ -592,8 +592,9 @@ class OptimizerAgent(BrainAgent):
                         patch_result = _json.loads(patch_raw) if isinstance(patch_raw, str) else patch_raw
                         if isinstance(patch_result, dict) and "error" in patch_result:
                             continue
-                    except Exception:
-                        pass
+                    except Exception as _e:  # Cycle 59: log instead of silently swallow
+                        log.warning("vae_tiling: patch result parse failed for node %s: %s", nid, _e)
+                        continue
                     swapped.append(nid)
             return self.to_json({
                 "applied": "vae_tiling",
@@ -636,8 +637,9 @@ class OptimizerAgent(BrainAgent):
                         pr = _j.loads(raw) if isinstance(raw, str) else raw
                         if isinstance(pr, dict) and "error" in pr:
                             continue
-                    except Exception:
-                        pass
+                    except Exception as _e:  # Cycle 59: log instead of silently swallow
+                        log.warning("batch_size: patch result parse failed for node %s: %s", nid, _e)
+                        continue
                     updated.append(nid)
 
             return self.to_json({
@@ -671,8 +673,9 @@ class OptimizerAgent(BrainAgent):
                         pr = _j.loads(raw) if isinstance(raw, str) else raw
                         if isinstance(pr, dict) and "error" in pr:
                             continue
-                    except Exception:
-                        pass
+                    except Exception as _e:  # Cycle 59: log instead of silently swallow
+                        log.warning("step_optimization: patch result parse failed for node %s: %s", nid, _e)
+                        continue
                     updated.append(nid)
 
             return self.to_json({
@@ -716,8 +719,9 @@ class OptimizerAgent(BrainAgent):
                             isinstance(psc, dict) and "error" in psc
                         ):
                             continue
-                    except Exception:
-                        pass
+                    except Exception as _e:  # Cycle 59: log instead of silently swallow
+                        log.warning("sampler_efficiency: patch result parse failed for node %s: %s", nid, _e)
+                        continue
                     updated.append(nid)
 
             return self.to_json({

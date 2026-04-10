@@ -306,7 +306,7 @@ class MemoryAgent(BrainAgent):
                         session, _rot_err,
                     )
             with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(outcome, sort_keys=True) + "\n")
+                f.write(json.dumps(outcome, sort_keys=True, allow_nan=False) + "\n")  # Cycle 59: NaN-safe
                 f.flush()
                 os.fsync(f.fileno())
 
@@ -600,7 +600,7 @@ def _rotate_outcomes(path: Path) -> None:
 
 def _workflow_hash(key_params: dict) -> str:
     """Hash workflow parameters for grouping."""
-    canonical = json.dumps(key_params, sort_keys=True)
+    canonical = json.dumps(key_params, sort_keys=True, allow_nan=False)  # Cycle 59: NaN-safe
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 

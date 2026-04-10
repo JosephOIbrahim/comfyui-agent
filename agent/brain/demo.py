@@ -406,8 +406,8 @@ class DemoAgent(BrainAgent):
             if wf:
                 nodes, _fmt = _extract_api_format(wf)
                 pattern_info = _classify_pattern(nodes)
-        except Exception:
-            pass
+        except Exception as _e:  # Cycle 59: log instead of silently swallow
+            log.debug("Pattern enrichment failed for demo checkpoint: %s", _e)
 
         if step_idx >= total:
             # Demo complete

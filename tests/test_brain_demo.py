@@ -187,3 +187,32 @@ class TestDemoCheckpointTypeGuard:
         result = json.loads(handle("demo_checkpoint", {"step_completed": "some_step"}))
         # No active demo so we get a different error, but NOT a type guard error
         assert "step_completed" not in result.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 59 — pattern enrichment exception logging
+# ---------------------------------------------------------------------------
+
+class TestPatternEnrichmentLogging:
+    """Cycle 59: demo_checkpoint must log.debug when pattern enrichment raises."""
+
+    def test_enrichment_exception_logs_debug(self, caplog):
+        """If get_current_workflow raises, checkpoint completes and debug is logged."""
+        import logging
+        from unittest.mock import patch
+        handle("start_demo", {"scenario": "model_swap"})
+        with patch(
+            "agent.tools.workflow_patch.get_current_workflow",
+            side_effect=RuntimeError("simulated network error"),
+        ), caplog.at_level(logging.DEBUG, logger="agent.brain.demo"):
+            result = json.loads(handle("demo_checkpoint", {"step_completed": "analyze"}))
+        # Checkpoint must succeed despite enrichment failure
+        assert "checkpoint" in result
+        assert not any(
+            "step_completed" in r.message.lower() and "error" in r.message.lower()
+            for r in caplog.records
+        )
+        assert any(
+            "enrichment" in r.message.lower() or "pattern" in r.message.lower()
+            for r in caplog.records
+        )
