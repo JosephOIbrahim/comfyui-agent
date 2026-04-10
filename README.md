@@ -40,6 +40,7 @@ graph LR
 | *"Analyze this output"* | Uses Vision AI to diagnose issues and suggest parameter changes |
 | *"What model should I use for anime?"* | Searches CivitAI + HuggingFace + your local models, recommends the best fit |
 | *"Optimize this for speed"* | Profiles GPU usage, checks TensorRT eligibility, applies optimizations |
+| *"Repair and run this"* | Finds missing nodes, installs them, validates, executes -- no confirmation needed |
 
 ---
 
@@ -397,7 +398,7 @@ graph LR
 3. **PILOT** -- Makes changes through safe, reversible delta layers (never edits your original)
 4. **VERIFY** -- Runs the workflow, checks the output, records what worked
 
-Every change is undoable. Every generation teaches the agent something. The agent is a doer, not a describer -- say "wire the model" and it wires the model.
+Every change is undoable. Every generation teaches the agent something. The agent is a doer, not a describer -- say "wire the model" and it wires the model. Say "repair this" and it finds the missing nodes, installs them, and validates. Say "run it" and it validates then executes. No confirmation dialogs, no "would you like me to..." -- it acts, then tells you what it did.
 
 ---
 
@@ -604,14 +605,16 @@ graph LR
 
 ### Pre-Dispatch Safety Gate
 
-Every tool call passes through a default-deny gate. Read-only tools bypass it (zero overhead). Destructive tools are always locked.
+Every tool call passes through a default-deny gate. Read-only tools bypass it (zero overhead). Destructive tools are always locked. The gate auto-detects loaded workflows -- if a workflow is in memory (from the sidebar or CLI), execution tools are allowed without explicit session context.
 
 ```mermaid
 flowchart LR
-    Tool([Tool Call]) --> Risk{Risk Level?}
+    Tool([Tool Call]) --> Session{"Workflow\nloaded?"}
+    Session -->|Yes| Risk{Risk Level?}
+    Session -->|No| Deny["Denied:\nno active session"]
     Risk -->|"Read-only"| Pass[Pass through]
     Risk -->|"Mutation / Execute"| Checks[5 safety checks]
-    Risk -->|"Install / Download"| Confirm[Ask you first]
+    Risk -->|"Install / Download"| Escalate[Escalate to LLM]
     Risk -->|"Uninstall / Delete"| Block[Blocked]
 
     Checks --> OK{All pass?}
@@ -622,7 +625,8 @@ flowchart LR
     style Go fill:#10b981,color:#fff
     style Stop fill:#ef4444,color:#fff
     style Block fill:#ef4444,color:#fff
-    style Confirm fill:#FF9900,color:#000
+    style Deny fill:#ef4444,color:#fff
+    style Escalate fill:#FF9900,color:#000
 ```
 
 ### LIVRPS -- How Conflicts Get Resolved
