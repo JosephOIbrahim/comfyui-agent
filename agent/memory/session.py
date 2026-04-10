@@ -126,6 +126,14 @@ def load_session(name: str) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         data = _migrate_session(data)
+        # Cycle 44: normalize unexpected field types after migration so callers
+        # never see non-list notes or non-dict workflow (e.g. manually edited files)
+        if not isinstance(data.get("notes"), list):
+            log.warning("Session '%s': 'notes' was not a list — resetting to []", name)
+            data["notes"] = []
+        if not isinstance(data.get("workflow"), dict):
+            log.warning("Session '%s': 'workflow' was not a dict — resetting to default", name)
+            data["workflow"] = {"loaded_path": None, "format": None}
         return data
     except json.JSONDecodeError as e:
         return {"error": f"Corrupt session file: {e}"}
@@ -282,11 +290,11 @@ def _atomic_write(path: Path, content: str) -> None:
         fd.close()
         shutil.move(fd.name, str(path))
     except Exception:
-        # Clean up temp file on failure
+        # Clean up temp file on failure — log if cleanup itself fails
         try:
             Path(fd.name).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as _cleanup_exc:  # Cycle 44: log instead of silent swallow
+            log.warning("Failed to clean up temp file %s: %s", fd.name, _cleanup_exc)
         raise
 
 

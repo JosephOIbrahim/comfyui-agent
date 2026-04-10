@@ -234,7 +234,13 @@ def _validate_download_url(url: str) -> str | None:
 
 
 _MAX_DOWNLOAD_REDIRECTS = 10
-_CGNAT_NETWORK = None  # Initialised on first use
+_LOCK_ACQUIRE_TIMEOUT = 5          # Cycle 44: named constants for all timeouts/sizes
+_GIT_CLONE_TIMEOUT = 120           # seconds — sufficient for most repos over a home connection
+_PIP_INSTALL_TIMEOUT = 120         # seconds — matches git clone budget
+_DOWNLOAD_STREAM_TIMEOUT = 30.0    # seconds — httpx per-chunk timeout
+_DOWNLOAD_CHUNK_SIZE = 1024 * 1024 # bytes — 1 MB chunks balance memory vs syscall count
+_MAX_DOWNLOAD_BYTES = 20 * 1024 ** 3  # 20 GB hard cap; moved from handler body
+_CGNAT_NETWORK = None              # Initialised on first use
 
 
 def _resolve_and_check_private(hostname: str) -> str | None:
@@ -376,7 +382,7 @@ def _handle_install_node_pack(tool_input: dict) -> str:
 
     # Acquire per-target lock to prevent concurrent installs into the same directory.
     install_lock = _get_install_lock(str(resolved_target))
-    if not install_lock.acquire(timeout=5):
+    if not install_lock.acquire(timeout=_LOCK_ACQUIRE_TIMEOUT):
         return to_json({
             "error": f"Node pack '{name}' is already being installed by another request.",
             "hint": "Wait for the current install to complete.",
@@ -395,20 +401,23 @@ def _handle_install_node_pack(tool_input: dict) -> str:
             return to_json({"error": f"Custom_Nodes directory not found: {CUSTOM_NODES_DIR}"})
 
         # Clone the repository
+        log.info("Cloning node pack '%s' from %s", name, url)
         try:
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(target)],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=_GIT_CLONE_TIMEOUT,
                 cwd=str(CUSTOM_NODES_DIR),
             )
             if result.returncode != 0:
                 stderr = result.stderr.strip()
+                log.warning("git clone failed for '%s': %s", name, stderr[:200])
                 return to_json({
                     "error": f"git clone failed: {stderr[:300]}",
                     "hint": "Check the URL is correct and accessible.",
                 })
+            log.info("Cloned '%s' to %s", name, target)
         except FileNotFoundError:
             return to_json({
                 "error": "git is not installed or not on PATH.",
@@ -418,7 +427,8 @@ def _handle_install_node_pack(tool_input: dict) -> str:
             # Clean up partial clone
             if target.exists():
                 shutil.rmtree(target, ignore_errors=True)
-            return to_json({"error": "git clone timed out after 120 seconds."})
+            log.warning("git clone timed out for '%s' after %ds", name, _GIT_CLONE_TIMEOUT)
+            return to_json({"error": f"git clone timed out after {_GIT_CLONE_TIMEOUT} seconds."})
 
         # Check for requirements.txt and suggest pip install
         requirements = target / "requirements.txt"
@@ -427,18 +437,22 @@ def _handle_install_node_pack(tool_input: dict) -> str:
         # Install requirements if present
         pip_result = None
         if has_requirements:
+            log.info("Installing requirements for '%s'", name)
             try:
                 pip_proc = subprocess.run(
                     ["pip", "install", "-r", str(requirements)],
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=_PIP_INSTALL_TIMEOUT,
                 )
                 if pip_proc.returncode == 0:
+                    log.info("Requirements installed for '%s'", name)
                     pip_result = "Dependencies installed successfully."
                 else:
+                    log.warning("pip install incomplete for '%s' (exit %d)", name, pip_proc.returncode)
                     pip_result = "The node pack installed but some dependencies may be incomplete. Restart ComfyUI — if nodes don't appear, check the ComfyUI console for details."
             except Exception as e:
+                log.warning("pip install failed for '%s': %s", name, e)
                 pip_result = f"Could not install dependencies: {e}"
 
         return to_json({
@@ -543,13 +557,14 @@ def _handle_download_model(tool_input: dict) -> str:
 
     temp_path = target.with_suffix(target.suffix + ".download")
     start_time = time.time()
+    log.info("Downloading model '%s' from %s → %s/%s", filename, url, model_type, filename)
 
     try:
         current_url = url
         downloaded = 0
 
         for _hop in range(_MAX_DOWNLOAD_REDIRECTS + 1):
-            with httpx.stream("GET", current_url, follow_redirects=False, timeout=30.0) as response:
+            with httpx.stream("GET", current_url, follow_redirects=False, timeout=_DOWNLOAD_STREAM_TIMEOUT) as response:
                 if response.status_code in (301, 302, 303, 307, 308):
                     if _hop >= _MAX_DOWNLOAD_REDIRECTS:
                         return to_json({"error": "Too many redirects during download (max 10).", "url": url})
@@ -557,6 +572,7 @@ def _handle_download_model(tool_input: dict) -> str:
                     if not location:
                         return to_json({"error": "Redirect response missing Location header.", "url": url})
                     new_url = urljoin(current_url, location)
+                    log.debug("Download redirect %d: %s → %s", _hop + 1, current_url, new_url)
                     # Re-validate the redirect target URL against the allowlist
                     redirect_err = _validate_download_url(new_url)
                     if redirect_err:
@@ -592,13 +608,12 @@ def _handle_download_model(tool_input: dict) -> str:
                         msg = f"Download failed (server returned {sc}). Try again later."
                     return to_json({"error": msg, "url": url})
 
-                # 20 GB hard cap — guards against runaway/malicious responses
-                # that a CDN redirect could return after the Content-Length header
-                # has already been consumed. Legitimate model files are rarely
-                # above 15 GB; this limit preserves disk headroom. (Cycle 31 fix)
-                _MAX_DOWNLOAD_BYTES = 20 * 1024 ** 3  # 20 GB
+                # Hard cap — guards against runaway/malicious responses that a CDN
+                # redirect could return after the Content-Length header has already
+                # been consumed. Legitimate model files are rarely above 15 GB;
+                # this limit preserves disk headroom. (Cycle 31 fix; constant Cycle 44)
                 with open(temp_path, "wb") as f:
-                    for chunk in response.iter_bytes(chunk_size=1024 * 1024):  # 1MB chunks
+                    for chunk in response.iter_bytes(chunk_size=_DOWNLOAD_CHUNK_SIZE):
                         f.write(chunk)
                         downloaded += len(chunk)
                         if downloaded > _MAX_DOWNLOAD_BYTES:
@@ -606,6 +621,14 @@ def _handle_download_model(tool_input: dict) -> str:
                                 f"Download aborted: file exceeds the 20 GB safety limit "
                                 f"({downloaded / 1024**3:.1f} GB downloaded so far)."
                             )
+                elapsed = time.time() - start_time
+                log.info(
+                    "Downloaded '%s' — %.1f MB in %.1fs (%.1f MB/s)",
+                    filename,
+                    downloaded / 1024 / 1024,
+                    elapsed,
+                    (downloaded / 1024 / 1024) / max(elapsed, 0.001),
+                )
                 break  # Download complete
         else:
             return to_json({"error": "Too many redirects during download (max 10).", "url": url})

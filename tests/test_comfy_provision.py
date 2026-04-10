@@ -44,3 +44,59 @@ class TestInstallLocksCap:
         lock_a = _get_install_lock("/same/path")
         lock_b = _get_install_lock("/same/path")
         assert lock_a is lock_b, "Same path must return same lock object"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 44 — named constants exist at module level
+# ---------------------------------------------------------------------------
+
+class TestProvisionModuleLevelConstants:
+    """All timeout/size magic numbers must exist as named module-level constants."""
+
+    def test_lock_acquire_timeout_constant_exists(self):
+        from agent.tools.comfy_provision import _LOCK_ACQUIRE_TIMEOUT
+        assert isinstance(_LOCK_ACQUIRE_TIMEOUT, (int, float))
+        assert _LOCK_ACQUIRE_TIMEOUT > 0
+
+    def test_git_clone_timeout_constant_exists(self):
+        from agent.tools.comfy_provision import _GIT_CLONE_TIMEOUT
+        assert isinstance(_GIT_CLONE_TIMEOUT, (int, float))
+        assert _GIT_CLONE_TIMEOUT > 0
+
+    def test_pip_install_timeout_constant_exists(self):
+        from agent.tools.comfy_provision import _PIP_INSTALL_TIMEOUT
+        assert isinstance(_PIP_INSTALL_TIMEOUT, (int, float))
+        assert _PIP_INSTALL_TIMEOUT > 0
+
+    def test_download_stream_timeout_constant_exists(self):
+        from agent.tools.comfy_provision import _DOWNLOAD_STREAM_TIMEOUT
+        assert isinstance(_DOWNLOAD_STREAM_TIMEOUT, (int, float))
+        assert _DOWNLOAD_STREAM_TIMEOUT > 0
+
+    def test_download_chunk_size_constant_exists(self):
+        from agent.tools.comfy_provision import _DOWNLOAD_CHUNK_SIZE
+        assert isinstance(_DOWNLOAD_CHUNK_SIZE, int)
+        assert _DOWNLOAD_CHUNK_SIZE >= 4096, "Chunk size should be at least 4KB"
+
+    def test_max_download_bytes_at_module_level(self):
+        """_MAX_DOWNLOAD_BYTES must be a module-level constant, not inside a function."""
+        import agent.tools.comfy_provision as mod
+        assert hasattr(mod, "_MAX_DOWNLOAD_BYTES"), "_MAX_DOWNLOAD_BYTES must be at module level"
+        assert mod._MAX_DOWNLOAD_BYTES > 0
+
+    def test_clone_uses_git_clone_timeout(self):
+        """git clone subprocess must use _GIT_CLONE_TIMEOUT, not a literal 120."""
+        import inspect
+        import agent.tools.comfy_provision as mod
+        src = inspect.getsource(mod._handle_install_node_pack)
+        # Should reference the constant name, not the raw literal inside the subprocess call
+        # We verify the constant is used (not '120' after 'timeout=')
+        import re
+        # Find timeout= assignments in subprocess.run context
+        timeouts_in_src = re.findall(r"timeout=(\S+)", src)
+        # All timeouts should be constant references, not bare ints
+        for t in timeouts_in_src:
+            t_clean = t.rstrip(",)")
+            assert not t_clean.isdigit(), (
+                f"Bare numeric timeout {t_clean!r} found in install handler — use named constant"
+            )

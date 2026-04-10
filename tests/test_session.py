@@ -429,3 +429,99 @@ class TestAtomicWriteFsync:
         flush_idx = call_order.index("flush")
         fsync_idx = call_order.index("fsync")
         assert flush_idx < fsync_idx, f"flush ({flush_idx}) must precede fsync ({fsync_idx})"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 44 — session load field normalization + tempfile cleanup logging
+# ---------------------------------------------------------------------------
+
+class TestSessionLoadNormalization:
+    """load_session normalizes corrupt field types instead of propagating them."""
+
+    def _write_session(self, tmp_path, name, data):
+        """Write to session_mod.SESSIONS_DIR — same target patched by autouse fixture."""
+        import json
+        from agent.memory import session as sess_module
+        sess_dir = sess_module.SESSIONS_DIR  # uses the patched value from autouse fixture
+        sess_dir.mkdir(parents=True, exist_ok=True)
+        path = sess_dir / f"{name}.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_notes_not_list_is_normalized_to_empty_list(self, tmp_path):
+        """If 'notes' is a dict (manually edited), load_session resets it to []."""
+        from agent.memory.session import load_session, SCHEMA_VERSION
+        session_name = "c44_notes_dict"
+        self._write_session(tmp_path, session_name, {
+            "name": session_name,
+            "saved_at": "2024-01-01T00:00:00",
+            "schema_version": SCHEMA_VERSION,
+            "workflow": {"loaded_path": None, "format": None},
+            "notes": {"bad": "field"},  # dict, not list
+        })
+        result = load_session(session_name)
+        assert "error" not in result, f"Should not error: {result}"
+        assert isinstance(result["notes"], list)
+        assert result["notes"] == []
+
+    def test_workflow_not_dict_is_normalized(self, tmp_path):
+        """If 'workflow' is a string, load_session resets it to the default dict."""
+        from agent.memory.session import load_session, SCHEMA_VERSION
+        session_name = "c44_workflow_str"
+        self._write_session(tmp_path, session_name, {
+            "name": session_name,
+            "saved_at": "2024-01-01T00:00:00",
+            "schema_version": SCHEMA_VERSION,
+            "workflow": "corrupted_string_value",
+            "notes": [],
+        })
+        result = load_session(session_name)
+        assert "error" not in result
+        assert isinstance(result["workflow"], dict)
+        assert result["workflow"].get("loaded_path") is None
+
+    def test_valid_session_unmodified(self, tmp_path):
+        """A well-formed session file is returned unchanged by normalization."""
+        from agent.memory.session import load_session, SCHEMA_VERSION
+        session_name = "c44_valid_norm"
+        self._write_session(tmp_path, session_name, {
+            "name": session_name,
+            "saved_at": "2024-01-01T00:00:00",
+            "schema_version": SCHEMA_VERSION,
+            "workflow": {"loaded_path": "/some/path.json", "format": "api"},
+            "notes": [{"text": "note1", "added_at": "2024-01-01T00:00:00"}],
+        })
+        result = load_session(session_name)
+        assert "error" not in result
+        assert result["workflow"]["loaded_path"] == "/some/path.json"
+        assert len(result["notes"]) == 1
+
+
+class TestAtomicWriteCleanupLogging:
+    """_atomic_write logs tempfile cleanup failures instead of silently swallowing."""
+
+    def test_cleanup_failure_is_logged_not_swallowed(self, caplog, tmp_path):
+        """If temp file unlink fails, the exception is logged at WARNING level."""
+        import logging
+        from pathlib import Path
+        from unittest.mock import patch
+        from agent.memory import session as sess_module
+
+        target = tmp_path / "test_write.json"
+        content = '{"ok": true}'
+
+        # Patch shutil.move to fail (triggers the except path),
+        # then patch Path.unlink to also fail (triggers the log warning).
+        with patch("agent.memory.session.shutil.move", side_effect=OSError("disk full")), \
+             patch("agent.memory.session.Path.unlink", side_effect=OSError("unlink failed")), \
+             caplog.at_level(logging.WARNING, logger="agent.memory.session"):
+            try:
+                sess_module._atomic_write(target, content)
+            except OSError:
+                pass  # Expected — the write failure is re-raised
+
+        assert any(
+            "temp" in rec.message.lower() or "clean" in rec.message.lower()
+            for rec in caplog.records
+            if rec.levelno >= logging.WARNING
+        ), "Expected a WARNING log about temp file cleanup failure"
