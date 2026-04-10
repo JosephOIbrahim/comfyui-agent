@@ -840,3 +840,60 @@ class TestWorkflowCompatibleErrorDefaultCycle68:
             }))
 
         assert result.get("workflow_compatible") is True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 69: provision_pipeline_verify stat() TOCTOU guard
+# ---------------------------------------------------------------------------
+
+class TestProvisionVerifyStatToctooCycle69:
+    """Cycle 69: stat().st_size after exists() must be guarded for TOCTOU race."""
+
+    def test_stat_oserror_does_not_propagate(self):
+        """OSError on stat() (file deleted between exists and stat) must not crash."""
+        import json
+        from unittest.mock import patch, MagicMock
+        from agent.tools import provision_pipeline
+        from pathlib import Path
+
+        mock_path = MagicMock(spec=Path)
+        mock_path.exists.return_value = True
+        mock_path.stat.side_effect = OSError("file not found (deleted between check and stat)")
+
+        with patch("agent.tools.provision_pipeline.MODELS_DIR", MagicMock()) as mock_dir, \
+             patch("agent.tools.model_compat.handle", return_value=json.dumps({})):
+            mock_dir.__truediv__ = lambda self, other: MagicMock(
+                __truediv__=lambda s, o: mock_path
+            )
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+
+        # Must not crash — stat() TOCTOU is handled
+        assert "traceback" not in result.get("error", "").lower()
+        assert "oserror" not in result.get("error", "").lower()
+
+    def test_stat_success_still_works(self):
+        """Normal stat() (file exists throughout) must return correct size."""
+        import json
+        from unittest.mock import patch, MagicMock
+        from agent.tools import provision_pipeline
+
+        with patch("agent.tools.model_compat.handle", return_value=json.dumps({})), \
+             patch("agent.tools.provision_pipeline.MODELS_DIR") as mock_dir:
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_stat = MagicMock()
+            mock_stat.st_size = 4_000_000_000  # 4 GB
+            mock_path.stat.return_value = mock_stat
+            mock_dir.__truediv__ = lambda self, other: MagicMock(
+                __truediv__=lambda s, o: mock_path
+            )
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+
+        assert result.get("exists") is True
+        assert result.get("size_bytes") == 4_000_000_000

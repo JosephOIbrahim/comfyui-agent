@@ -565,6 +565,9 @@ class OptimizerAgent(BrainAgent):
         if not opt_id or not isinstance(opt_id, str):
             return self.to_json({"error": "optimization_id is required and must be a non-empty string."})
         params = tool_input.get("params", {})
+        if not isinstance(params, dict):  # Cycle 69: guard non-dict (string/list crashes .get())
+            return self.to_json({"error": "params must be a dict (e.g. {\"batch_size\": 2})."})
+
 
         wf = self._resolve_workflow(tool_input)
         if not wf:

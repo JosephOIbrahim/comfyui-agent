@@ -323,7 +323,11 @@ def _handle_provision_pipeline_verify(tool_input: dict) -> str:
     # Check file existence
     model_path = MODELS_DIR / model_type / filename
     exists = model_path.exists()
-    size_bytes = model_path.stat().st_size if exists else 0
+    try:  # Cycle 69: file can be deleted between exists() and stat() (TOCTOU)
+        size_bytes = model_path.stat().st_size if exists else 0
+    except OSError:
+        size_bytes = 0
+        exists = False  # Treat deleted-between-check-and-stat as non-existent
 
     # Identify family
     try:  # Cycle 65: guard against malformed JSON from cross-tool call

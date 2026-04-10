@@ -483,3 +483,57 @@ class TestOptimizerSilentExceptionLogging:
         assert result["applied"] == "sampler_efficiency"
         assert result["nodes_updated"] == []
         assert any("sampler_efficiency" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 69: apply_optimization params type guard
+# ---------------------------------------------------------------------------
+
+class TestApplyOptimizationParamsGuardCycle69:
+    """Cycle 69: apply_optimization must reject non-dict params before calling .get()."""
+
+    def _make_cfg(self, wf: dict) -> object:
+        from agent.brain._sdk import BrainConfig
+        import json as _json
+        # Use valid patch_handle so params guard is the only failure path
+        def _real_patch(name, args):
+            return _json.dumps({"patched": True, "nodes": list(wf.keys())})
+        return BrainConfig(
+            get_workflow_state=lambda: {"current_workflow": wf},
+            patch_handle=_real_patch,
+        )
+
+    def test_string_params_returns_error_not_attributeerror(self):
+        """params='string' must return JSON error, not AttributeError on .get()."""
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "KSampler", "inputs": {"steps": 20}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        result = json.loads(agent.handle("apply_optimization", {
+            "optimization_id": "step_optimization",
+            "params": "15",  # string instead of dict
+        }))
+        assert "error" in result
+        assert "params" in result["error"].lower()
+
+    def test_list_params_returns_error_not_attributeerror(self):
+        """params=[1, 2] (list) must return JSON error, not AttributeError on .get()."""
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "KSampler", "inputs": {"steps": 20}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        result = json.loads(agent.handle("apply_optimization", {
+            "optimization_id": "step_optimization",
+            "params": [1, 2, 3],  # list instead of dict
+        }))
+        assert "error" in result
+        assert "params" in result["error"].lower()
+
+    def test_dict_params_not_blocked_by_guard(self):
+        """Well-formed dict params must not trigger the type guard."""
+        from agent.brain.optimizer import OptimizerAgent
+        wf = {"1": {"class_type": "KSampler", "inputs": {"steps": 20}}}
+        agent = OptimizerAgent(self._make_cfg(wf))
+        result = json.loads(agent.handle("apply_optimization", {
+            "optimization_id": "step_optimization",
+            "params": {"steps": 15},
+        }))
+        assert result.get("error", "") != "params must be a dict (e.g. {\"batch_size\": 2})."
