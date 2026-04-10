@@ -11,7 +11,7 @@ import httpx
 
 from ..circuit_breaker import COMFYUI_BREAKER
 from ..config import COMFYUI_URL
-from ._util import to_json, validate_path
+from ._util import to_json
 
 # ---------------------------------------------------------------------------
 # Shared HTTP client (connection pool)

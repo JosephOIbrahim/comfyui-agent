@@ -255,7 +255,9 @@ def _handle_get_models_summary() -> str:
 
 
 def _handle_read_node_source(tool_input: dict) -> str:
-    node_pack = tool_input["node_pack"]
+    node_pack = tool_input.get("node_pack")  # Cycle 47: guard required field
+    if not node_pack or not isinstance(node_pack, str):
+        return to_json({"error": "node_pack is required and must be a non-empty string."})
     max_lines = tool_input.get("max_lines", 200)
     try:
         max_lines = int(max_lines)

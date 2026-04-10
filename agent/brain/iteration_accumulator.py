@@ -206,15 +206,25 @@ class IterationAccumulatorAgent(BrainAgent):
 
     def handle(self, name: str, tool_input: dict) -> str:
         if name == "start_iteration_tracking":
-            result = self.start(
-                intent_summary=tool_input["intent_summary"],
-            )
+            intent_summary = tool_input.get("intent_summary")  # Cycle 47: guard required field
+            if not intent_summary or not isinstance(intent_summary, str):
+                return self.to_json({"error": "intent_summary is required and must be a non-empty string."})
+            result = self.start(intent_summary=intent_summary)
             return self.to_json(result)
         elif name == "record_iteration_step":
+            iteration = tool_input.get("iteration")  # Cycle 47: guard required fields
+            step_type = tool_input.get("type")
+            trigger = tool_input.get("trigger")
+            if iteration is None:
+                return self.to_json({"error": "iteration is required."})
+            if not step_type or not isinstance(step_type, str):
+                return self.to_json({"error": "type is required and must be a non-empty string."})
+            if not trigger or not isinstance(trigger, str):
+                return self.to_json({"error": "trigger is required and must be a non-empty string."})
             result = self.record_step(
-                iteration=tool_input["iteration"],
-                step_type=tool_input["type"],
-                trigger=tool_input["trigger"],
+                iteration=iteration,
+                step_type=step_type,
+                trigger=trigger,
                 patches=tool_input.get("patches", []),
                 params=tool_input.get("params", {}),
                 feedback=tool_input.get("feedback", ""),
@@ -222,9 +232,10 @@ class IterationAccumulatorAgent(BrainAgent):
             )
             return self.to_json(result)
         elif name == "finalize_iterations":
-            result = self.finalize(
-                accepted_iteration=tool_input["accepted_iteration"],
-            )
+            accepted_iteration = tool_input.get("accepted_iteration")  # Cycle 47: guard required field
+            if accepted_iteration is None:
+                return self.to_json({"error": "accepted_iteration is required."})
+            result = self.finalize(accepted_iteration=accepted_iteration)
             return self.to_json(result)
         else:
             return self.to_json({"error": f"Unknown tool: {name}"})

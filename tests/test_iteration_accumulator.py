@@ -279,3 +279,82 @@ class TestPreStartGuards:
         from agent.stage import compositor_tools
         assert hasattr(compositor_tools, "_scene_lock")
         assert isinstance(compositor_tools._scene_lock, type(threading.Lock()))
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — iteration_accumulator handle() required field guards
+# ---------------------------------------------------------------------------
+
+class TestIterationAccumulatorRequiredFields:
+    """handle() must return structured errors when required fields are missing."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_agent(self):
+        from agent.brain.iteration_accumulator import IterationAccumulatorAgent
+        self.agent = IterationAccumulatorAgent()
+
+    def test_start_missing_intent_summary_returns_error(self):
+        result = json.loads(self.agent.handle("start_iteration_tracking", {}))
+        assert "error" in result
+        assert "intent_summary" in result["error"].lower()
+
+    def test_start_empty_intent_summary_returns_error(self):
+        result = json.loads(self.agent.handle("start_iteration_tracking", {"intent_summary": ""}))
+        assert "error" in result
+
+    def test_start_none_intent_summary_returns_error(self):
+        result = json.loads(self.agent.handle("start_iteration_tracking", {"intent_summary": None}))
+        assert "error" in result
+
+    def test_record_missing_iteration_returns_error(self):
+        # Start first so we have context
+        self.agent.handle("start_iteration_tracking", {"intent_summary": "test"})
+        result = json.loads(self.agent.handle("record_iteration_step", {
+            "type": "param_change",
+            "trigger": "manual",
+        }))
+        assert "error" in result
+        assert "iteration" in result["error"].lower()
+
+    def test_record_missing_type_returns_error(self):
+        self.agent.handle("start_iteration_tracking", {"intent_summary": "test"})
+        result = json.loads(self.agent.handle("record_iteration_step", {
+            "iteration": 1,
+            "trigger": "manual",
+        }))
+        assert "error" in result
+        assert "type" in result["error"].lower()
+
+    def test_record_missing_trigger_returns_error(self):
+        self.agent.handle("start_iteration_tracking", {"intent_summary": "test"})
+        result = json.loads(self.agent.handle("record_iteration_step", {
+            "iteration": 1,
+            "type": "param_change",
+        }))
+        assert "error" in result
+        assert "trigger" in result["error"].lower()
+
+    def test_finalize_missing_accepted_iteration_returns_error(self):
+        self.agent.handle("start_iteration_tracking", {"intent_summary": "test"})
+        result = json.loads(self.agent.handle("finalize_iterations", {}))
+        assert "error" in result
+        assert "accepted_iteration" in result["error"].lower()
+
+    def test_finalize_none_accepted_iteration_returns_error(self):
+        self.agent.handle("start_iteration_tracking", {"intent_summary": "test"})
+        result = json.loads(self.agent.handle("finalize_iterations", {"accepted_iteration": None}))
+        assert "error" in result
+
+    def test_valid_calls_not_blocked_by_guards(self):
+        """Guards must not block well-formed calls."""
+        start = json.loads(self.agent.handle("start_iteration_tracking", {
+            "intent_summary": "make image dreamier",
+        }))
+        assert "error" not in start
+
+        rec = json.loads(self.agent.handle("record_iteration_step", {
+            "iteration": 1,
+            "type": "param_change",
+            "trigger": "manual",
+        }))
+        assert "error" not in rec

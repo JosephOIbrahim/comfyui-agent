@@ -310,3 +310,42 @@ class TestIntentCollectorRequiredFields:
         result = json.loads(intent_collector.handle("nonexistent_tool_xyz", {}))
         assert "error" in result
         assert "unknown" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — get_node_releases required field guard
+# ---------------------------------------------------------------------------
+
+class TestGetNodeReleasesRequiredField:
+    """get_node_releases must return structured error when repo is missing or invalid."""
+
+    def test_missing_repo_returns_error(self):
+        import json
+        from agent.tools import github_releases
+        result = json.loads(github_releases.handle("get_repo_releases", {}))
+        assert "error" in result
+        assert "repo" in result["error"].lower()
+
+    def test_empty_repo_returns_error(self):
+        import json
+        from agent.tools import github_releases
+        result = json.loads(github_releases.handle("get_repo_releases", {"repo": ""}))
+        assert "error" in result
+
+    def test_none_repo_returns_error(self):
+        import json
+        from agent.tools import github_releases
+        result = json.loads(github_releases.handle("get_repo_releases", {"repo": None}))
+        assert "error" in result
+
+    def test_valid_repo_passes_guard(self):
+        """A valid 'owner/name' format must not be blocked by the missing-field guard."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import github_releases
+        # Format validation fires ("/" check) — guard error must not appear
+        with patch.object(github_releases, "_fetch_releases", return_value=[]):
+            result = json.loads(github_releases.handle("get_repo_releases", {
+                "repo": "owner/name",
+            }))
+        assert "repo" not in result.get("error", "").lower() or "required" not in result.get("error", "").lower()

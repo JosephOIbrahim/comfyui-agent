@@ -14,7 +14,7 @@ import httpx
 
 from ..config import CIVITAI_API_KEY, MODELS_DIR
 from ..rate_limiter import CIVITAI_LIMITER
-from ._util import to_json, validate_path
+from ._util import to_json
 
 log = logging.getLogger(__name__)
 

@@ -737,3 +737,27 @@ class TestOutputsNullGuard:
 
         assert result["output_count"] == 1
         assert result["outputs"][0]["exists"] is True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — verify_execution required field guard
+# ---------------------------------------------------------------------------
+
+class TestVerifyExecutionRequiredField:
+    """verify_execution (get_execution_status) must return error when prompt_id missing."""
+
+    def test_missing_prompt_id_returns_error(self):
+        from agent.tools import verify_execution
+        result = json.loads(verify_execution.handle("verify_execution", {}))
+        assert "error" in result
+        assert "prompt_id" in result["error"].lower()
+
+    def test_empty_prompt_id_returns_error(self):
+        from agent.tools import verify_execution
+        result = json.loads(verify_execution.handle("verify_execution", {"prompt_id": ""}))
+        assert "error" in result
+
+    def test_none_prompt_id_returns_error(self):
+        from agent.tools import verify_execution
+        result = json.loads(verify_execution.handle("verify_execution", {"prompt_id": None}))
+        assert "error" in result

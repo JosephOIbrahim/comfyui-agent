@@ -215,8 +215,12 @@ def _scan_all_loaders(workflow: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _handle_wire_model(tool_input: dict) -> str:
-    filename = tool_input["filename"]
-    model_type = tool_input["model_type"]
+    filename = tool_input.get("filename")  # Cycle 47: guard required fields
+    model_type = tool_input.get("model_type")
+    if not filename or not isinstance(filename, str):
+        return to_json({"error": "filename is required and must be a non-empty string."})
+    if not model_type or not isinstance(model_type, str):
+        return to_json({"error": "model_type is required and must be a non-empty string."})
 
     # Validate filename is a simple name — no path separators, no traversal.
     # filename should be a model filename like "flux-1-dev.safetensors",

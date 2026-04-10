@@ -568,3 +568,36 @@ class TestValidateEmptyWorkflow:
         assert "error" in result
         msg = result["error"].lower()
         assert "empty" in msg or "no nodes" in msg or "workflow" in msg
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — get_execution_status required field guard
+# ---------------------------------------------------------------------------
+
+class TestGetExecutionStatusRequiredField:
+    """get_execution_status must return structured error when prompt_id is missing."""
+
+    def test_missing_prompt_id_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {}))
+        assert "error" in result
+        assert "prompt_id" in result["error"].lower()
+
+    def test_empty_prompt_id_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {"prompt_id": ""}))
+        assert "error" in result
+
+    def test_none_prompt_id_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {"prompt_id": None}))
+        assert "error" in result
+
+    def test_integer_prompt_id_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {"prompt_id": 42}))
+        assert "error" in result

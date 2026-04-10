@@ -1,3 +1,4 @@
+import json
 
 
 # ---------------------------------------------------------------------------
@@ -100,3 +101,82 @@ class TestProvisionModuleLevelConstants:
             assert not t_clean.isdigit(), (
                 f"Bare numeric timeout {t_clean!r} found in install handler — use named constant"
             )
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — install/download/uninstall required field guards
+# ---------------------------------------------------------------------------
+
+class TestInstallNodePackRequiredField:
+    """install_node_pack must return structured error when url is missing or invalid."""
+
+    def test_missing_url_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("install_node_pack", {}))
+        assert "error" in result
+        assert "url" in result["error"].lower()
+
+    def test_empty_url_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("install_node_pack", {"url": ""}))
+        assert "error" in result
+
+    def test_none_url_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("install_node_pack", {"url": None}))
+        assert "error" in result
+
+
+class TestDownloadModelRequiredFields:
+    """download_model must return structured error when url or model_type is missing."""
+
+    def test_missing_url_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("download_model", {
+            "model_type": "checkpoints",
+        }))
+        assert "error" in result
+        assert "url" in result["error"].lower()
+
+    def test_missing_model_type_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("download_model", {
+            "url": "https://example.com/model.safetensors",
+        }))
+        assert "error" in result
+        assert "model_type" in result["error"].lower()
+
+    def test_empty_url_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("download_model", {
+            "url": "", "model_type": "checkpoints",
+        }))
+        assert "error" in result
+
+    def test_none_model_type_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("download_model", {
+            "url": "https://example.com/model.safetensors",
+            "model_type": None,
+        }))
+        assert "error" in result
+
+
+class TestUninstallNodePackRequiredField:
+    """uninstall_node_pack must return structured error when name is missing."""
+
+    def test_missing_name_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("uninstall_node_pack", {}))
+        assert "error" in result
+        assert "name" in result["error"].lower()
+
+    def test_empty_name_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("uninstall_node_pack", {"name": ""}))
+        assert "error" in result
+
+    def test_none_name_returns_error(self):
+        from agent.tools import comfy_provision
+        result = json.loads(comfy_provision.handle("uninstall_node_pack", {"name": None}))
+        assert "error" in result

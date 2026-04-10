@@ -351,3 +351,39 @@ class TestPatchHandleNonJsonGuard:
             }))
         # Should return a JSON error, not raise
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — wire_model required field guards
+# ---------------------------------------------------------------------------
+
+class TestWireModelRequiredFields:
+    """wire_model must return structured error when filename or model_type is missing."""
+
+    def test_missing_filename_returns_error(self):
+        from agent.tools import auto_wire
+        result = json.loads(auto_wire.handle("wire_model", {"model_type": "checkpoints"}))
+        assert "error" in result
+        assert "filename" in result["error"].lower()
+
+    def test_missing_model_type_returns_error(self):
+        from agent.tools import auto_wire
+        result = json.loads(auto_wire.handle("wire_model", {
+            "filename": "flux1-dev.safetensors",
+        }))
+        assert "error" in result
+        assert "model_type" in result["error"].lower()
+
+    def test_empty_filename_returns_error(self):
+        from agent.tools import auto_wire
+        result = json.loads(auto_wire.handle("wire_model", {
+            "filename": "", "model_type": "checkpoints",
+        }))
+        assert "error" in result
+
+    def test_none_model_type_returns_error(self):
+        from agent.tools import auto_wire
+        result = json.loads(auto_wire.handle("wire_model", {
+            "filename": "model.safetensors", "model_type": None,
+        }))
+        assert "error" in result

@@ -241,7 +241,9 @@ def _handle_check_node_updates(tool_input: dict) -> str:
 
 def _handle_get_repo_releases(tool_input: dict) -> str:
     """Get releases for a specific GitHub repo."""
-    repo = tool_input["repo"]
+    repo = tool_input.get("repo")  # Cycle 47: guard required field
+    if not repo or not isinstance(repo, str):
+        return to_json({"error": "repo is required and must be a non-empty string (e.g. 'owner/name')."})
     limit = min(tool_input.get("limit", 5), 20)
 
     # Validate repo format

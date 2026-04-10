@@ -462,7 +462,9 @@ def _handle_get_output_path(tool_input: dict) -> str:
 
 
 def _handle_verify_execution(tool_input: dict) -> str:
-    prompt_id = tool_input["prompt_id"]
+    prompt_id = tool_input.get("prompt_id")  # Cycle 47: guard required field
+    if not prompt_id or not isinstance(prompt_id, str):
+        return to_json({"error": "prompt_id is required and must be a non-empty string."})
     analyze = tool_input.get("analyze", False)
     session = tool_input.get("session", "default")
     render_time_s = tool_input.get("render_time_s")

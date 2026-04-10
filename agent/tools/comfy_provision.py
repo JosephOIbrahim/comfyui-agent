@@ -355,7 +355,10 @@ def _filename_from_url(url: str) -> str:
 
 
 def _handle_install_node_pack(tool_input: dict) -> str:
-    url = tool_input["url"].strip()
+    url = tool_input.get("url")  # Cycle 47: guard required field
+    if not url or not isinstance(url, str):
+        return to_json({"error": "url is required and must be a non-empty string."})
+    url = url.strip()
     raw_name = tool_input.get("name") or _folder_name_from_url(url)
 
     # Validate URL
@@ -472,8 +475,14 @@ def _handle_install_node_pack(tool_input: dict) -> str:
 
 
 def _handle_download_model(tool_input: dict) -> str:
-    url = tool_input["url"].strip()
-    raw_model_type = tool_input["model_type"].strip()
+    url = tool_input.get("url")  # Cycle 47: guard required fields
+    raw_model_type = tool_input.get("model_type")
+    if not url or not isinstance(url, str):
+        return to_json({"error": "url is required and must be a non-empty string."})
+    if not raw_model_type or not isinstance(raw_model_type, str):
+        return to_json({"error": "model_type is required and must be a non-empty string."})
+    url = url.strip()
+    raw_model_type = raw_model_type.strip()
     raw_subfolder = tool_input.get("subfolder", "").strip()
     raw_filename = tool_input.get("filename") or _filename_from_url(url)
 
@@ -678,7 +687,10 @@ def _handle_download_model(tool_input: dict) -> str:
 
 
 def _handle_uninstall_node_pack(tool_input: dict) -> str:
-    raw_name = tool_input["name"].strip()
+    raw_name = tool_input.get("name")  # Cycle 47: guard required field
+    if not raw_name or not isinstance(raw_name, str):
+        return to_json({"error": "name is required and must be a non-empty string."})
+    raw_name = raw_name.strip()
 
     # Validate name: must be a single directory component (no path traversal)
     name = _safe_path_component(raw_name)

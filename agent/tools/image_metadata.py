@@ -247,8 +247,12 @@ def _write_png_metadata(image_path: str, metadata: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_write(tool_input: dict) -> str:
-    image_path = tool_input["image_path"]
-    metadata = tool_input["metadata"]
+    image_path = tool_input.get("image_path")  # Cycle 47: guard required fields
+    metadata = tool_input.get("metadata")
+    if not image_path or not isinstance(image_path, str):
+        return to_json({"error": "image_path is required and must be a non-empty string."})
+    if metadata is None:
+        return to_json({"error": "metadata is required."})
 
     if not _HAS_PIL:
         return to_json({"error": "Pillow not installed. Install with: pip install Pillow"})
@@ -279,7 +283,9 @@ def _handle_write(tool_input: dict) -> str:
 
 
 def _handle_read(tool_input: dict) -> str:
-    image_path = tool_input["image_path"]
+    image_path = tool_input.get("image_path")  # Cycle 47: guard required field
+    if not image_path or not isinstance(image_path, str):
+        return to_json({"error": "image_path is required and must be a non-empty string."})
 
     if not _HAS_PIL:
         return to_json({"error": "Pillow not installed. Install with: pip install Pillow"})
@@ -306,7 +312,9 @@ def _handle_read(tool_input: dict) -> str:
 
 def _handle_reconstruct(tool_input: dict) -> str:
     """Reconstruct artistic context from PNG metadata."""
-    image_path = tool_input["image_path"]
+    image_path = tool_input.get("image_path")  # Cycle 47: guard required field
+    if not image_path or not isinstance(image_path, str):
+        return to_json({"error": "image_path is required and must be a non-empty string."})
 
     if not _HAS_PIL:
         return to_json({"error": "Pillow not installed. Install with: pip install Pillow"})

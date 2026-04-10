@@ -57,3 +57,62 @@ class TestAddNoteValidation:
         """Unknown tool name must return error, not crash."""
         result = json.loads(session_tools.handle("nonexistent_tool", {}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — session_tools required field guards
+# ---------------------------------------------------------------------------
+
+class TestSaveSessionRequiredField:
+    """save_session must return structured error when name is missing or invalid."""
+
+    def test_missing_name_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {}))
+        assert "error" in result
+        assert "name" in result["error"].lower()
+
+    def test_empty_name_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {"name": ""}))
+        assert "error" in result
+
+    def test_none_name_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {"name": None}))
+        assert "error" in result
+
+
+class TestLoadSessionRequiredField:
+    """load_session must return structured error when name is missing or invalid."""
+
+    def test_missing_name_returns_error(self):
+        result = json.loads(session_tools.handle("load_session", {}))
+        assert "error" in result
+        assert "name" in result["error"].lower()
+
+    def test_empty_name_returns_error(self):
+        result = json.loads(session_tools.handle("load_session", {"name": ""}))
+        assert "error" in result
+
+    def test_none_name_returns_error(self):
+        result = json.loads(session_tools.handle("load_session", {"name": None}))
+        assert "error" in result
+
+
+class TestAddNoteRequiredFields:
+    """add_note must return structured error when session_name is missing or invalid."""
+
+    def test_missing_session_name_returns_error(self):
+        result = json.loads(session_tools.handle("add_note", {"note": "some note"}))
+        assert "error" in result
+        assert "session_name" in result["error"].lower()
+
+    def test_empty_session_name_returns_error(self):
+        result = json.loads(session_tools.handle("add_note", {
+            "session_name": "", "note": "some note",
+        }))
+        assert "error" in result
+
+    def test_none_session_name_returns_error(self):
+        result = json.loads(session_tools.handle("add_note", {
+            "session_name": None, "note": "some note",
+        }))
+        assert "error" in result

@@ -114,7 +114,9 @@ TOOLS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 def _handle_save_session(tool_input: dict) -> str:
-    name = tool_input["name"]
+    name = tool_input.get("name")  # Cycle 47: guard required field
+    if not name or not isinstance(name, str):
+        return to_json({"error": "name is required and must be a non-empty string."})
 
     # Capture current workflow state from session.
     # workflow_patch._state is always get_session("default") — it is bound at
@@ -155,7 +157,9 @@ def _handle_save_session(tool_input: dict) -> str:
 
 
 def _handle_load_session(tool_input: dict) -> str:
-    name = tool_input["name"]
+    name = tool_input.get("name")  # Cycle 47: guard required field
+    if not name or not isinstance(name, str):
+        return to_json({"error": "name is required and must be a non-empty string."})
     session = load_session(name)
 
     if "error" in session:
@@ -214,8 +218,10 @@ def _handle_list_sessions(tool_input: dict) -> str:
 
 
 def _handle_add_note(tool_input: dict) -> str:
-    session_name = tool_input["session_name"]
-    note = tool_input["note"]
+    session_name = tool_input.get("session_name")  # Cycle 47: guard required fields
+    note = tool_input.get("note")
+    if not session_name or not isinstance(session_name, str):
+        return to_json({"error": "session_name is required and must be a non-empty string."})
     note_type = tool_input.get("note_type", "observation")
     # Reject empty or whitespace-only notes — they create useless session log entries.
     # (Cycle 30 fix)

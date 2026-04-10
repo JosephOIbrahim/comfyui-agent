@@ -468,3 +468,71 @@ class TestImageMetadataFsync:
         from PIL import Image as _Image
         with _Image.open(str(img_path)) as img:
             assert img.format == "PNG"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 47 — image_metadata handler required field guards
+# ---------------------------------------------------------------------------
+
+class TestWriteMetadataRequiredFields:
+    """write_image_metadata must return structured error when required fields are missing."""
+
+    def test_missing_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("write_image_metadata", {
+            "metadata": {"schema_version": 1},
+        }))
+        assert "error" in result
+        assert "image_path" in result["error"].lower()
+
+    def test_missing_metadata_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("write_image_metadata", {
+            "image_path": "/some/image.png",
+        }))
+        assert "error" in result
+        assert "metadata" in result["error"].lower()
+
+    def test_empty_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("write_image_metadata", {
+            "image_path": "", "metadata": {"schema_version": 1},
+        }))
+        assert "error" in result
+
+    def test_none_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("write_image_metadata", {
+            "image_path": None, "metadata": {"schema_version": 1},
+        }))
+        assert "error" in result
+
+
+class TestReadMetadataRequiredField:
+    """read_image_metadata must return structured error when image_path is missing."""
+
+    def test_missing_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("read_image_metadata", {}))
+        assert "error" in result
+        assert "image_path" in result["error"].lower()
+
+    def test_empty_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("read_image_metadata", {"image_path": ""}))
+        assert "error" in result
+
+
+class TestReconstructContextRequiredField:
+    """reconstruct_context must return structured error when image_path is missing."""
+
+    def test_missing_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("reconstruct_context", {}))
+        assert "error" in result
+        assert "image_path" in result["error"].lower()
+
+    def test_none_image_path_returns_error(self):
+        from agent.tools import image_metadata
+        result = json.loads(image_metadata.handle("reconstruct_context", {"image_path": None}))
+        assert "error" in result
