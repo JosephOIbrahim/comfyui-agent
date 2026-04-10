@@ -84,8 +84,15 @@ def _load_triggers() -> dict:
             return _triggers_cache
         if _TRIGGERS_PATH.exists():
             import yaml
-            with open(_TRIGGERS_PATH, encoding="utf-8") as f:
-                _triggers_cache = yaml.safe_load(f) or {}
+            try:
+                with open(_TRIGGERS_PATH, encoding="utf-8") as f:
+                    _triggers_cache = yaml.safe_load(f) or {}
+            except yaml.YAMLError as exc:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "triggers.yaml contains invalid YAML — knowledge triggers disabled: %s", exc
+                )
+                _triggers_cache = {}
         else:
             _triggers_cache = {}
         return _triggers_cache
