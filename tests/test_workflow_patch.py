@@ -583,3 +583,53 @@ class TestNonDictNodeGuard:
         }))
         assert "error" not in result
         assert result.get("set") is True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: preview_workflow_patch missing 'patches' guard
+# ---------------------------------------------------------------------------
+
+class TestPreviewPatchValidation:
+    """Cycle 39: preview_workflow_patch must validate 'patches' before accessing."""
+
+    def test_missing_patches_key_returns_error(self, sample_workflow):
+        """preview_workflow_patch with no 'patches' key must return error JSON."""
+        import json
+        from agent.tools import workflow_patch
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("preview_workflow_patch", {
+            "path": str(sample_workflow),
+            # 'patches' intentionally omitted
+        }))
+        assert "error" in result
+
+    def test_empty_patches_list_returns_error(self, sample_workflow):
+        """preview_workflow_patch with patches=[] must return error JSON."""
+        import json
+        from agent.tools import workflow_patch
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("preview_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        }))
+        assert "error" in result
+
+    def test_valid_patches_still_work(self, sample_workflow):
+        """Valid preview_workflow_patch calls must not be affected by the guard."""
+        import json
+        from agent.tools import workflow_patch
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("preview_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [{"op": "replace", "path": "/1/inputs/ckpt_name", "value": "v2.safetensors"}],
+        }))
+        assert "error" not in result

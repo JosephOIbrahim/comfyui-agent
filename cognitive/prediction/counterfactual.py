@@ -109,8 +109,13 @@ class CounterfactualGenerator:
         param_names = list(self._parameter_ranges.keys())
         n = len(param_names)
 
+        # Cycle 39: Atomically claim the starting cursor position AND advance it
+        # before releasing the lock. Without this, two concurrent calls both read
+        # the same cursor value and both select the same parameter, defeating the
+        # round-robin guarantee ("prevents cfg-only bias" in the docstring).
         with self._lock:
             start = self._param_cursor
+            self._param_cursor = (self._param_cursor + 1) % n
 
         for offset in range(n):
             idx = (start + offset) % n
@@ -155,7 +160,8 @@ class CounterfactualGenerator:
                 # long-running servers (called every pipeline execution).
                 if len(self._counterfactuals) > self._max_counterfactuals:
                     self._counterfactuals.pop(0)
-                self._param_cursor = (idx + 1) % n  # Advance past the chosen param
+                # Note: cursor was already advanced atomically at the top of
+                # generate() (Cycle 39 fix) — no update needed here.
             return cf
 
         return None

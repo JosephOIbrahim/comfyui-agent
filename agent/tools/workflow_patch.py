@@ -486,7 +486,9 @@ def _handle_preview_patch(tool_input: dict) -> str:
     if err:
         return to_json({"error": err})
 
-    patches = tool_input["patches"]
+    patches = tool_input.get("patches")
+    if not patches:
+        return to_json({"error": "'patches' is required and must be a non-empty list."})
 
     # Preview without modifying state
     try:

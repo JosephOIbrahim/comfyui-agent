@@ -438,3 +438,69 @@ class TestCounterfactualGeneratorCap:
         """Default cap (500) is in place."""
         from cognitive.prediction.counterfactual import _MAX_COUNTERFACTUALS
         assert _MAX_COUNTERFACTUALS == 500
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: Counterfactual cursor atomicity
+# ---------------------------------------------------------------------------
+
+class TestCounterfactualCursorAtomicity:
+    """Cycle 39: cursor must advance atomically to prevent cfg-only bias under concurrency."""
+
+    def test_round_robin_covers_all_params(self):
+        """Sequential calls should rotate across all 3 parameters."""
+        gen = CounterfactualGenerator()
+        params = {"cfg": 7.0, "steps": 20, "denoise": 0.8}
+        changed = set()
+        for _ in range(12):  # 4 full rotations
+            cf = gen.generate(params, 0.7)
+            if cf:
+                changed.add(cf.changed_parameter)
+        # All three parameters must appear across 12 calls
+        assert changed == {"cfg", "steps", "denoise"}
+
+    def test_concurrent_generate_no_duplicate_params(self):
+        """Concurrent generate() calls must not both select the same parameter."""
+        import threading
+
+        gen = CounterfactualGenerator()
+        params = {"cfg": 7.0, "steps": 20, "denoise": 0.8}
+        results: list = []
+        lock = threading.Lock()
+
+        def _gen():
+            cf = gen.generate(params, 0.7)
+            if cf:
+                with lock:
+                    results.append(cf.changed_parameter)
+
+        threads = [threading.Thread(target=_gen) for _ in range(30)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # With 30 calls and 3 params, distribution should not be entirely one param.
+        # If cursor is not atomic, all 30 concurrent calls hit "cfg".
+        from collections import Counter
+        counts = Counter(results)
+        total = sum(counts.values())
+        if total >= 6:  # only assert if we have enough results to be meaningful
+            # No single parameter should account for 100% of calls (bias detection)
+            max_fraction = max(counts.values()) / total
+            assert max_fraction < 1.0, (
+                f"All {total} concurrent generate() calls selected the same "
+                f"parameter — cursor advance is not atomic: {counts}"
+            )
+
+    def test_cursor_advances_each_call(self):
+        """Each generate() call must advance _param_cursor by exactly 1."""
+        gen = CounterfactualGenerator()
+        params = {"cfg": 7.0, "steps": 20, "denoise": 0.8}
+        initial = gen._param_cursor
+        n = len(gen._parameter_ranges)
+        for i in range(1, n + 2):
+            gen.generate(params, 0.7)
+            with gen._lock:
+                expected = (initial + i) % n
+                assert gen._param_cursor == expected

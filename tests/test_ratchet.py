@@ -748,3 +748,48 @@ class TestArbiterIntegration:
             change_context={"param": "cfg", "direction": "decrease"},
         )
         assert len(arbiter.decisions) == 2
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: ratchet _history must be capped (FIFO eviction)
+# ---------------------------------------------------------------------------
+
+class TestRatchetHistoryCap:
+    """_history must never exceed _max_history entries. (Cycle 39 fix)"""
+
+    def test_history_capped_at_max(self):
+        """After max+N decide() calls, history length equals max."""
+        from agent.stage.ratchet import _MAX_RATCHET_HISTORY
+        r = Ratchet()
+        r._max_history = 5  # Override for fast test
+        for i in range(10):
+            r.decide(f"d{i}", {"aesthetic": 0.7})
+        assert len(r.history) == 5
+
+    def test_oldest_entry_evicted(self):
+        """The oldest decision is evicted when the cap is exceeded."""
+        r = Ratchet()
+        r._max_history = 3
+        r.decide("first", {"aesthetic": 0.9})
+        r.decide("second", {"aesthetic": 0.8})
+        r.decide("third", {"aesthetic": 0.7})
+        r.decide("fourth", {"aesthetic": 0.6})  # pushes "first" out
+        ids = [d.delta_id for d in r.history]
+        assert "first" not in ids
+        assert "second" in ids
+        assert "fourth" in ids
+
+    def test_keep_and_discard_also_cap(self):
+        """keep() and discard() explicit methods also respect the cap."""
+        r = Ratchet()
+        r._max_history = 3
+        r.keep("k1")
+        r.keep("k2")
+        r.discard("d1")
+        r.discard("d2")  # 4th call — pushes "k1" out
+        assert len(r.history) == 3
+
+    def test_default_cap_constant_in_place(self):
+        """_MAX_RATCHET_HISTORY module constant must exist and be reasonable."""
+        from agent.stage.ratchet import _MAX_RATCHET_HISTORY
+        assert _MAX_RATCHET_HISTORY >= 1_000

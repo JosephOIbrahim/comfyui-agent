@@ -36,6 +36,10 @@ MAX_EXPLICIT_PER_SESSION = 1
 # Calibration parameters
 CALIBRATION_STEP = 0.02  # How much to adjust thresholds per feedback
 
+# History caps — FIFO eviction prevents unbounded growth on long sessions (Cycle 39)
+_MAX_DECISIONS = 10_000
+_MAX_FEEDBACK = 10_000
+
 
 @dataclass
 class ArbiterDecision:
@@ -90,6 +94,8 @@ class Arbiter:
         self._explicit_count = 0
         self._decisions: list[ArbiterDecision] = []
         self._feedback: list[CalibrationFeedback] = []
+        self._max_decisions = _MAX_DECISIONS
+        self._max_feedback = _MAX_FEEDBACK
 
     # ------------------------------------------------------------------
     # Properties
@@ -173,6 +179,8 @@ class Arbiter:
             reasoning=". ".join(reasoning_parts),
         )
         self._decisions.append(decision)
+        if len(self._decisions) > self._max_decisions:  # Cycle 39: FIFO eviction
+            self._decisions.pop(0)
         return decision
 
     def _decide_mode(self, confidence: float, improvement: float) -> str:
@@ -205,6 +213,8 @@ class Arbiter:
         If user accepts, lower it (be more aggressive).
         """
         self._feedback.append(feedback)
+        if len(self._feedback) > self._max_feedback:  # Cycle 39: FIFO eviction
+            self._feedback.pop(0)
         self._calibrate(feedback)
 
     def _calibrate(self, fb: CalibrationFeedback) -> None:

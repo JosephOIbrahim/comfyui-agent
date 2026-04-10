@@ -11,6 +11,7 @@ for deterministic serialization (He2025 alignment).
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import threading
@@ -263,7 +264,9 @@ def _migrate_session(data: dict) -> dict:
 def _atomic_write(path: Path, content: str) -> None:
     """Write content to path atomically using temp-file-then-rename.
 
-    Prevents corrupt session files from interrupted writes.
+    Prevents corrupt session files from interrupted writes. Syncs OS write
+    buffers to disk before the rename so a power failure after the rename
+    leaves a complete file, not a partially-flushed one. (Cycle 39 fix)
     """
     fd = tempfile.NamedTemporaryFile(
         mode="w",
@@ -274,6 +277,8 @@ def _atomic_write(path: Path, content: str) -> None:
     )
     try:
         fd.write(content)
+        fd.flush()
+        os.fsync(fd.fileno())
         fd.close()
         shutil.move(fd.name, str(path))
     except Exception:

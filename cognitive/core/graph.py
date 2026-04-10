@@ -16,6 +16,9 @@ from .delta import DeltaLayer, LIVRPS_PRIORITY, Opinion
 from .models import WorkflowGraph
 
 
+_MAX_DELTA_STACK = 1_000  # FIFO eviction cap (Cycle 39)
+
+
 class CognitiveGraphEngine:
     """Non-destructive workflow mutation engine with LIVRPS composition.
 
@@ -34,6 +37,7 @@ class CognitiveGraphEngine:
         self._base = WorkflowGraph.from_api_json(base_workflow_data)
         self._base_raw = copy.deepcopy(base_workflow_data)
         self._delta_stack: list[DeltaLayer] = []
+        self._max_delta_stack = _MAX_DELTA_STACK
         self._delta_stack_lock = threading.Lock()  # Guards all _delta_stack mutations
 
     @property
@@ -75,6 +79,8 @@ class CognitiveGraphEngine:
         )
         with self._delta_stack_lock:
             self._delta_stack.append(delta)
+            if len(self._delta_stack) > self._max_delta_stack:  # Cycle 39: FIFO eviction
+                self._delta_stack.pop(0)
         return delta
 
     def get_resolved_graph(self, up_to_index: int | None = None) -> WorkflowGraph:
@@ -190,6 +196,7 @@ class CognitiveGraphEngine:
             new._base = copy.deepcopy(self._base, memo)
             new._base_raw = copy.deepcopy(self._base_raw, memo)
             new._delta_stack = copy.deepcopy(self._delta_stack, memo)
+            new._max_delta_stack = self._max_delta_stack
             new._delta_stack_lock = threading.Lock()
             return new
 

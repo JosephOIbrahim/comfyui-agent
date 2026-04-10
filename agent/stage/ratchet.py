@@ -48,6 +48,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 
 _SCORE_MIN = 0.0
 _SCORE_MAX = 1.0
+_MAX_RATCHET_HISTORY = 10_000  # FIFO eviction cap (Cycle 39)
 
 
 class RatchetError(Exception):
@@ -103,6 +104,7 @@ class Ratchet:
         )
         self._threshold = threshold
         self._history: list[RatchetDecision] = []
+        self._max_history = _MAX_RATCHET_HISTORY
         # FORESIGHT integration (all optional — degradation cascade)
         self._cws = cws                          # CognitiveWorkflowStage
         self._cwm = cwm                          # CWM predict() callable
@@ -211,6 +213,8 @@ class Ratchet:
             arbiter_mode=mode,
         )
         self._history.append(decision)
+        if len(self._history) > self._max_history:  # Cycle 39: FIFO eviction
+            self._history.pop(0)
         self._foresight_record(decision, change_context)
         return kept
 
@@ -250,6 +254,8 @@ class Ratchet:
             arbiter_mode=mode,
         )
         self._history.append(decision)
+        if len(self._history) > self._max_history:  # Cycle 39: FIFO eviction
+            self._history.pop(0)
         self._foresight_record(decision, change_context)
         return decision
 
@@ -289,6 +295,8 @@ class Ratchet:
             arbiter_mode=mode,
         )
         self._history.append(decision)
+        if len(self._history) > self._max_history:  # Cycle 39: FIFO eviction
+            self._history.pop(0)
         self._foresight_record(decision, change_context)
         return decision
 

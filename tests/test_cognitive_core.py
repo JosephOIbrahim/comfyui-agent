@@ -757,3 +757,46 @@ class TestDeltaStackThreadSafety:
         clone.mutate_workflow({"4": {"cfg": 99.0}}, opinion="L")
         assert engine.to_api_json()["4"]["inputs"]["cfg"] == 5.0
         assert clone.to_api_json()["4"]["inputs"]["cfg"] == 99.0
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: _delta_stack FIFO cap
+# ---------------------------------------------------------------------------
+
+class TestDeltaStackCap:
+    """Cycle 39: delta stack must not grow unbounded on long-running servers."""
+
+    def test_stack_capped_at_max(self, engine):
+        """Delta stack length must not exceed _max_delta_stack."""
+        engine._max_delta_stack = 5
+        for i in range(10):
+            engine.mutate_workflow({"4": {"cfg": float(i)}}, opinion="L")
+        with engine._delta_stack_lock:
+            assert len(engine._delta_stack) <= 5
+
+    def test_oldest_delta_evicted_first(self, engine):
+        """Oldest delta is evicted when cap is hit (FIFO)."""
+        engine._max_delta_stack = 3
+        ids = []
+        for i in range(5):
+            d = engine.mutate_workflow({"4": {"cfg": float(i)}}, opinion="L")
+            ids.append(d.layer_id)
+        # Only last 3 deltas should remain
+        with engine._delta_stack_lock:
+            remaining_ids = [d.layer_id for d in engine._delta_stack]
+        assert remaining_ids == ids[-3:]
+
+    def test_resolved_graph_reflects_most_recent_deltas(self, engine):
+        """After eviction, resolved graph uses the surviving (newest) deltas."""
+        engine._max_delta_stack = 2
+        engine.mutate_workflow({"4": {"cfg": 1.0}}, opinion="L")  # evicted
+        engine.mutate_workflow({"4": {"cfg": 2.0}}, opinion="L")  # evicted
+        engine.mutate_workflow({"4": {"cfg": 7.0}}, opinion="L")  # kept
+        engine.mutate_workflow({"4": {"cfg": 9.0}}, opinion="L")  # kept — wins
+        result = engine.to_api_json()
+        assert result["4"]["inputs"]["cfg"] == 9.0
+
+    def test_default_cap_constant_exists(self):
+        """_MAX_DELTA_STACK module constant must exist and be reasonable."""
+        from cognitive.core.graph import _MAX_DELTA_STACK
+        assert _MAX_DELTA_STACK >= 100

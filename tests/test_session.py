@@ -340,3 +340,92 @@ class TestRegistration:
         assert "load_session" in names
         assert "list_sessions" in names
         assert "add_note" in names
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: _atomic_write must fsync before rename
+# ---------------------------------------------------------------------------
+
+class TestAtomicWriteFsync:
+    """_atomic_write must flush + fsync the temp file before os.replace so
+    that on power failure the renamed file is complete on disk. (Cycle 39 fix)"""
+
+    def test_fsync_called_during_atomic_write(self, tmp_path):
+        """os.fsync must be invoked at least once per _atomic_write call."""
+        import os as _os
+        from unittest.mock import patch
+        from agent.memory.session import _atomic_write
+
+        target = tmp_path / "test.json"
+        fsync_calls = []
+        orig_fsync = _os.fsync
+
+        def _recording_fsync(fd):
+            fsync_calls.append(fd)
+            return orig_fsync(fd)
+
+        with patch("agent.memory.session.os.fsync", side_effect=_recording_fsync):
+            _atomic_write(target, '{"key": "value"}')
+
+        assert len(fsync_calls) >= 1, "os.fsync not called during _atomic_write"
+        assert target.exists()
+        assert json.loads(target.read_text()) == {"key": "value"}
+
+    def test_atomic_write_produces_valid_content(self, tmp_path):
+        """Even with fsync, the written content must be byte-for-byte correct."""
+        from agent.memory.session import _atomic_write
+
+        target = tmp_path / "session.json"
+        content = '{"name": "test", "value": 42}'
+        _atomic_write(target, content)
+        assert target.read_text(encoding="utf-8") == content
+
+    def test_flush_happens_before_fsync(self, tmp_path):
+        """fd.flush() must precede os.fsync — otherwise fsync may miss buffered data."""
+        import os as _os
+        from unittest.mock import patch, call
+        from agent.memory.session import _atomic_write
+
+        target = tmp_path / "order_test.json"
+        call_order = []
+
+        orig_flush = None  # captured below
+
+        class _TrackingFile:
+            """Wraps NamedTemporaryFile to intercept flush() and track call order."""
+            def __init__(self, wrapped):
+                self._w = wrapped
+                self.name = wrapped.name
+                self.fileno = wrapped.fileno
+
+            def write(self, s):
+                return self._w.write(s)
+
+            def flush(self):
+                call_order.append("flush")
+                return self._w.flush()
+
+            def close(self):
+                return self._w.close()
+
+        import tempfile as _tf
+        orig_ntf = _tf.NamedTemporaryFile
+
+        def _patched_ntf(**kwargs):
+            return _TrackingFile(orig_ntf(**kwargs))
+
+        _real_fsync = _os.fsync  # save before patch to avoid recursive mock call
+
+        def _recording_fsync(fd):
+            call_order.append("fsync")
+            return _real_fsync(fd)
+
+        with patch("agent.memory.session.os.fsync", side_effect=_recording_fsync), \
+             patch("tempfile.NamedTemporaryFile", side_effect=_patched_ntf):
+            _atomic_write(target, '{"x": 1}')
+
+        # flush must come before fsync in call order
+        assert "flush" in call_order and "fsync" in call_order
+        flush_idx = call_order.index("flush")
+        fsync_idx = call_order.index("fsync")
+        assert flush_idx < fsync_idx, f"flush ({flush_idx}) must precede fsync ({fsync_idx})"

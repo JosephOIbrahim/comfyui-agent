@@ -317,3 +317,48 @@ class TestSummary:
         a.record_feedback(CalibrationFeedback("soft_surface", False))
         s = a.summary()
         assert abs(s["feedback_acceptance_rate"] - 0.5) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Cycle 39: _decisions and _feedback FIFO cap
+# ---------------------------------------------------------------------------
+
+class TestArbiterHistoryCap:
+    """Cycle 39: _decisions and _feedback must not grow unbounded."""
+
+    def test_decisions_capped_at_max(self):
+        """_decisions list must not exceed _max_decisions."""
+        a = Arbiter()
+        a._max_decisions = 5
+        pred = _make_prediction(confidence=0.8, aesthetic=0.55)
+        for _ in range(10):
+            a.prioritize_experiment(pred, current_composite=0.5)
+        assert len(a._decisions) <= 5
+
+    def test_decisions_oldest_evicted_first(self):
+        """Oldest decisions are evicted when cap is reached (FIFO)."""
+        a = Arbiter()
+        a._max_decisions = 3
+        pred_lo = _make_prediction(confidence=0.3, aesthetic=0.55)
+        pred_hi = _make_prediction(confidence=0.9, aesthetic=0.55)
+        a.prioritize_experiment(pred_lo, current_composite=0.5)  # 1 — evicted
+        a.prioritize_experiment(pred_lo, current_composite=0.5)  # 2 — evicted
+        a.prioritize_experiment(pred_hi, current_composite=0.5)  # 3 — kept
+        a.prioritize_experiment(pred_hi, current_composite=0.5)  # 4 — kept
+        a.prioritize_experiment(pred_hi, current_composite=0.5)  # 5 — kept (evicts 1, 2)
+        assert len(a._decisions) == 3
+
+    def test_feedback_capped_at_max(self):
+        """_feedback list must not exceed _max_feedback."""
+        a = Arbiter()
+        a._max_feedback = 4
+        fb = CalibrationFeedback("soft_surface", True)
+        for _ in range(10):
+            a.record_feedback(fb)
+        assert len(a._feedback) <= 4
+
+    def test_default_cap_constants_exist(self):
+        """_MAX_DECISIONS and _MAX_FEEDBACK module constants must exist."""
+        from agent.stage.arbiter import _MAX_DECISIONS, _MAX_FEEDBACK
+        assert _MAX_DECISIONS >= 1_000
+        assert _MAX_FEEDBACK >= 1_000
