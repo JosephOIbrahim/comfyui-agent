@@ -326,6 +326,13 @@ class MemoryAgent(BrainAgent):
             return self.to_json({"error": f"Unknown memory tool: {name}"})
 
     def _handle_record_outcome(self, tool_input: dict) -> str:
+        # Cycle 58: enforce schema — key_params is marked required and must be a dict
+        key_params = tool_input.get("key_params")
+        if key_params is None:
+            return self.to_json({"error": "key_params is required."})
+        if not isinstance(key_params, dict):
+            return self.to_json({"error": "key_params must be a dict."})
+
         session = tool_input.get("session", "default")
 
         quality_score = tool_input.get("quality_score")
@@ -344,8 +351,8 @@ class MemoryAgent(BrainAgent):
             "timestamp": time.time(),
             "session": session,
             "workflow_summary": tool_input.get("workflow_summary", ""),
-            "workflow_hash": _workflow_hash(tool_input.get("key_params", {})),
-            "key_params": tool_input.get("key_params", {}),
+            "workflow_hash": _workflow_hash(key_params),  # Cycle 58: use validated variable
+            "key_params": key_params,
             "model_combo": tool_input.get("model_combo", []),
             "render_time_s": tool_input.get("render_time_s"),
             "quality_score": quality_score,

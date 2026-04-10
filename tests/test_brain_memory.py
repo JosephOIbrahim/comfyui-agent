@@ -770,6 +770,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
             "quality_score": -0.1,
         }))
         assert "error" in result
@@ -779,6 +780,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
             "quality_score": 1.5,
         }))
         assert "error" in result
@@ -788,6 +790,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
             "quality_score": "high",
         }))
         assert "error" in result
@@ -796,6 +799,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
             "quality_score": 0.0,
         }))
         assert result.get("recorded") is True
@@ -804,6 +808,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
             "quality_score": 1.0,
         }))
         assert result.get("recorded") is True
@@ -813,6 +818,7 @@ class TestQualityScoreValidation:
         result = json.loads(handle("record_outcome", {
             "session": "qs-test",
             "workflow_summary": "test",
+            "key_params": {},  # Cycle 58: key_params now required
         }))
         assert result.get("recorded") is True
 
@@ -880,3 +886,64 @@ class TestOutcomeRotationLogsError:
         mock_log.warning.assert_called_once()
         warning_msg = str(mock_log.warning.call_args)
         assert "rotation" in warning_msg.lower() or "rotate" in warning_msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 58: record_outcome required field guard for key_params
+# ---------------------------------------------------------------------------
+
+class TestRecordOutcomeKeyParamsGuard:
+    """record_outcome must enforce key_params as required (schema compliance)."""
+
+    def test_missing_key_params_returns_error(self):
+        """Omitting key_params must return structured error, not silently default {}."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_missing",
+            "workflow_summary": "test run",
+        }))
+        assert "error" in result
+        assert "key_params" in result["error"]
+
+    def test_none_key_params_returns_error(self):
+        """Explicit key_params=None must return error."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_none",
+            "key_params": None,
+        }))
+        assert "error" in result
+        assert "key_params" in result["error"]
+
+    def test_string_key_params_returns_error(self):
+        """key_params as string must return error — must be a dict."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_str",
+            "key_params": "model=sd15",
+        }))
+        assert "error" in result
+        assert "dict" in result["error"].lower() or "key_params" in result["error"]
+
+    def test_list_key_params_returns_error(self):
+        """key_params as list must return error — must be a dict."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_list",
+            "key_params": ["model", "steps"],
+        }))
+        assert "error" in result
+
+    def test_empty_dict_key_params_is_valid(self):
+        """Empty dict {} is a valid key_params value — no params extracted."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_empty_dict",
+            "key_params": {},
+        }))
+        assert "error" not in result
+        assert result.get("recorded") is True
+
+    def test_valid_key_params_records_successfully(self):
+        """Normal key_params dict must record without error."""
+        result = json.loads(handle("record_outcome", {
+            "session": "test_c58_valid",
+            "key_params": {"model": "sd15.safetensors", "steps": 20, "cfg": 7.0},
+        }))
+        assert "error" not in result
+        assert result.get("recorded") is True

@@ -24,6 +24,10 @@ try:
     _HAS_WS = True
 except ImportError:
     _HAS_WS = False
+    log.debug(  # Cycle 58: degrade visibly — polling is slower than WebSocket monitoring
+        "websockets package not installed; execute_with_progress falls back to polling "
+        "(pip install websockets for real-time progress)"
+    )
 
 # ---------------------------------------------------------------------------
 # Tool schemas

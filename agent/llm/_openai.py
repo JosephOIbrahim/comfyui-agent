@@ -32,6 +32,9 @@ from ._types import (
 
 log = logging.getLogger(__name__)
 
+if openai is None:  # Cycle 58: surface unavailability at import time, not first use
+    log.debug("openai package not installed; OpenAIProvider unavailable (pip install openai)")
+
 
 class OpenAIProvider(LLMProvider):
     """OpenAI GPT models via the openai SDK."""

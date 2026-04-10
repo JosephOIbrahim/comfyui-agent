@@ -39,6 +39,7 @@ MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
 # Third-party API keys (optional — improve rate limits for external services)
 CIVITAI_API_KEY = os.getenv("CIVITAI_API_KEY")    # Optional — improves CivitAI rate limits
 GITHUB_API_TOKEN = os.getenv("GITHUB_API_TOKEN")   # Optional — improves GitHub API rate limits
+HF_TOKEN = os.getenv("HF_TOKEN")                  # Cycle 58: required for gated HF models (Flux, SD3, etc.)
 
 # Model selection — if not set, uses the default for the active LLM_PROVIDER.
 # Defaults per provider: anthropic=claude-sonnet-4-20250514, openai=gpt-4o,

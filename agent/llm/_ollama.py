@@ -34,6 +34,9 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+if openai is None:  # Cycle 58: surface unavailability at import time, not first use
+    log.debug("openai package not installed; OllamaProvider unavailable (pip install openai)")
+
 
 def _require_openai() -> None:
     """Raise a clear error if the openai package is not installed."""

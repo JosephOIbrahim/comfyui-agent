@@ -39,6 +39,9 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+if genai is None:  # Cycle 58: surface unavailability at import time, not first use
+    log.debug("google-genai not installed; GeminiProvider unavailable (pip install google-genai)")
+
 
 def _require_sdk() -> None:
     """Raise a clear error if google-genai is not installed."""
