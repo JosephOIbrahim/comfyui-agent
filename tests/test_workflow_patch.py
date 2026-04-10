@@ -995,3 +995,126 @@ class TestSetInputRequiredFields:
         }))
         assert "error" in result
         assert "value" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 50 — add_node / connect_nodes / set_input happy-path coverage
+# ---------------------------------------------------------------------------
+
+class TestAddNodeHappyPath:
+    """add_node success path: node appears in workflow with correct structure."""
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_add_node_appears_in_workflow(self, sample_workflow):
+        """Successful add_node must return added=True and node must be in workflow."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("add_node", {
+            "class_type": "VAEDecode",
+            "inputs": {},
+        }))
+        assert result.get("added") is True
+        assert "node_id" in result
+        assert result["class_type"] == "VAEDecode"
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert result["node_id"] in wf
+        assert wf[result["node_id"]]["class_type"] == "VAEDecode"
+
+    def test_add_node_with_inputs(self, sample_workflow):
+        """Inputs dict must be stored on the new node."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("add_node", {
+            "class_type": "KSampler",
+            "inputs": {"seed": 42, "steps": 20},
+        }))
+        assert result.get("added") is True
+        wf = workflow_patch._get_state()["current_workflow"]
+        node = wf[result["node_id"]]
+        assert node["inputs"]["seed"] == 42
+        assert node["inputs"]["steps"] == 20
+
+    def test_add_node_increments_id(self, sample_workflow):
+        """Each new node gets a unique, higher node_id than existing ones."""
+        self._load(sample_workflow)
+        r1 = json.loads(workflow_patch.handle("add_node", {"class_type": "UpscaleModelLoader", "inputs": {}}))
+        r2 = json.loads(workflow_patch.handle("add_node", {"class_type": "ImageUpscaleWithModel", "inputs": {}}))
+        assert r1.get("added") is True
+        assert r2.get("added") is True
+        assert r1["node_id"] != r2["node_id"]
+
+
+class TestConnectNodesHappyPath:
+    """connect_nodes success path: connection appears in target node's inputs."""
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_connect_nodes_basic(self, sample_workflow):
+        """Wiring node 1 output 0 to node 2's 'clip' input must update the workflow."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 1,
+            "to_node": "2",
+            "to_input": "clip",
+        }))
+        assert result.get("connected") is True
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["2"]["inputs"]["clip"] == ["1", 1]
+
+    def test_connect_nodes_returns_correct_fields(self, sample_workflow):
+        """Result must include human-readable from/to summary fields."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "3",
+            "to_input": "model",
+        }))
+        assert result.get("connected") is True
+        assert "from" in result
+        assert "to" in result
+        assert "1" in result["from"]  # source node id in human-readable 'from'
+        assert "3" in result["to"]    # destination node id in human-readable 'to'
+
+
+class TestSetInputHappyPath:
+    """set_input success path: value is updated in workflow."""
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_set_input_updates_value(self, sample_workflow):
+        """set_input must update the field and return old + new value."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "3",
+            "input_name": "steps",
+            "value": 50,
+        }))
+        assert result.get("set") is True
+        assert result["old_value"] == 20
+        assert result["new_value"] == 50
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["3"]["inputs"]["steps"] == 50
+
+    def test_set_input_string_value(self, sample_workflow):
+        """set_input works for string values (e.g., prompt text)."""
+        self._load(sample_workflow)
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "2",
+            "input_name": "text",
+            "value": "cinematic sunset",
+        }))
+        assert result.get("set") is True
+        assert result["new_value"] == "cinematic sunset"
