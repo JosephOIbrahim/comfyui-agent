@@ -301,3 +301,57 @@ class TestBooleanCoercionCycle67:
 
         assert result.get("fixes_applied", 0) == 1, \
             "auto_fix=True (bool) must apply the substitution"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 68: repair_workflow error propagation from find_missing_nodes
+# ---------------------------------------------------------------------------
+
+class TestRepairWorkflowErrorPropagationCycle68:
+    """Cycle 68: repair_workflow must surface find_missing_nodes errors, not say 'clean'."""
+
+    def test_discover_error_surfaces_as_error_not_clean(self):
+        """When find_missing_nodes returns an error dict, repair_workflow must surface it."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        # find_missing_nodes fails (e.g., ComfyUI not running)
+        error_result = _json.dumps({"error": "ComfyUI not reachable at localhost:8188."})
+
+        with patch("agent.tools.comfy_discover.handle", return_value=error_result):
+            result = _json.loads(comfy_provision._handle_repair_workflow({}))
+
+        # Must NOT say "clean" — that would be a silent false positive
+        assert result.get("status") != "clean", \
+            "repair_workflow returned 'clean' when discovery actually failed"
+        assert "error" in result, \
+            "repair_workflow must propagate the discovery error"
+
+    def test_discover_error_message_includes_original_error(self):
+        """The error message from repair_workflow must include the callee's error text."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        error_result = _json.dumps({"error": "ComfyUI not reachable at localhost:8188."})
+
+        with patch("agent.tools.comfy_discover.handle", return_value=error_result):
+            result = _json.loads(comfy_provision._handle_repair_workflow({}))
+
+        assert "comfyui" in result.get("error", "").lower() or \
+               "not reachable" in result.get("error", "").lower(), \
+            "Error message should help user understand what failed"
+
+    def test_successful_discover_still_works(self):
+        """repair_workflow must still work when find_missing_nodes succeeds with no missing."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        clean_result = _json.dumps({"missing": [], "installed": ["KSampler"]})
+
+        with patch("agent.tools.comfy_discover.handle", return_value=clean_result):
+            result = _json.loads(comfy_provision._handle_repair_workflow({}))
+
+        assert result.get("status") == "clean"

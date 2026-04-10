@@ -210,11 +210,17 @@ def _handle_is_running() -> str:
             "gpu": gpu,
             "python": py_ver,
         })
+    except httpx.ConnectError:  # Cycle 68: give VFX artist actionable guidance
+        return to_json({
+            "running": False,
+            "url": COMFYUI_URL,
+            "error": f"ComfyUI is not running at {COMFYUI_URL}. Start ComfyUI and try again.",
+        })
     except Exception as e:
         return to_json({
             "running": False,
             "url": COMFYUI_URL,
-            "error": str(e),
+            "error": f"Could not reach ComfyUI: {e}",
         })
 
 

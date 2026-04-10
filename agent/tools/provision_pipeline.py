@@ -347,7 +347,8 @@ def _handle_provision_pipeline_verify(tool_input: dict) -> str:
         "exists": exists,
         "size_bytes": size_bytes,
         "family": family,
-        "workflow_compatible": compat.get("compatible", True),
+        # Cycle 68: default True was wrong when compat is {"error": "..."} — None = unknown
+        "workflow_compatible": None if compat.get("error") else compat.get("compatible"),
         "compatibility_details": compat,
     })
 

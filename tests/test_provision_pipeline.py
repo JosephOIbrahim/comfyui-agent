@@ -745,9 +745,9 @@ class TestProvisionVerifyJsonLoadsGuard:
                 "filename": "model.safetensors",
                 "model_type": "checkpoints",
             }))
-        # Must not crash; compat defaults to {} → workflow_compatible defaults to True
+        # Must not crash; compat defaults to {} → workflow_compatible is None (unknown, Cycle 68)
         assert "filename" in result or "error" in result
-        assert result.get("workflow_compatible", True) is True
+        assert result.get("workflow_compatible") is None  # unknown when compat call fails
 
     def test_valid_json_from_compat_handle_processed_normally(self):
         """Well-formed JSON responses must be parsed and included in result."""
@@ -772,3 +772,71 @@ class TestProvisionVerifyJsonLoadsGuard:
             }))
         assert result.get("family", {}).get("family") == "SDXL"
         assert result.get("workflow_compatible") is False
+
+
+# ---------------------------------------------------------------------------
+# Cycle 68: workflow_compatible must be None (unknown) when compat call fails
+# ---------------------------------------------------------------------------
+
+class TestWorkflowCompatibleErrorDefaultCycle68:
+    """Cycle 68: workflow_compatible must not default to True when compat check fails."""
+
+    def test_error_dict_from_compat_gives_none_not_true(self):
+        """When check_model_compatibility returns error dict, workflow_compatible must be None."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        def side_effect(name, tool_input):
+            if name == "identify_model_family":
+                return json.dumps({"family": "SDXL"})
+            # check_model_compatibility returns an error (e.g., no workflow loaded)
+            return json.dumps({"error": "No workflow loaded. Load a workflow first."})
+
+        with patch("agent.tools.model_compat.handle", side_effect=side_effect):
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+
+        # Must be None (unknown), NOT True (compatible) — True was the wrong default
+        assert result.get("workflow_compatible") is None, \
+            f"Expected None (unknown) when compat fails, got {result.get('workflow_compatible')!r}"
+
+    def test_successful_compat_false_preserved(self):
+        """check_model_compatibility returning compatible=False must be preserved."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        def side_effect(name, tool_input):
+            if name == "identify_model_family":
+                return json.dumps({"family": "SD15"})
+            return json.dumps({"compatible": False, "reason": "family mismatch"})
+
+        with patch("agent.tools.model_compat.handle", side_effect=side_effect):
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+
+        assert result.get("workflow_compatible") is False
+
+    def test_successful_compat_true_preserved(self):
+        """check_model_compatibility returning compatible=True must be preserved."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        def side_effect(name, tool_input):
+            if name == "identify_model_family":
+                return json.dumps({"family": "SDXL"})
+            return json.dumps({"compatible": True})
+
+        with patch("agent.tools.model_compat.handle", side_effect=side_effect):
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+
+        assert result.get("workflow_compatible") is True

@@ -498,3 +498,32 @@ class TestIsRunningCycle67Guards:
             result = json.loads(comfy_api.handle("is_comfyui_running", {}))
         assert result.get("running") is True
         assert "no gpu" in result.get("gpu", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 68: is_comfyui_running ConnectError gives actionable message
+# ---------------------------------------------------------------------------
+
+class TestIsRunningCycle68ErrorMessage:
+    """Cycle 68: ConnectError must return a user-actionable message, not str(e)."""
+
+    def test_connect_error_returns_actionable_message(self):
+        """httpx.ConnectError on is_comfyui_running must mention 'Start ComfyUI'."""
+        import httpx
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", side_effect=httpx.ConnectError("refused")):
+            result = json.loads(comfy_api.handle("is_comfyui_running", {}))
+        assert result.get("running") is False
+        error_msg = result.get("error", "")
+        assert "start comfyui" in error_msg.lower() or "not running" in error_msg.lower()
+
+    def test_connect_error_does_not_expose_raw_socket_error(self):
+        """ConnectError must not pass raw socket error text to the artist."""
+        import httpx
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get",
+                   side_effect=httpx.ConnectError("ECONNREFUSED 127.0.0.1:8188")):
+            result = json.loads(comfy_api.handle("is_comfyui_running", {}))
+        error_msg = result.get("error", "")
+        assert "econnrefused" not in error_msg.lower()
+        assert "connecterror" not in error_msg.lower()

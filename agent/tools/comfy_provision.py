@@ -849,6 +849,8 @@ def _handle_repair_workflow(tool_input: dict) -> str:
     except Exception as e:
         return to_json({"error": f"Could not check missing nodes: {e}"})
 
+    if result.get("error"):  # Cycle 68: error dict from callee silently became "no missing nodes"
+        return to_json({"error": f"Could not check missing nodes: {result['error']}"})
     missing = result.get("missing", [])
     if not missing:
         return to_json({
