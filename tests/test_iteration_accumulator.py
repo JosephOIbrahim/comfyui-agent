@@ -24,15 +24,17 @@ def agent():
 
 @pytest.fixture(autouse=True)
 def reset_singleton():
-    """Reset registered IterationAccumulatorAgent state between tests."""
+    """Reset registered IterationAccumulatorAgent state between tests.
+
+    Cycle 52: state is now per-session dicts; reset by clearing _sessions.
+    """
     from agent.brain._sdk import BrainAgent
     BrainAgent._register_all()
     instance = BrainAgent._registry.get("start_iteration_tracking")
     if instance is not None:
-        instance._steps.clear()
-        instance._started_at = None
-        instance._accepted = None
-        instance._intent_summary = ""
+        with instance._sessions_mutex:
+            instance._sessions.clear()
+            instance._session_locks.clear()
     yield
 
 
@@ -358,3 +360,77 @@ class TestIterationAccumulatorRequiredFields:
             "trigger": "manual",
         }))
         assert "error" not in rec
+
+
+# ---------------------------------------------------------------------------
+# Cycle 52 — per-session isolation (singleton-state bug fix)
+# ---------------------------------------------------------------------------
+
+class TestIterationAccumulatorSessionIsolation:
+    """Two sessions must not interfere with each other's iteration state."""
+
+    def _agent(self):
+        from agent.brain.iteration_accumulator import IterationAccumulatorAgent
+        return IterationAccumulatorAgent()
+
+    def test_separate_sessions_isolated(self):
+        """Starting session A must not clear session B's state."""
+        import json
+        agent = self._agent()
+        # Start session A
+        agent.start(intent_summary="Portrait pipeline", session="conn-A")
+        agent.record_step(1, "initial", "user asked for portrait", session="conn-A")
+        # Start session B — must not wipe A's steps
+        agent.start(intent_summary="Landscape pipeline", session="conn-B")
+        # A's steps must still be intact
+        assert len(agent.get_steps(session="conn-A")) == 1
+
+    def test_finalize_session_a_does_not_affect_b(self):
+        """Finalizing session A must not touch session B."""
+        import json
+        agent = self._agent()
+        agent.start(intent_summary="A goal", session="sess-A")
+        agent.record_step(1, "initial", "trigger A", session="sess-A")
+        agent.start(intent_summary="B goal", session="sess-B")
+        agent.record_step(1, "initial", "trigger B", session="sess-B")
+        # Finalize A
+        result_a = agent.finalize(accepted_iteration=1, session="sess-A")
+        assert "error" not in result_a
+        # B must still be tracking
+        assert agent.is_tracking(session="sess-B") is True
+
+    def test_handle_routes_to_session(self):
+        """handle() must pass session from tool_input to state isolation."""
+        import json
+        from agent.brain.iteration_accumulator import IterationAccumulatorAgent
+        agent = IterationAccumulatorAgent()
+        # Start two sessions via handle()
+        r1 = json.loads(agent.handle("start_iteration_tracking", {
+            "intent_summary": "Session alpha",
+            "session": "alpha",
+        }))
+        r2 = json.loads(agent.handle("start_iteration_tracking", {
+            "intent_summary": "Session beta",
+            "session": "beta",
+        }))
+        assert r1["session"] == "alpha"
+        assert r2["session"] == "beta"
+        # Record into alpha
+        json.loads(agent.handle("record_iteration_step", {
+            "iteration": 1, "type": "initial", "trigger": "start",
+            "session": "alpha",
+        }))
+        # Beta must have 0 steps
+        assert len(agent.get_steps(session="beta")) == 0
+        assert len(agent.get_steps(session="alpha")) == 1
+
+    def test_default_session_backward_compat(self):
+        """Callers that omit session must use 'default' and work correctly."""
+        import json
+        from agent.brain.iteration_accumulator import IterationAccumulatorAgent
+        agent = IterationAccumulatorAgent()
+        r = json.loads(agent.handle("start_iteration_tracking", {
+            "intent_summary": "No session key",
+        }))
+        assert r.get("session") == "default"
+        assert r.get("status") == "tracking"

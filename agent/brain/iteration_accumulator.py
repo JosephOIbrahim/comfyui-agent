@@ -111,30 +111,66 @@ _TOOLS: list[dict] = [
 # SDK Agent class
 # ---------------------------------------------------------------------------
 
+_MAX_SESSIONS = 100  # Cycle 52: FIFO cap on per-session state dicts
+
+
 class IterationAccumulatorAgent(BrainAgent):
-    """Tracks iteration steps for metadata embedding."""
+    """Tracks iteration steps for metadata embedding — per-session isolated.
+
+    Cycle 52: Refactored from singleton-instance state to per-session dicts.
+    Previously, a single shared instance caused state collisions between
+    concurrent MCP connections. Now each session_id key has independent state.
+    """
 
     TOOLS = _TOOLS
 
     def __init__(self, config: BrainConfig | None = None):
         super().__init__(config)
-        self._intent_summary: str = ""
-        self._steps: list[dict] = []
-        self._accepted: int | None = None
-        self._started_at: float | None = None
-        self._lock = threading.Lock()
+        # Per-session state: session_id → {intent_summary, steps, accepted, started_at}
+        self._sessions: dict[str, dict] = {}
+        self._sessions_mutex = threading.Lock()  # guards _sessions and _session_locks dicts
+        self._session_locks: dict[str, threading.Lock] = {}
 
-    def start(self, intent_summary: str) -> dict:
-        """Begin a new iteration tracking cycle."""
-        with self._lock:
-            self._intent_summary = intent_summary
-            self._steps = []
-            self._accepted = None
-            self._started_at = time.time()
+    def _get_session_lock(self, session: str) -> threading.Lock:
+        """Return (creating if needed) a per-session lock. FIFO eviction at cap."""
+        with self._sessions_mutex:
+            if session not in self._session_locks:
+                if len(self._session_locks) >= _MAX_SESSIONS:
+                    oldest = next(iter(self._session_locks))
+                    del self._session_locks[oldest]
+                    self._sessions.pop(oldest, None)
+                self._session_locks[session] = threading.Lock()
+            return self._session_locks[session]
+
+    def _get_state(self, session: str) -> dict:
+        """Return (creating if needed) the mutable state dict for session.
+
+        MUST be called while holding the session lock.
+        """
+        if session not in self._sessions:
+            self._sessions[session] = {
+                "intent_summary": "",
+                "steps": [],
+                "accepted": None,
+                "started_at": None,
+            }
+        return self._sessions[session]
+
+    def start(self, intent_summary: str, session: str = "default") -> dict:
+        """Begin a new iteration tracking cycle for session."""
+        lock = self._get_session_lock(session)
+        with lock:
+            state = self._get_state(session)
+            state["intent_summary"] = intent_summary
+            state["steps"] = []
+            state["accepted"] = None
+            state["started_at"] = time.time()
+            started_at = state["started_at"]
         return {
             "status": "tracking",
             "intent_summary": intent_summary,
-            "started_at": self._started_at,
+            "started_at": started_at,
+            "session": session,
         }
 
     def record_step(
@@ -146,70 +182,83 @@ class IterationAccumulatorAgent(BrainAgent):
         params: dict | None = None,
         feedback: str = "",
         observation: str = "",
+        session: str = "default",
     ) -> dict:
-        """Record a single iteration step."""
-        with self._lock:
-            if self._started_at is None:
+        """Record a single iteration step for session."""
+        lock = self._get_session_lock(session)
+        with lock:
+            state = self._get_state(session)
+            if state["started_at"] is None:
                 return {"error": "Call start_iteration_tracking before record_iteration_step."}
-        step = {
-            "iteration": iteration,
-            "type": step_type,
-            "trigger": trigger,
-            "patches": patches or [],
-            "params": params or {},
-            "feedback": feedback,
-            "observation": observation,
-            "recorded_at": time.time(),
-        }
-        with self._lock:
-            self._steps.append(step)
-            if len(self._steps) > _MAX_STEPS:
+            step = {
+                "iteration": iteration,
+                "type": step_type,
+                "trigger": trigger,
+                "patches": patches or [],
+                "params": params or {},
+                "feedback": feedback,
+                "observation": observation,
+                "recorded_at": time.time(),
+            }
+            state["steps"].append(step)
+            if len(state["steps"]) > _MAX_STEPS:
                 log.warning(
-                    "Iteration steps exceeded %d limit, trimming oldest entries",
-                    _MAX_STEPS,
+                    "Iteration steps exceeded %d limit for session %r, trimming oldest",
+                    _MAX_STEPS, session,
                 )
-                self._steps = self._steps[-_MAX_STEPS:]
-            step_count = len(self._steps)
+                state["steps"] = state["steps"][-_MAX_STEPS:]
+            step_count = len(state["steps"])
         return {
             "status": "recorded",
             "iteration": iteration,
             "total_steps": step_count,
+            "session": session,
         }
 
-    def finalize(self, accepted_iteration: int) -> dict:
-        """Mark the accepted iteration and return full history."""
-        with self._lock:
-            if self._started_at is None:
+    def finalize(self, accepted_iteration: int, session: str = "default") -> dict:
+        """Mark the accepted iteration and return full history for session."""
+        lock = self._get_session_lock(session)
+        with lock:
+            state = self._get_state(session)
+            if state["started_at"] is None:
                 return {"error": "Call start_iteration_tracking before finalize_iterations."}
-            if not self._steps:
+            if not state["steps"]:
                 return {"error": "No iteration steps recorded. Call record_iteration_step first."}
-            self._accepted = accepted_iteration
+            state["accepted"] = accepted_iteration
             history = {
-                "intent_summary": self._intent_summary,
-                "iterations": list(self._steps),
+                "intent_summary": state["intent_summary"],
+                "iterations": list(state["steps"]),
                 "accepted_iteration": accepted_iteration,
-                "started_at": self._started_at,
+                "started_at": state["started_at"],
                 "finalized_at": time.time(),
-                "total_steps": len(self._steps),
+                "total_steps": len(state["steps"]),
+                "session": session,
             }
         return history
 
-    def get_steps(self) -> list[dict]:
-        """Return current steps (for inspection)."""
-        with self._lock:
-            return list(self._steps)
+    def get_steps(self, session: str = "default") -> list[dict]:
+        """Return current steps for session (for inspection)."""
+        lock = self._get_session_lock(session)
+        with lock:
+            return list(self._get_state(session)["steps"])
 
-    def is_tracking(self) -> bool:
-        """Check if tracking is active."""
-        with self._lock:
-            return self._started_at is not None and self._accepted is None
+    def is_tracking(self, session: str = "default") -> bool:
+        """Check if tracking is active for session."""
+        lock = self._get_session_lock(session)
+        with lock:
+            state = self._get_state(session)
+            return state["started_at"] is not None and state["accepted"] is None
 
     def handle(self, name: str, tool_input: dict) -> str:
+        session = tool_input.get("session", "default")  # Cycle 52: per-session isolation
+        if not isinstance(session, str) or not session:
+            session = "default"
+
         if name == "start_iteration_tracking":
             intent_summary = tool_input.get("intent_summary")  # Cycle 47: guard required field
             if not intent_summary or not isinstance(intent_summary, str):
                 return self.to_json({"error": "intent_summary is required and must be a non-empty string."})
-            result = self.start(intent_summary=intent_summary)
+            result = self.start(intent_summary=intent_summary, session=session)
             return self.to_json(result)
         elif name == "record_iteration_step":
             iteration = tool_input.get("iteration")  # Cycle 47: guard required fields
@@ -229,13 +278,14 @@ class IterationAccumulatorAgent(BrainAgent):
                 params=tool_input.get("params", {}),
                 feedback=tool_input.get("feedback", ""),
                 observation=tool_input.get("observation", ""),
+                session=session,
             )
             return self.to_json(result)
         elif name == "finalize_iterations":
             accepted_iteration = tool_input.get("accepted_iteration")  # Cycle 47: guard required field
             if accepted_iteration is None:
                 return self.to_json({"error": "accepted_iteration is required."})
-            result = self.finalize(accepted_iteration=accepted_iteration)
+            result = self.finalize(accepted_iteration=accepted_iteration, session=session)
             return self.to_json(result)
         else:
             return self.to_json({"error": f"Unknown tool: {name}"})
