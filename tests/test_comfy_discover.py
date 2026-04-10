@@ -1167,3 +1167,30 @@ class TestDiscoverRequiredField:
             result = json.loads(comfy_discover.handle("discover", {"query": "flux model"}))
         # Must not be a required-field error
         assert "query" not in result.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 48 — get_install_instructions required field guard
+# ---------------------------------------------------------------------------
+
+class TestGetInstallInstructionsRequiredField:
+    """get_install_instructions must return structured error when query is missing."""
+
+    def test_missing_query_returns_error(self):
+        import json
+        from agent.tools import comfy_discover
+        result = json.loads(comfy_discover.handle("get_install_instructions", {}))
+        assert "error" in result
+        assert "query" in result["error"].lower()
+
+    def test_empty_query_returns_error(self):
+        import json
+        from agent.tools import comfy_discover
+        result = json.loads(comfy_discover.handle("get_install_instructions", {"query": ""}))
+        assert "error" in result
+
+    def test_none_query_returns_error(self):
+        import json
+        from agent.tools import comfy_discover
+        result = json.loads(comfy_discover.handle("get_install_instructions", {"query": None}))
+        assert "error" in result

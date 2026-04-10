@@ -632,3 +632,68 @@ class TestInstallLoopNonJsonGuard:
                 assert isinstance(result, dict)
             except Exception as e:
                 pytest.fail(f"repair_workflow crashed on non-JSON installer output: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Cycle 48 — provision_model / provision_pipeline_verify required field guards
+# ---------------------------------------------------------------------------
+
+class TestProvisionModelRequiredField:
+    """provision_model must return structured error when query is missing."""
+
+    def test_missing_query_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_model", {}))
+        assert "error" in result
+        assert "query" in result["error"].lower()
+
+    def test_empty_query_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_model", {"query": ""}))
+        assert "error" in result
+
+    def test_none_query_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_model", {"query": None}))
+        assert "error" in result
+
+
+class TestProvisionPipelineVerifyRequiredFields:
+    """provision_pipeline_verify must return error when filename or model_type is missing."""
+
+    def test_missing_filename_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+            "model_type": "checkpoints",
+        }))
+        assert "error" in result
+        assert "filename" in result["error"].lower()
+
+    def test_missing_model_type_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+            "filename": "model.safetensors",
+        }))
+        assert "error" in result
+        assert "model_type" in result["error"].lower()
+
+    def test_empty_filename_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+            "filename": "", "model_type": "checkpoints",
+        }))
+        assert "error" in result
+
+    def test_none_model_type_returns_error(self):
+        import json
+        from agent.tools import provision_pipeline
+        result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+            "filename": "model.safetensors", "model_type": None,
+        }))
+        assert "error" in result

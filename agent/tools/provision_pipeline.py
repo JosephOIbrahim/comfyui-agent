@@ -133,7 +133,9 @@ def _handle_provision_model(tool_input: dict) -> str:
     from .model_compat import handle as compat_handle
     from .auto_wire import handle as auto_wire_handle
 
-    query = tool_input["query"]
+    query = tool_input.get("query")  # Cycle 48: guard required field
+    if not query or not isinstance(query, str):
+        return to_json({"error": "query is required and must be a non-empty string."})
     model_type = tool_input.get("model_type")
     source = tool_input.get("source", "auto")
     auto_wire = tool_input.get("auto_wire", True)
@@ -311,8 +313,12 @@ def _handle_provision_pipeline_verify(tool_input: dict) -> str:
     """Check a model exists on disk and is compatible with the workflow."""
     from .model_compat import handle as compat_handle
 
-    filename = tool_input["filename"]
-    model_type = tool_input["model_type"]
+    filename = tool_input.get("filename")  # Cycle 48: guard required fields
+    model_type = tool_input.get("model_type")
+    if not filename or not isinstance(filename, str):
+        return to_json({"error": "filename is required and must be a non-empty string."})
+    if not model_type or not isinstance(model_type, str):
+        return to_json({"error": "model_type is required and must be a non-empty string."})
 
     # Check file existence
     model_path = MODELS_DIR / model_type / filename

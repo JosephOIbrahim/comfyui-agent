@@ -394,6 +394,11 @@ def _patches_to_mutations(patches: list[dict]) -> dict[str, dict[str, object]] |
 
 def _handle_apply_patch(tool_input: dict) -> str:
     path_str = tool_input.get("path")
+    patches = tool_input.get("patches")  # Cycle 48: guard required field
+    if patches is None:
+        return to_json({"error": "patches is required."})
+    if not isinstance(patches, list):
+        return to_json({"error": "patches must be a list."})
     patches = tool_input["patches"]
 
     # Load workflow if path provided or not loaded yet
@@ -646,11 +651,13 @@ def _next_node_id() -> str:
 
 
 def _handle_add_node(tool_input: dict) -> str:
+    class_type = tool_input.get("class_type")  # Cycle 48: guard required field before _ensure_loaded
+    if not class_type or not isinstance(class_type, str):
+        return to_json({"error": "class_type is required and must be a non-empty string."})
+
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
-
-    class_type = tool_input["class_type"]
     inputs = tool_input.get("inputs", {})
 
     # Save state for undo
@@ -693,10 +700,12 @@ def _handle_add_node(tool_input: dict) -> str:
 
 
 def _handle_connect_nodes(tool_input: dict) -> str:
+    for _f in ("from_node", "from_output", "to_node", "to_input"):  # Cycle 48: guard required fields before _ensure_loaded
+        if _f not in tool_input:
+            return to_json({"error": f"{_f} is required."})
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
-
     from_node = tool_input["from_node"]
     from_output = tool_input["from_output"]
     to_node = tool_input["to_node"]
@@ -784,6 +793,9 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
 
 def _handle_set_input(tool_input: dict) -> str:
+    for _f in ("node_id", "input_name", "value"):  # Cycle 48: guard required fields before _ensure_loaded
+        if _f not in tool_input:
+            return to_json({"error": f"{_f} is required."})
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})

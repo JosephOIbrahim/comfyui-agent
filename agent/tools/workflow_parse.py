@@ -818,7 +818,9 @@ def _validate_against_comfyui(nodes: dict, connections: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _handle_load_workflow(tool_input: dict) -> str:
-    path_str = tool_input["path"]
+    path_str = tool_input.get("path")  # Cycle 48: guard required field
+    if not path_str or not isinstance(path_str, str):
+        return to_json({"error": "path is required and must be a non-empty string."})
     data, err = _load_json(path_str)
     if err:
         return to_json({"error": err})
@@ -869,7 +871,9 @@ def _handle_load_workflow(tool_input: dict) -> str:
 
 
 def _handle_validate_workflow(tool_input: dict) -> str:
-    path_str = tool_input["path"]
+    path_str = tool_input.get("path")  # Cycle 48: guard required field
+    if not path_str or not isinstance(path_str, str):
+        return to_json({"error": "path is required and must be a non-empty string."})
     data, err = _load_json(path_str)
     if err:
         return to_json({"error": err})
@@ -888,7 +892,9 @@ def _handle_validate_workflow(tool_input: dict) -> str:
 
 
 def _handle_classify_workflow(tool_input: dict) -> str:
-    path_str = tool_input["path"]
+    path_str = tool_input.get("path")  # Cycle 48: guard required field
+    if not path_str or not isinstance(path_str, str):
+        return to_json({"error": "path is required and must be a non-empty string."})
     data, err = _load_json(path_str)
     if err:
         return to_json({"error": err})
@@ -912,7 +918,9 @@ def _handle_classify_workflow(tool_input: dict) -> str:
 
 
 def _handle_get_editable_fields(tool_input: dict) -> str:
-    path_str = tool_input["path"]
+    path_str = tool_input.get("path")  # Cycle 48: guard required field
+    if not path_str or not isinstance(path_str, str):
+        return to_json({"error": "path is required and must be a non-empty string."})
     class_filter = tool_input.get("class_filter", "")
 
     data, err = _load_json(path_str)

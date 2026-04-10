@@ -937,3 +937,87 @@ class TestNullInputsGuard:
         result = _json.loads(workflow_parse.handle("get_editable_fields", {"path": str(path)}))
         # Should not error — node 1 treated as no-inputs, node 2 has steps
         assert "error" not in result or result.get("fields") is not None
+
+
+# ---------------------------------------------------------------------------
+# Cycle 48 — load/validate/classify/get_editable_fields required field guards
+# ---------------------------------------------------------------------------
+
+class TestLoadWorkflowRequiredField:
+    """load_workflow must return structured error when path is missing or invalid."""
+
+    def test_missing_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("load_workflow", {}))
+        assert "error" in result
+        assert "path" in result["error"].lower()
+
+    def test_empty_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("load_workflow", {"path": ""}))
+        assert "error" in result
+
+    def test_none_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("load_workflow", {"path": None}))
+        assert "error" in result
+
+
+class TestValidateWorkflowRequiredField:
+    """validate_workflow must return structured error when path is missing or invalid."""
+
+    def test_missing_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("validate_workflow", {}))
+        assert "error" in result
+        assert "path" in result["error"].lower()
+
+    def test_empty_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("validate_workflow", {"path": ""}))
+        assert "error" in result
+
+
+class TestClassifyWorkflowRequiredField:
+    """classify_workflow must return structured error when path is missing or invalid."""
+
+    def test_missing_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("classify_workflow", {}))
+        assert "error" in result
+        assert "path" in result["error"].lower()
+
+    def test_empty_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("classify_workflow", {"path": ""}))
+        assert "error" in result
+
+
+class TestGetEditableFieldsRequiredField:
+    """get_editable_fields must return structured error when path is missing or invalid."""
+
+    def test_missing_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("get_editable_fields", {}))
+        assert "error" in result
+        assert "path" in result["error"].lower()
+
+    def test_empty_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("get_editable_fields", {"path": ""}))
+        assert "error" in result
+
+    def test_none_path_returns_error(self):
+        import json
+        from agent.tools import workflow_parse
+        result = json.loads(workflow_parse.handle("get_editable_fields", {"path": None}))
+        assert "error" in result

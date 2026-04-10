@@ -1321,7 +1321,9 @@ def _handle_find_missing_nodes(tool_input: dict) -> str:
 
 def _handle_get_install_instructions(tool_input: dict) -> str:
     """Get install instructions for a node pack or model."""
-    query = tool_input["query"]
+    query = tool_input.get("query")  # Cycle 48: guard required field
+    if not query or not isinstance(query, str):
+        return to_json({"error": "query is required and must be a non-empty string."})
     source = tool_input.get("source", "registry")
 
     if source == "civitai":

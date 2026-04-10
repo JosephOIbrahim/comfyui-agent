@@ -901,3 +901,97 @@ class TestUndoEngineRebuildFailure:
             workflow_patch.handle("undo_workflow_patch", {})
 
         assert workflow_patch._get_engine() is None, "engine must be disabled after rebuild failure"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 48 — apply_patch / add_node / connect_nodes / set_input required field guards
+# ---------------------------------------------------------------------------
+
+class TestApplyPatchRequiredField:
+    """apply_workflow_patch must return structured error when patches is missing or not a list."""
+
+    def test_missing_patches_returns_error(self):
+        result = json.loads(workflow_patch.handle("apply_workflow_patch", {}))
+        assert "error" in result
+        assert "patches" in result["error"].lower()
+
+    def test_patches_not_list_returns_error(self):
+        result = json.loads(workflow_patch.handle("apply_workflow_patch", {"patches": "not-a-list"}))
+        assert "error" in result
+
+    def test_none_patches_returns_error(self):
+        result = json.loads(workflow_patch.handle("apply_workflow_patch", {"patches": None}))
+        assert "error" in result
+
+
+class TestAddNodeRequiredField:
+    """add_node must return structured error when class_type is missing or invalid."""
+
+    def test_missing_class_type_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("add_node", {}))
+        assert "error" in result
+        assert "class_type" in result["error"].lower()
+
+    def test_empty_class_type_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("add_node", {"class_type": ""}))
+        assert "error" in result
+
+    def test_none_class_type_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("add_node", {"class_type": None}))
+        assert "error" in result
+
+
+class TestConnectNodesRequiredFields:
+    """connect_nodes must return structured error when any required field is missing."""
+
+    def test_missing_from_node_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_output": 0, "to_node": "2", "to_input": "model",
+        }))
+        assert "error" in result
+        assert "from_node" in result["error"].lower()
+
+    def test_missing_to_node_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1", "from_output": 0, "to_input": "model",
+        }))
+        assert "error" in result
+        assert "to_node" in result["error"].lower()
+
+    def test_missing_from_output_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1", "to_node": "2", "to_input": "model",
+        }))
+        assert "error" in result
+
+    def test_missing_to_input_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1", "from_output": 0, "to_node": "2",
+        }))
+        assert "error" in result
+        assert "to_input" in result["error"].lower()
+
+
+class TestSetInputRequiredFields:
+    """set_input must return structured error when any required field is missing."""
+
+    def test_missing_node_id_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("set_input", {
+            "input_name": "steps", "value": 20,
+        }))
+        assert "error" in result
+        assert "node_id" in result["error"].lower()
+
+    def test_missing_input_name_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1", "value": 20,
+        }))
+        assert "error" in result
+        assert "input_name" in result["error"].lower()
+
+    def test_missing_value_returns_error(self, sample_workflow):
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1", "input_name": "steps",
+        }))
+        assert "error" in result
+        assert "value" in result["error"].lower()
