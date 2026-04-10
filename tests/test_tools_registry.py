@@ -256,3 +256,49 @@ class TestBrainEnabledKillSwitch:
 
         # Restore
         tools_module._brain_loaded = True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 37: unknown tool must return JSON, not a plain string
+# ---------------------------------------------------------------------------
+
+class TestUnknownToolReturnsJson:
+    """handle() for an unknown tool must return parseable JSON with an 'error' key.
+
+    Regression: previously returned f"Unknown tool: {name}" which is not JSON
+    and breaks MCP clients that parse every tool result as JSON. (Cycle 37 fix)
+    """
+
+    def test_unknown_tool_result_is_valid_json(self):
+        """handle('nonexistent_xyz', {}) must return a JSON string, not plain text."""
+        import json
+        from agent.tools import handle
+
+        result = handle("nonexistent_tool_xyz_cycle37", {})
+        try:
+            parsed = json.loads(result)
+        except json.JSONDecodeError:
+            pytest.fail(
+                f"handle() for unknown tool returned non-JSON: {result!r}"
+            )
+        assert "error" in parsed, f"Expected 'error' key in result, got: {parsed}"
+
+    def test_unknown_tool_error_mentions_tool_name(self):
+        """The error message must include the tool name for debuggability."""
+        import json
+        from agent.tools import handle
+
+        result = handle("my_fake_tool_cycle37", {})
+        parsed = json.loads(result)
+        assert "my_fake_tool_cycle37" in parsed.get("error", ""), (
+            f"Tool name not in error: {parsed}"
+        )
+
+    def test_unknown_brain_tool_also_returns_json(self):
+        """BrainAgent.dispatch() for an unknown tool also returns JSON (pre-existing)."""
+        import json
+        from agent.brain._sdk import BrainAgent
+
+        result = BrainAgent.dispatch("no_such_brain_tool_xyz", {})
+        parsed = json.loads(result)
+        assert "error" in parsed

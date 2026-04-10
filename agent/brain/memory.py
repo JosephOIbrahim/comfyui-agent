@@ -259,17 +259,30 @@ class MemoryAgent(BrainAgent):
             return outcomes
 
     def _load_all_outcomes(self) -> list[dict]:
-        """Load outcomes from ALL sessions for cross-session learning."""
+        """Load outcomes from ALL sessions for cross-session learning.
+
+        Acquires each session's per-session lock before reading its file so
+        that a concurrent _append_outcome() write cannot produce a partial
+        JSONL line that silently corrupts the returned dataset. (Cycle 37 fix)
+        """
         if not self.cfg.sessions_dir.exists():
             return []
         all_outcomes = []
         for path in sorted(self.cfg.sessions_dir.glob("*_outcomes.jsonl")):
-            for line in path.read_text(encoding="utf-8").strip().split("\n"):
-                if line:
-                    try:
-                        all_outcomes.append(_migrate_outcome(json.loads(line)))
-                    except json.JSONDecodeError:
-                        continue
+            # Derive session key from filename (mirrors _outcomes_path() convention)
+            session = path.stem.replace("_outcomes", "")
+            lock = _get_outcomes_lock(session)
+            with lock:
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue  # File removed between glob and read — skip
+                for line in text.strip().split("\n"):
+                    if line:
+                        try:
+                            all_outcomes.append(_migrate_outcome(json.loads(line)))
+                        except json.JSONDecodeError:
+                            continue
         all_outcomes.sort(key=lambda o: o.get("timestamp", 0))
         return all_outcomes
 

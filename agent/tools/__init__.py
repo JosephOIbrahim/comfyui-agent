@@ -275,7 +275,8 @@ def handle(
     mod = _HANDLERS.get(name)
     if mod is None:
         log.warning("Unknown tool called: %s", name)
-        return f"Unknown tool: {name}"
+        from ..errors import error_json
+        return error_json(f"Unknown tool: {name}", hint="Check the tool name and try again.")
     try:
         # Forward progress to any module that accepts it; fall back gracefully
         try:
