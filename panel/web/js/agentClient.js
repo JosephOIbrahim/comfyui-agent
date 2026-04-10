@@ -234,7 +234,7 @@ export class AgentClient {
     const url = `${proto}//${location.host}/comfy-cozy/ws`;
 
     this._ws = new WebSocket(url);
-    this._wsListeners = {};
+    if (!this._wsListeners) this._wsListeners = {};  // preserve across reconnects
     this._wsReconnectTimer = null;
 
     this._ws.onopen = () => {
