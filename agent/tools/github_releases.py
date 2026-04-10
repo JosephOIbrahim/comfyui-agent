@@ -15,6 +15,7 @@ import subprocess
 
 import httpx
 
+from ..circuit_breaker import GITHUB_BREAKER  # Cycle 64: circuit breaker protection
 from ..config import GITHUB_API_TOKEN
 from ..rate_limiter import GITHUB_LIMITER
 from ._util import to_json
@@ -130,6 +131,11 @@ def _fetch_latest_release(repo: str) -> dict | None:
     if not GITHUB_LIMITER().acquire(timeout=5.0):
         return None
 
+    breaker = GITHUB_BREAKER()  # Cycle 64: circuit breaker
+    if not breaker.allow_request():
+        log.debug("GitHub circuit breaker open — skipping fetch for %s", repo)
+        return None
+
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -138,13 +144,16 @@ def _fetch_latest_release(repo: str) -> dict | None:
                 timeout=15.0,
             )
             if resp.status_code == 404:
+                breaker.record_success()  # Cycle 64: 404 is a valid response, not a failure
                 return None
             resp.raise_for_status()
             data = resp.json()
             # Guard: GitHub returns a dict for a single release.
             # If the API changes or returns an error body, fall back to None. (Cycle 30 fix)
+            breaker.record_success()  # Cycle 64
             return data if isinstance(data, dict) else None
     except (httpx.HTTPError, Exception) as e:
+        breaker.record_failure()  # Cycle 64
         log.debug("Failed to fetch release for %s: %s", repo, e)
         return None
 
@@ -152,6 +161,11 @@ def _fetch_latest_release(repo: str) -> dict | None:
 def _fetch_releases(repo: str, limit: int = 5) -> list[dict]:
     """Fetch recent releases for a GitHub repo."""
     if not GITHUB_LIMITER().acquire(timeout=5.0):
+        return []
+
+    breaker = GITHUB_BREAKER()  # Cycle 64: circuit breaker
+    if not breaker.allow_request():
+        log.debug("GitHub circuit breaker open — skipping fetch for %s", repo)
         return []
 
     try:
@@ -163,12 +177,15 @@ def _fetch_releases(repo: str, limit: int = 5) -> list[dict]:
                 timeout=15.0,
             )
             if resp.status_code == 404:
+                breaker.record_success()  # Cycle 64: 404 is a valid response, not a failure
                 return []
             resp.raise_for_status()
             data = resp.json()
             # Guard: GitHub returns a list for /releases. Unexpected types → empty. (Cycle 30 fix)
+            breaker.record_success()  # Cycle 64
             return data if isinstance(data, list) else []
     except (httpx.HTTPError, Exception) as e:
+        breaker.record_failure()  # Cycle 64
         log.debug("Failed to fetch releases for %s: %s", repo, e)
         return []
 

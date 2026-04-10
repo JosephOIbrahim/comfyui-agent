@@ -335,7 +335,12 @@ class CognitiveWorkflowStage:
             raise StageError(
                 f"Variant set '{variant_set}' not found on {prim_path}"
             )
-        vsets.GetVariantSet(variant_set).SetVariantSelection(profile_name)
+        try:
+            vsets.GetVariantSet(variant_set).SetVariantSelection(profile_name)
+        except Exception as _e:  # Cycle 64: pxr raises bare Exception on invalid variant name
+            raise StageError(
+                f"Could not select variant '{profile_name}' on {prim_path}/{variant_set}: {_e}"
+            ) from _e
 
     # ------------------------------------------------------------------
     # Reconstruction & Inspection

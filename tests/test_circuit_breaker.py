@@ -9,7 +9,9 @@ from agent.circuit_breaker import (
     CLOSED,
     HALF_OPEN,
     OPEN,
+    CIVITAI_BREAKER,
     COMFYUI_BREAKER,
+    GITHUB_BREAKER,
     CircuitBreaker,
     get_breaker,
     reset_all,
@@ -175,3 +177,53 @@ class TestThreadSafety:
 
             # At least one should be True (the first to transition to HALF_OPEN)
             assert any(results)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: CIVITAI_BREAKER and GITHUB_BREAKER factory functions
+# ---------------------------------------------------------------------------
+
+class TestCivitaiAndGithubBreakers:
+    """Cycle 64: CIVITAI_BREAKER and GITHUB_BREAKER must return distinct, named breakers."""
+
+    def test_civitai_breaker_returns_circuitbreaker(self):
+        cb = CIVITAI_BREAKER()
+        assert isinstance(cb, CircuitBreaker)
+        assert cb.name == "civitai"
+
+    def test_github_breaker_returns_circuitbreaker(self):
+        cb = GITHUB_BREAKER()
+        assert isinstance(cb, CircuitBreaker)
+        assert cb.name == "github"
+
+    def test_civitai_breaker_is_singleton(self):
+        cb1 = CIVITAI_BREAKER()
+        cb2 = CIVITAI_BREAKER()
+        assert cb1 is cb2
+
+    def test_github_breaker_is_singleton(self):
+        cb1 = GITHUB_BREAKER()
+        cb2 = GITHUB_BREAKER()
+        assert cb1 is cb2
+
+    def test_civitai_and_github_are_distinct(self):
+        assert CIVITAI_BREAKER() is not GITHUB_BREAKER()
+        assert CIVITAI_BREAKER() is not COMFYUI_BREAKER()
+
+    def test_civitai_starts_closed(self):
+        assert CIVITAI_BREAKER().state == CLOSED
+
+    def test_github_starts_closed(self):
+        assert GITHUB_BREAKER().state == CLOSED
+
+    def test_civitai_opens_after_failures(self):
+        cb = CIVITAI_BREAKER()
+        for _ in range(cb.failure_threshold):
+            cb.record_failure()
+        assert cb.state == OPEN
+
+    def test_github_opens_after_failures(self):
+        cb = GITHUB_BREAKER()
+        for _ in range(cb.failure_threshold):
+            cb.record_failure()
+        assert cb.state == OPEN

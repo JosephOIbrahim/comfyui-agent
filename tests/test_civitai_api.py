@@ -449,3 +449,82 @@ class TestMaxResultsTypeGuard:
         }))
         # Should error on network, not on type
         assert result.get("error", "") != "max_results must be an integer"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: circuit breaker protection
+# ---------------------------------------------------------------------------
+
+class TestCivitaiCircuitBreaker:
+    """Cycle 64: CivitAI HTTP handlers must respect the CIVITAI_BREAKER."""
+
+    def _make_open_breaker(self):
+        from agent.circuit_breaker import CIVITAI_BREAKER
+        breaker = CIVITAI_BREAKER()
+        for _ in range(breaker.failure_threshold):
+            breaker.record_failure()
+        return breaker
+
+    def teardown_method(self):
+        from agent.circuit_breaker import reset_all
+        reset_all()
+
+    def test_search_blocked_when_breaker_open(self):
+        """_handle_search_civitai returns error when circuit is open."""
+        self._make_open_breaker()
+        result = json.loads(civitai_api._handle_search_civitai({"query": "test"}))
+        assert "error" in result
+        assert "unavailable" in result["error"].lower() or "temporarily" in result["error"].lower()
+
+    def test_get_civitai_model_blocked_when_breaker_open(self):
+        """_handle_get_civitai_model returns error when circuit is open."""
+        self._make_open_breaker()
+        result = json.loads(civitai_api._handle_get_civitai_model({"model_id": 1}))
+        assert "error" in result
+        assert "unavailable" in result["error"].lower() or "temporarily" in result["error"].lower()
+
+    def test_trending_blocked_when_breaker_open(self):
+        """_handle_get_trending_models returns error when circuit is open."""
+        self._make_open_breaker()
+        result = json.loads(civitai_api._handle_get_trending_models({}))
+        assert "error" in result
+        assert "unavailable" in result["error"].lower() or "temporarily" in result["error"].lower()
+
+    @patch("agent.tools.civitai_api.httpx.Client")
+    def test_connect_error_records_failure(self, mock_client_cls):
+        """ConnectError must increment the circuit breaker failure count."""
+        import httpx
+        from agent.circuit_breaker import CIVITAI_BREAKER
+        client = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        client.get.side_effect = httpx.ConnectError("refused")
+        mock_client_cls.return_value = client
+
+        cb = CIVITAI_BREAKER()
+        initial_failures = cb._failure_count
+        civitai_api._handle_get_civitai_model({"model_id": 1})
+        assert cb._failure_count > initial_failures
+
+    @patch("agent.tools.civitai_api.httpx.Client")
+    def test_success_records_success(self, mock_client_cls):
+        """Successful HTTP call must call breaker.record_success()."""
+        from agent.circuit_breaker import CIVITAI_BREAKER, OPEN, CLOSED
+        # Pre-open the breaker to half-open state
+        cb = CIVITAI_BREAKER()
+        for _ in range(cb.failure_threshold):
+            cb.record_failure()
+        # Force recovery
+        import time
+        cb._last_failure_time = time.monotonic() - cb.recovery_timeout - 1
+
+        client = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        resp = _mock_response({"items": [], "metadata": {"totalItems": 0}})
+        client.get.return_value = resp
+        mock_client_cls.return_value = client
+
+        civitai_api._handle_search_civitai({"query": "test"})
+        # After success, circuit should be CLOSED
+        assert cb.state == CLOSED

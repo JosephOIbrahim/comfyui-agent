@@ -12,6 +12,7 @@ import re
 
 import httpx
 
+from ..circuit_breaker import CIVITAI_BREAKER  # Cycle 64: circuit breaker protection
 from ..config import CIVITAI_API_KEY, MODELS_DIR
 from ..rate_limiter import CIVITAI_LIMITER
 from ._util import to_json
@@ -289,6 +290,10 @@ def _handle_search_civitai(tool_input: dict) -> str:
     if not CIVITAI_LIMITER().acquire(timeout=5.0):
         return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
 
+    breaker = CIVITAI_BREAKER()  # Cycle 64: circuit breaker guards against cascading failures
+    if not breaker.allow_request():
+        return to_json({"error": f"CivitAI API is temporarily unavailable. Retry in {breaker.recovery_timeout:.0f}s."})
+
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -299,11 +304,15 @@ def _handle_search_civitai(tool_input: dict) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
+        breaker.record_success()  # Cycle 64
     except httpx.ConnectError:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": "Could not reach CivitAI API. Check internet connection."})
     except httpx.HTTPStatusError as e:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": f"CivitAI API returned {e.response.status_code}."})
     except Exception as e:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": f"CivitAI search failed: {e}"})
 
     if not isinstance(data, dict):
@@ -339,6 +348,10 @@ def _handle_get_civitai_model(tool_input: dict) -> str:
     if not CIVITAI_LIMITER().acquire(timeout=5.0):
         return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
 
+    breaker = CIVITAI_BREAKER()  # Cycle 64: circuit breaker
+    if not breaker.allow_request():
+        return to_json({"error": f"CivitAI API is temporarily unavailable. Retry in {breaker.recovery_timeout:.0f}s."})
+
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -348,13 +361,17 @@ def _handle_get_civitai_model(tool_input: dict) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
+        breaker.record_success()  # Cycle 64
     except httpx.ConnectError:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": "Could not reach CivitAI API. Check internet connection."})
     except httpx.HTTPStatusError as e:
+        breaker.record_failure()  # Cycle 64
         if e.response.status_code == 404:
             return to_json({"error": f"Model {model_id} not found on CivitAI."})
         return to_json({"error": f"CivitAI API returned {e.response.status_code}."})
     except Exception as e:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": f"CivitAI request failed: {e}"})
 
     return to_json(_parse_model_detail(data))
@@ -388,6 +405,10 @@ def _handle_get_trending_models(tool_input: dict) -> str:
     if not CIVITAI_LIMITER().acquire(timeout=5.0):
         return to_json({"error": "Rate limited — too many CivitAI requests. Try again shortly."})
 
+    breaker = CIVITAI_BREAKER()  # Cycle 64: circuit breaker
+    if not breaker.allow_request():
+        return to_json({"error": f"CivitAI API is temporarily unavailable. Retry in {breaker.recovery_timeout:.0f}s."})
+
     try:
         with httpx.Client() as client:
             resp = client.get(
@@ -398,11 +419,15 @@ def _handle_get_trending_models(tool_input: dict) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
+        breaker.record_success()  # Cycle 64
     except httpx.ConnectError:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": "Could not reach CivitAI API. Check internet connection."})
     except httpx.HTTPStatusError as e:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": f"CivitAI API returned {e.response.status_code}."})
     except Exception as e:
+        breaker.record_failure()  # Cycle 64
         return to_json({"error": f"CivitAI trending request failed: {e}"})
 
     if not isinstance(data, dict):

@@ -92,8 +92,9 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "stage_list_deltas": RiskLevel.READ_ONLY,
     "stage_reconstruct_clean": RiskLevel.READ_ONLY,
     # Provision reads
-    "provision_status": RiskLevel.READ_ONLY,
-    "provision_verify": RiskLevel.READ_ONLY,
+    "provision_pipeline_status": RiskLevel.READ_ONLY,  # Cycle 64: fix stale name (was provision_status)
+    "provision_pipeline_verify": RiskLevel.READ_ONLY,  # Cycle 64: fix stale name (was provision_verify)
+    "suggest_wiring": RiskLevel.READ_ONLY,  # Cycle 64: was missing
     # Metadata reads
     "read_image_metadata": RiskLevel.READ_ONLY,
     "reconstruct_context": RiskLevel.READ_ONLY,
@@ -166,6 +167,7 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "apply_optimization": RiskLevel.REVERSIBLE,
     # Iterative refine (reversible)
     "iterative_refine": RiskLevel.REVERSIBLE,
+    "wire_model": RiskLevel.REVERSIBLE,  # Cycle 64: was missing
     # ------------------------------------------------------------------
     # EXECUTION (2) — GPU execution, API calls that produce output
     # ------------------------------------------------------------------
@@ -176,12 +178,14 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "suggest_improvements": RiskLevel.EXECUTION,
     "hash_compare_images": RiskLevel.EXECUTION,
     "run_pipeline": RiskLevel.EXECUTION,
+    "verify_execution": RiskLevel.EXECUTION,  # Cycle 64: was missing (triggers GPU output analysis)
     # ------------------------------------------------------------------
     # PROVISION (3) — filesystem modifications (downloads, installs)
     # ------------------------------------------------------------------
     "install_node_pack": RiskLevel.PROVISION,
     "download_model": RiskLevel.PROVISION,
     "provision_download": RiskLevel.PROVISION,
+    "provision_model": RiskLevel.PROVISION,  # Cycle 64: was missing (downloads + wires a model)
     # ------------------------------------------------------------------
     # DESTRUCTIVE (4) — never auto-opens
     # ------------------------------------------------------------------

@@ -310,3 +310,39 @@ class TestGateEdgeCases:
         )
         assert result.decision == GateDecision.DENY
         assert len(result.reason) > 0
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: previously missing and stale risk level entries
+# ---------------------------------------------------------------------------
+
+class TestCycle64RiskLevelFixes:
+    """Cycle 64: 6 tools were missing from TOOL_RISK_LEVELS; 2 had stale names."""
+
+    def test_provision_model_is_provision(self):
+        assert get_risk_level("provision_model") == RiskLevel.PROVISION
+
+    def test_provision_pipeline_status_is_read_only(self):
+        assert get_risk_level("provision_pipeline_status") == RiskLevel.READ_ONLY
+
+    def test_provision_pipeline_verify_is_read_only(self):
+        assert get_risk_level("provision_pipeline_verify") == RiskLevel.READ_ONLY
+
+    def test_wire_model_is_reversible(self):
+        assert get_risk_level("wire_model") == RiskLevel.REVERSIBLE
+
+    def test_suggest_wiring_is_read_only(self):
+        assert get_risk_level("suggest_wiring") == RiskLevel.READ_ONLY
+
+    def test_verify_execution_is_execution(self):
+        assert get_risk_level("verify_execution") == RiskLevel.EXECUTION
+
+    def test_stale_provision_status_no_longer_silently_defaults(self):
+        """Old stale name 'provision_status' must not exist as a key — it was a typo."""
+        from agent.gate.risk_levels import TOOL_RISK_LEVELS
+        assert "provision_status" not in TOOL_RISK_LEVELS
+
+    def test_stale_provision_verify_no_longer_silently_defaults(self):
+        """Old stale name 'provision_verify' must not exist as a key — it was a typo."""
+        from agent.gate.risk_levels import TOOL_RISK_LEVELS
+        assert "provision_verify" not in TOOL_RISK_LEVELS

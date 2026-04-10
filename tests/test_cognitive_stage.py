@@ -521,3 +521,42 @@ class TestAdversarial:
         val = s.read("/workflows/w1", "flag")
         assert val is True
         assert isinstance(val, bool)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: select_profile wraps pxr exceptions as StageError
+# ---------------------------------------------------------------------------
+
+class TestSelectProfileExceptionWrapping:
+    """Cycle 64: pxr exceptions in select_profile must be wrapped as StageError."""
+
+    def test_invalid_variant_name_raises_stage_error(self):
+        """Selecting a non-existent variant must raise StageError, not bare pxr exception."""
+        s = CognitiveWorkflowStage()
+        # Create a prim with a known variant set
+        from pxr import Usd
+        prim = s._stage.DefinePrim("/test_prim", "Scope")
+        vsets = prim.GetVariantSets()
+        vset = vsets.AddVariantSet("style")
+        vset.AddVariant("photorealistic")
+        vset.AddVariant("painterly")
+
+        # Valid variant works
+        s.select_profile("/test_prim", "style", "photorealistic")
+
+        # Non-existent variant must raise StageError (wrapped from pxr)
+        with pytest.raises(StageError, match="Could not select variant"):
+            s.select_profile("/test_prim", "style", "nonexistent_variant_xyz")
+
+    def test_prim_not_found_raises_stage_error(self):
+        """Missing prim must raise StageError (existing guard, not pxr exception)."""
+        s = CognitiveWorkflowStage()
+        with pytest.raises(StageError, match="Prim not found"):
+            s.select_profile("/no_such_prim", "style", "any")
+
+    def test_missing_variant_set_raises_stage_error(self):
+        """Missing variant set must raise StageError (existing guard)."""
+        s = CognitiveWorkflowStage()
+        s._stage.DefinePrim("/test_prim2", "Scope")
+        with pytest.raises(StageError, match="Variant set"):
+            s.select_profile("/test_prim2", "nonexistent_set", "any")

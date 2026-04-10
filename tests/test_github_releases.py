@@ -378,3 +378,93 @@ class TestLimitTypeGuard:
                 "repo": "owner/name", "limit": 3,
             }))
         assert result.get("error", "") != "limit must be an integer"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: circuit breaker protection
+# ---------------------------------------------------------------------------
+
+class TestGithubCircuitBreaker:
+    """Cycle 64: GitHub HTTP helpers must respect the GITHUB_BREAKER."""
+
+    def _make_open_breaker(self):
+        from agent.circuit_breaker import GITHUB_BREAKER
+        breaker = GITHUB_BREAKER()
+        for _ in range(breaker.failure_threshold):
+            breaker.record_failure()
+        return breaker
+
+    def teardown_method(self):
+        from agent.circuit_breaker import reset_all
+        reset_all()
+
+    def test_fetch_latest_release_blocked_when_open(self):
+        """_fetch_latest_release returns None when circuit is open (no HTTP call)."""
+        self._make_open_breaker()
+        with patch("agent.tools.github_releases.httpx.Client") as mock_cls:
+            result = github_releases._fetch_latest_release("owner/repo")
+        assert result is None
+        mock_cls.assert_not_called()
+
+    def test_fetch_releases_blocked_when_open(self):
+        """_fetch_releases returns [] when circuit is open (no HTTP call)."""
+        self._make_open_breaker()
+        with patch("agent.tools.github_releases.httpx.Client") as mock_cls:
+            result = github_releases._fetch_releases("owner/repo")
+        assert result == []
+        mock_cls.assert_not_called()
+
+    def test_connect_error_records_failure(self):
+        """HTTPError on _fetch_latest_release must record a circuit breaker failure."""
+        import httpx
+        from agent.circuit_breaker import GITHUB_BREAKER
+        cb = GITHUB_BREAKER()
+        initial = cb._failure_count
+
+        client = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        client.get.side_effect = httpx.ConnectError("refused")
+
+        with patch("agent.tools.github_releases.httpx.Client", return_value=client):
+            github_releases._fetch_latest_release("owner/repo")
+        assert cb._failure_count > initial
+
+    def test_success_records_success(self):
+        """Successful HTTP call must call breaker.record_success()."""
+        import time
+        from agent.circuit_breaker import GITHUB_BREAKER, CLOSED
+        cb = GITHUB_BREAKER()
+        for _ in range(cb.failure_threshold):
+            cb.record_failure()
+        cb._last_failure_time = time.monotonic() - cb.recovery_timeout - 1  # force half-open
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"tag_name": "v1.0", "name": "Release", "body": "", "published_at": "2025-01-01T00:00:00Z"}
+        client = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        client.get.return_value = resp
+
+        with patch("agent.tools.github_releases.httpx.Client", return_value=client):
+            github_releases._fetch_latest_release("owner/repo")
+        assert cb.state == CLOSED
+
+    def test_404_records_success_not_failure(self):
+        """404 is a valid API response — must NOT trip the circuit breaker."""
+        from agent.circuit_breaker import GITHUB_BREAKER, CLOSED
+        cb = GITHUB_BREAKER()
+
+        resp = MagicMock()
+        resp.status_code = 404
+        client = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        client.get.return_value = resp
+
+        with patch("agent.tools.github_releases.httpx.Client", return_value=client):
+            github_releases._fetch_latest_release("owner/repo")
+        assert cb._failure_count == 0
+        assert cb.state == CLOSED

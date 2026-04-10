@@ -6,6 +6,8 @@ import pytest
 
 from agent.stage.compositor import (
     CameraParams,
+    CompositorError,
+    _create_camera,
     compose_scene_from_outputs,
     export_scene,
 )
@@ -149,3 +151,44 @@ class TestExportScene:
         stage = compose_scene_from_outputs()
         export_scene(stage, tmp_path / "scene.usdc", fmt="usdc")
         assert (tmp_path / "scene.usdc").exists()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 64: _create_camera wraps pxr exceptions as CompositorError
+# ---------------------------------------------------------------------------
+
+class TestCreateCameraExceptionWrapping:
+    """Cycle 64: pxr failures in _create_camera must be wrapped as CompositorError."""
+
+    def test_create_camera_pxr_exception_raises_compositor_error(self, usd):
+        """If a pxr call fails, _create_camera must raise CompositorError, not bare Exception."""
+        from unittest.mock import patch
+        cam = CameraParams()
+
+        # Simulate a pxr failure by making UsdGeom.Camera.Define raise
+        with patch("agent.stage.compositor.UsdGeom") as mock_usdgeom:
+            mock_usdgeom.Camera.Define.side_effect = Exception("pxr internal error")
+            # Create a minimal stage object that won't fail before Define
+            from pxr import Usd
+            stage = Usd.Stage.CreateInMemory()
+            with pytest.raises(CompositorError, match="Failed to create camera"):
+                _create_camera(stage, cam)
+
+    def test_create_camera_success_does_not_wrap(self, usd):
+        """Successful camera creation must not raise."""
+        from pxr import Usd
+        stage = Usd.Stage.CreateInMemory()
+        cam = CameraParams()
+        _create_camera(stage, cam)  # Should not raise
+        assert stage.GetPrimAtPath("/camera").IsValid()
+
+    def test_compositor_error_message_includes_cause(self, usd):
+        """CompositorError message must include the original exception text."""
+        from unittest.mock import patch
+        from pxr import Usd
+        stage = Usd.Stage.CreateInMemory()
+        cam = CameraParams()
+        with patch("agent.stage.compositor.UsdGeom") as mock_usdgeom:
+            mock_usdgeom.Camera.Define.side_effect = Exception("bad sensor width")
+            with pytest.raises(CompositorError, match="bad sensor width"):
+                _create_camera(stage, cam)

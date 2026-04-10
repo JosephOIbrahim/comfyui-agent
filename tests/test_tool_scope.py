@@ -173,7 +173,8 @@ class TestPredefinedScopes:
             assert scope.check("discover") is True, f"{scope_name} can't discover"
 
     def test_scopes_dict_complete(self):
-        assert set(SCOPES.keys()) == {"intent", "execution", "verify", "full"}
+        # Cycle 64: "full" removed — FullScopeDispatcher is the production path
+        assert set(SCOPES.keys()) == {"intent", "execution", "verify"}
 
     def test_no_tool_in_all_denied_lists(self):
         """No tool should be denied in ALL scopes (unreachable tool)."""

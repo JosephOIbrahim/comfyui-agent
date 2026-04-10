@@ -147,17 +147,20 @@ def compose_scene_from_outputs(
 
 def _create_camera(stage: Any, cam: CameraParams) -> None:
     """Create a UsdGeomCamera at /camera."""
-    camera = UsdGeom.Camera.Define(stage, "/camera")
-    camera.GetFocalLengthAttr().Set(cam.focal_length)
-    camera.GetHorizontalApertureAttr().Set(cam.sensor_width)
-    camera.GetVerticalApertureAttr().Set(cam.sensor_height)
-    camera.GetClippingRangeAttr().Set(Gf.Vec2f(cam.near_clip, cam.far_clip))
-    camera.GetFStopAttr().Set(cam.fstop)
-    camera.GetFocusDistanceAttr().Set(cam.focus_distance)
+    try:  # Cycle 64: pxr calls can raise bare Exception on invalid stage state
+        camera = UsdGeom.Camera.Define(stage, "/camera")
+        camera.GetFocalLengthAttr().Set(cam.focal_length)
+        camera.GetHorizontalApertureAttr().Set(cam.sensor_width)
+        camera.GetVerticalApertureAttr().Set(cam.sensor_height)
+        camera.GetClippingRangeAttr().Set(Gf.Vec2f(cam.near_clip, cam.far_clip))
+        camera.GetFStopAttr().Set(cam.fstop)
+        camera.GetFocusDistanceAttr().Set(cam.focus_distance)
 
-    # Position camera
-    xform = UsdGeom.Xformable(camera.GetPrim())
-    xform.AddTranslateOp().Set(Gf.Vec3d(*cam.position))
+        # Position camera
+        xform = UsdGeom.Xformable(camera.GetPrim())
+        xform.AddTranslateOp().Set(Gf.Vec3d(*cam.position))
+    except Exception as _e:
+        raise CompositorError(f"Failed to create camera: {_e}") from _e
 
 
 def _create_mesh(

@@ -150,3 +150,13 @@ def reset_all() -> None:
 def COMFYUI_BREAKER() -> CircuitBreaker:
     """Circuit breaker for ComfyUI HTTP API calls."""
     return get_breaker("comfyui", failure_threshold=3, recovery_timeout=30.0)
+
+
+def CIVITAI_BREAKER() -> CircuitBreaker:
+    """Circuit breaker for CivitAI HTTP API calls.  # Cycle 64: added"""
+    return get_breaker("civitai", failure_threshold=3, recovery_timeout=60.0)
+
+
+def GITHUB_BREAKER() -> CircuitBreaker:
+    """Circuit breaker for GitHub API calls.  # Cycle 64: added"""
+    return get_breaker("github", failure_threshold=3, recovery_timeout=60.0)

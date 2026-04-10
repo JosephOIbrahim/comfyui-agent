@@ -229,18 +229,16 @@ SCOPE_VERIFY = ToolScope(
     }),
 )
 
-SCOPE_FULL = ToolScope(
-    name="full",
-    allowed_tools=frozenset(),  # Empty means nothing is allowed...
-    denied_tools=frozenset(),
-)
+# Cycle 64: SCOPE_FULL is intentionally NOT in SCOPES — FullScopeDispatcher (below)
+# is the production path for unrestricted access. A ToolScope with empty
+# allowed_tools makes check() always return False, which is the opposite of
+# "full access". Using FullScopeDispatcher avoids this semantic inversion.
 
 # All predefined scopes by name
 SCOPES: dict[str, ToolScope] = {
     "intent": SCOPE_INTENT,
     "execution": SCOPE_EXECUTION,
     "verify": SCOPE_VERIFY,
-    "full": SCOPE_FULL,
 }
 
 
