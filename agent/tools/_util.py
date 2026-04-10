@@ -5,6 +5,7 @@ same inputs -> same outputs across sessions and runs.
 """
 
 import json as _json
+import os
 import tempfile
 from pathlib import Path
 
@@ -51,11 +52,17 @@ def validate_path(path_str: str, *, must_exist: bool = False) -> str | None:
     except (OSError, ValueError) as e:
         return f"Invalid path: {e}"
 
-    # Block system directories
+    # Block system directories.
+    # Normalize case on Windows because the filesystem is case-insensitive but
+    # Path.resolve() may preserve the caller's casing for non-existent paths.
     p_str = str(p)
-    for prefix in _BLOCKED_PREFIXES:
-        if p_str.startswith(prefix):
-            return "Access denied: path is in a protected system directory"
+    if os.name == "nt":
+        p_str_cmp = p_str.lower()
+        blocked = any(p_str_cmp.startswith(pfx.lower()) for pfx in _BLOCKED_PREFIXES)
+    else:
+        blocked = any(p_str.startswith(pfx) for pfx in _BLOCKED_PREFIXES)
+    if blocked:
+        return "Access denied: path is in a protected system directory"
 
     # Check against allowed directories
     safe_dirs = _get_safe_dirs()
@@ -77,9 +84,27 @@ def validate_path(path_str: str, *, must_exist: bool = False) -> str | None:
     return None
 
 
+def _json_default(obj):
+    """Fallback encoder for common non-serializable types.
+
+    Handles Path (→ str) and set/frozenset (→ sorted list for He2025 determinism).
+    All other types raise TypeError with a descriptive message.
+    """
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, (set, frozenset)):
+        return sorted(obj)  # sorted for deterministic output (He2025)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def to_json(obj, **kwargs) -> str:
-    """Serialize to JSON with deterministic key ordering."""
+    """Serialize to JSON with deterministic key ordering.
+
+    Uses _json_default as fallback encoder so Path and set/frozenset values
+    don't crash the serializer. Callers can override default= if needed.
+    """
     kwargs.setdefault("sort_keys", True)
+    kwargs.setdefault("default", _json_default)
     return _json.dumps(obj, **kwargs)
 
 
