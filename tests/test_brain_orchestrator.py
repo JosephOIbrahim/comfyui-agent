@@ -295,3 +295,55 @@ class TestSpawnSubtaskMalformedCalls:
         # Must not be a struct-guard error
         assert "tool_calls must be" not in result.get("error", "")
         assert "must be a dict" not in result.get("error", "")
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: _run_subtask direct defense-in-depth guard for missing "tool" key
+# ---------------------------------------------------------------------------
+
+class TestRunSubtaskToolKeyGuard:
+    """Cycle 65: _run_subtask must not KeyError when "tool" key is absent from a call dict."""
+
+    def _make_agent(self):
+        from agent.brain.orchestrator import OrchestratorAgent
+        return OrchestratorAgent()
+
+    def test_missing_tool_key_appends_error_not_raises(self):
+        """_run_subtask with {'input': {}} must append an error dict, not raise KeyError."""
+        agent = self._make_agent()
+        results = agent._run_subtask(
+            task_id="t001",
+            profile="researcher",
+            tool_calls=[{"input": {}}],  # no "tool" key
+        )
+        # Should produce a completed result with an error in results list
+        assert results.get("status") == "completed"
+        result_list = results.get("results", [])
+        assert len(result_list) == 1
+        assert "error" in result_list[0]
+        assert "tool" in result_list[0]["error"].lower()
+
+    def test_none_tool_value_appends_error_not_raises(self):
+        """_run_subtask with {"tool": None} must append error, not raise."""
+        agent = self._make_agent()
+        results = agent._run_subtask(
+            task_id="t002",
+            profile="researcher",
+            tool_calls=[{"tool": None, "input": {}}],
+        )
+        assert results.get("status") == "completed"
+        result_list = results.get("results", [])
+        assert len(result_list) == 1
+        assert "error" in result_list[0]
+
+    def test_empty_string_tool_appends_error(self):
+        """_run_subtask with {"tool": ""} must append error, not raise."""
+        agent = self._make_agent()
+        results = agent._run_subtask(
+            task_id="t003",
+            profile="researcher",
+            tool_calls=[{"tool": "", "input": {}}],
+        )
+        assert results.get("status") == "completed"
+        result_list = results.get("results", [])
+        assert "error" in result_list[0]

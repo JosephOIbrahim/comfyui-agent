@@ -147,7 +147,10 @@ class OrchestratorAgent(BrainAgent):
         results = []
 
         for call in tool_calls:
-            tool_name = call["tool"]
+            tool_name = call.get("tool")  # Cycle 65: guard missing "tool" key
+            if not tool_name or not isinstance(tool_name, str):
+                results.append({"error": "Each tool_call entry must have a non-empty 'tool' key."})
+                continue
             tool_input = call.get("input", {})
 
             if tool_name not in allowed:

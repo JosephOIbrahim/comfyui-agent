@@ -326,14 +326,20 @@ def _handle_provision_pipeline_verify(tool_input: dict) -> str:
     size_bytes = model_path.stat().st_size if exists else 0
 
     # Identify family
-    family = json.loads(compat_handle("identify_model_family", {
-        "model_name": filename,
-    }))
+    try:  # Cycle 65: guard against malformed JSON from cross-tool call
+        family = json.loads(compat_handle("identify_model_family", {
+            "model_name": filename,
+        }))
+    except (ValueError, TypeError):
+        family = {}
 
     # Compatibility with loaded workflow
-    compat = json.loads(compat_handle("check_model_compatibility", {
-        "models": [filename],
-    }))
+    try:  # Cycle 65: guard against malformed JSON from cross-tool call
+        compat = json.loads(compat_handle("check_model_compatibility", {
+            "models": [filename],
+        }))
+    except (ValueError, TypeError):
+        compat = {}
 
     return to_json({
         "filename": filename,

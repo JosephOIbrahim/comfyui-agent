@@ -510,3 +510,83 @@ class TestNaNSafety:
             context_signature_hash="test_c61_valid",
         )
         assert chunk.context_signature_hash == "test_c61_valid"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: json.loads guards in _prim_to_chunk
+# ---------------------------------------------------------------------------
+
+class TestPrimToChunkJsonDecodeGuard:
+    """Cycle 65: _prim_to_chunk must not crash on corrupted JSON in initial_state/decisions."""
+
+    def _make_mock_prim(self, initial_state_json="{}", decisions_json="[]"):
+        """Build a MagicMock prim returning the given JSON strings."""
+        from unittest.mock import MagicMock
+        prim = MagicMock()
+
+        def make_valid_attr(value):
+            attr = MagicMock()
+            attr.IsValid.return_value = True
+            attr.Get.return_value = value
+            return attr
+
+        def make_invalid_attr():
+            attr = MagicMock()
+            attr.IsValid.return_value = False
+            return attr
+
+        def get_attribute(name):
+            if name == "chunk_id":
+                return make_valid_attr("chunk_001")
+            elif name == "initial_state":
+                return make_valid_attr(initial_state_json)
+            elif name == "decisions":
+                return make_valid_attr(decisions_json)
+            else:
+                return make_invalid_attr()
+
+        prim.GetAttribute.side_effect = get_attribute
+        return prim
+
+    def test_corrupted_initial_state_json_returns_chunk_with_empty_dict(self):
+        """_prim_to_chunk with corrupted initial_state JSON must return chunk with {} not crash."""
+        from agent.stage.experience import _prim_to_chunk
+        prim = self._make_mock_prim(initial_state_json="{broken: json")
+        chunk = _prim_to_chunk(prim)
+        assert chunk is not None, "_prim_to_chunk returned None on corrupted initial_state"
+        assert chunk.initial_state == {}
+
+    def test_corrupted_decisions_json_returns_chunk_with_empty_list(self):
+        """_prim_to_chunk with corrupted decisions JSON must return chunk with [] not crash."""
+        from agent.stage.experience import _prim_to_chunk
+        prim = self._make_mock_prim(decisions_json="[not valid json}")
+        chunk = _prim_to_chunk(prim)
+        assert chunk is not None, "_prim_to_chunk returned None on corrupted decisions"
+        assert chunk.decisions == []
+
+    def test_both_corrupted_returns_chunk_with_empty_fields(self):
+        """Both fields corrupted must return chunk with {} initial_state and [] decisions."""
+        from agent.stage.experience import _prim_to_chunk
+        prim = self._make_mock_prim(
+            initial_state_json="{{invalid",
+            decisions_json="}}invalid",
+        )
+        chunk = _prim_to_chunk(prim)
+        assert chunk is not None
+        assert chunk.initial_state == {}
+        assert chunk.decisions == []
+
+    def test_valid_json_parsed_correctly(self):
+        """Valid JSON in both fields must be parsed and included in the chunk."""
+        import json
+        from agent.stage.experience import _prim_to_chunk
+        state = {"cfg": 7.0, "steps": 25}
+        decisions = [{"action": "adjust_cfg", "delta": -1.0}]
+        prim = self._make_mock_prim(
+            initial_state_json=json.dumps(state),
+            decisions_json=json.dumps(decisions),
+        )
+        chunk = _prim_to_chunk(prim)
+        assert chunk is not None
+        assert chunk.initial_state == state
+        assert chunk.decisions == decisions

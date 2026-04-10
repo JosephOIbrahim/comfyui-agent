@@ -279,7 +279,7 @@ def _handle_migrate(tool_input: dict) -> str:
             continue
 
         rep = replacements[class_type]
-        if not rep:
+        if not isinstance(rep, list) or not rep:  # Cycle 65: guard non-list (e.g. error dict)
             continue
 
         mapping = rep[0]

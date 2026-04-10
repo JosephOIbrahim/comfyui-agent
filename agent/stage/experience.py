@@ -326,16 +326,22 @@ def _prim_to_chunk(prim: Any) -> ExperienceChunk | None:
 
     # Read JSON fields
     initial_state_attr = prim.GetAttribute("initial_state")
-    initial_state = (
-        json.loads(str(initial_state_attr.Get()))
-        if initial_state_attr.IsValid() else {}
-    )
+    try:  # Cycle 65: USD attribute may contain corrupted JSON
+        initial_state = (
+            json.loads(str(initial_state_attr.Get()))
+            if initial_state_attr.IsValid() else {}
+        )
+    except (ValueError, TypeError):
+        initial_state = {}
 
     decisions_attr = prim.GetAttribute("decisions")
-    decisions = (
-        json.loads(str(decisions_attr.Get()))
-        if decisions_attr.IsValid() else []
-    )
+    try:  # Cycle 65: USD attribute may contain corrupted JSON
+        decisions = (
+            json.loads(str(decisions_attr.Get()))
+            if decisions_attr.IsValid() else []
+        )
+    except (ValueError, TypeError):
+        decisions = []
 
     # Read outcome axes
     outcome: dict[str, float] = {}

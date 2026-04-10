@@ -1262,3 +1262,38 @@ class TestSearchModelsRequiredField:
     def test_valid_query_not_blocked(self, mock_registries):
         result = json.loads(comfy_discover._handle_search_models({"query": "FLUX"}))
         assert "error" not in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: discover max_results type guard
+# ---------------------------------------------------------------------------
+
+class TestDiscoverMaxResultsTypeGuard:
+    """Cycle 65: discover tool must reject non-integer max_results (used in list slice)."""
+
+    def test_string_max_results_returns_error(self):
+        """String max_results must return JSON error, not TypeError in slice."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "flux model",
+            "max_results": "ten",
+        }))
+        assert "error" in result
+        assert "max_results" in result["error"].lower()
+
+    def test_float_string_max_results_returns_error(self):
+        """Float string '5.5' must return error (not coerced silently)."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "lora",
+            "max_results": "5.5",
+        }))
+        assert "error" in result
+        assert "max_results" in result["error"].lower()
+
+    def test_integer_max_results_not_blocked(self):
+        """Integer max_results must not trigger the type guard."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "flux",
+            "max_results": 3,
+        }))
+        # Should not be a type error — may error on network/registry, but not type
+        assert result.get("error", "") != "max_results must be an integer"

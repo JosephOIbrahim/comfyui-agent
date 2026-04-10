@@ -785,7 +785,10 @@ def _handle_discover(tool_input: dict) -> str:
     model_type = tool_input.get("model_type")
     base_model = tool_input.get("base_model")
     sort = tool_input.get("sort", "most_downloaded")
-    max_results = tool_input.get("max_results", 5)
+    try:
+        max_results = int(tool_input.get("max_results", 5))  # Cycle 65: guard string input
+    except (TypeError, ValueError):
+        return to_json({"error": "max_results must be an integer"})
 
     all_results: list[dict] = []
     sources_searched: list[str] = []

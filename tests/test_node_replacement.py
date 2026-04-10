@@ -639,3 +639,49 @@ class TestMigrateJsonDecodeGuard:
 
         assert "error" in result
         assert "patch conflict" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: isinstance guard before rep[0] in migrate_deprecated_nodes
+# ---------------------------------------------------------------------------
+
+class TestMigrateRepIsListGuard:
+    """Cycle 65: replacements values must be validated as list before rep[0]."""
+
+    WORKFLOW_WITH_DEPRECATED = {
+        "1": {
+            "class_type": "MyOldSampler",
+            "inputs": {"model": ["2", 0], "steps": 20, "cfg": 7.0},
+        },
+    }
+
+    @patch("agent.tools.comfy_api._get")
+    def test_error_dict_as_replacement_value_skipped(self, mock_get):
+        """If replacements[class_type] is a dict (e.g. {"error": "..."}), not a list,
+        the node must be skipped without crashing (TypeError on rep[0])."""
+        mock_get.return_value = {
+            "MyOldSampler": {"error": "fetch failed"},  # dict, not list
+        }
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            result = json.loads(handle("migrate_deprecated_nodes", {"dry_run": True}))
+        # Must not crash — dict is non-list so node is skipped → migrated: 0
+        assert "error" not in result or "fetch failed" not in result.get("error", "")
+        assert result.get("migrated", 0) == 0  # Cycle 65: graceful skip, not crash
+
+    @patch("agent.tools.comfy_api._get")
+    def test_empty_list_as_replacement_value_skipped(self, mock_get):
+        """Empty list rep = [] is falsy and must be skipped cleanly."""
+        mock_get.return_value = {"MyOldSampler": []}
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            result = json.loads(handle("migrate_deprecated_nodes", {"dry_run": True}))
+        # Empty list → no migration → migrated: 0
+        assert result.get("migrated", 0) == 0  # Cycle 65: graceful skip
+
+    @patch("agent.tools.comfy_api._get")
+    def test_valid_list_replacement_proceeds(self, mock_get):
+        """A well-formed list replacement must still be processed correctly."""
+        mock_get.return_value = SAMPLE_REPLACEMENTS
+        with _set_workflow(self.WORKFLOW_WITH_DEPRECATED):
+            result = json.loads(handle("migrate_deprecated_nodes", {"dry_run": True}))
+        assert "migrations" in result
+        assert len(result["migrations"]) >= 1

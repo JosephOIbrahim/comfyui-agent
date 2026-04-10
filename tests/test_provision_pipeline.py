@@ -697,3 +697,78 @@ class TestProvisionPipelineVerifyRequiredFields:
             "filename": "model.safetensors", "model_type": None,
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: json.loads guards on cross-tool calls in provision_pipeline_verify
+# ---------------------------------------------------------------------------
+
+class TestProvisionVerifyJsonLoadsGuard:
+    """Cycle 65: provision_pipeline_verify must not crash when compat_handle
+    returns malformed JSON from identify_model_family or check_model_compatibility."""
+
+    def test_malformed_family_json_returns_partial_result(self):
+        """identify_model_family returning malformed JSON must not crash verify."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        # compat_handle is a local import inside the function — patch at source
+        with patch("agent.tools.model_compat.handle") as mock_handle:
+            mock_handle.return_value = "not valid json {{{"  # malformed
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+        # Must not crash — returns result with empty family (both defaulted to {})
+        assert "filename" in result or "error" in result
+        assert "json" not in result.get("error", "").lower()
+
+    def test_malformed_compat_json_returns_partial_result(self):
+        """check_model_compatibility returning malformed JSON must not crash verify."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        call_count = [0]
+
+        def side_effect(name, tool_input):
+            call_count[0] += 1
+            if name == "identify_model_family":
+                return json.dumps({"family": "SDXL"})
+            else:
+                return "malformed {{{json"
+
+        # Patch at the source module (local import pattern)
+        with patch("agent.tools.model_compat.handle", side_effect=side_effect):
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+        # Must not crash; compat defaults to {} → workflow_compatible defaults to True
+        assert "filename" in result or "error" in result
+        assert result.get("workflow_compatible", True) is True
+
+    def test_valid_json_from_compat_handle_processed_normally(self):
+        """Well-formed JSON responses must be parsed and included in result."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import provision_pipeline
+
+        family_response = json.dumps({"family": "SDXL", "base": "sdxl"})
+        compat_response = json.dumps({"compatible": False, "reason": "family mismatch"})
+
+        def side_effect(name, tool_input):
+            if name == "identify_model_family":
+                return family_response
+            else:
+                return compat_response
+
+        # Patch at the source module (local import pattern)
+        with patch("agent.tools.model_compat.handle", side_effect=side_effect):
+            result = json.loads(provision_pipeline.handle("provision_pipeline_verify", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+        assert result.get("family", {}).get("family") == "SDXL"
+        assert result.get("workflow_compatible") is False

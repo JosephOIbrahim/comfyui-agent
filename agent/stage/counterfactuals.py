@@ -207,11 +207,15 @@ def validate_counterfactual(
     # Read back other fields
     source_chunk_id = str(cws.read(prim_path, "source_chunk_id") or "")
     hypothesis_raw = str(cws.read(prim_path, "hypothesis") or "{}")
+    try:  # Cycle 65: USD attribute may contain corrupted JSON
+        hypothesis = json.loads(hypothesis_raw)
+    except (ValueError, TypeError):
+        hypothesis = {}
 
     return Counterfactual(
         cf_id=cf_id,
         source_chunk_id=source_chunk_id,
-        hypothesis=json.loads(hypothesis_raw),
+        hypothesis=hypothesis,
         predicted_outcome=predicted,
         confidence=new_confidence,
         status=status,
@@ -324,6 +328,10 @@ def _prim_to_cf(prim: Any) -> Counterfactual | None:
         return float(attr.Get()) if attr.IsValid() else default
 
     hypothesis_raw = _read_str("hypothesis", "{}")
+    try:  # Cycle 65: USD attribute may contain corrupted JSON
+        hypothesis = json.loads(hypothesis_raw)
+    except (ValueError, TypeError):
+        hypothesis = {}
     predicted: dict[str, float] = {}
     validation: dict[str, float] = {}
 
@@ -338,7 +346,7 @@ def _prim_to_cf(prim: Any) -> Counterfactual | None:
     return Counterfactual(
         cf_id=cf_id,
         source_chunk_id=_read_str("source_chunk_id"),
-        hypothesis=json.loads(hypothesis_raw),
+        hypothesis=hypothesis,
         predicted_outcome=predicted,
         confidence=_read_float("confidence", DEFAULT_CONFIDENCE),
         status=_read_str("status", "pending"),

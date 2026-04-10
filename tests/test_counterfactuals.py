@@ -325,3 +325,91 @@ class TestListFunctions:
         promote_validated(usd_stage)
         pending = list_pending(usd_stage)
         assert all(p.cf_id != cf.cf_id for p in pending)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 65: json.loads guards in _prim_to_cf and validate_counterfactual
+# ---------------------------------------------------------------------------
+
+class TestPrimToCfJsonDecodeGuard:
+    """Cycle 65: _prim_to_cf must not crash on corrupted JSON in hypothesis attribute."""
+
+    def _make_mock_prim(self, cf_id="cf_test", hypothesis_json="{}"):
+        """Build a MagicMock prim that returns the given hypothesis JSON string."""
+        from unittest.mock import MagicMock
+        prim = MagicMock()
+
+        def make_valid_attr(value):
+            attr = MagicMock()
+            attr.IsValid.return_value = True
+            attr.Get.return_value = value
+            return attr
+
+        def make_invalid_attr():
+            attr = MagicMock()
+            attr.IsValid.return_value = False
+            return attr
+
+        def get_attribute(name):
+            if name == "cf_id":
+                return make_valid_attr(cf_id)
+            elif name == "hypothesis":
+                return make_valid_attr(hypothesis_json)
+            else:
+                return make_invalid_attr()
+
+        prim.GetAttribute.side_effect = get_attribute
+        return prim
+
+    def test_corrupted_hypothesis_json_returns_cf_with_empty_dict(self):
+        """_prim_to_cf with corrupted hypothesis JSON must return Counterfactual with {} hypothesis."""
+        from agent.stage.counterfactuals import _prim_to_cf
+        prim = self._make_mock_prim(hypothesis_json="{corrupted: json{{")
+        cf = _prim_to_cf(prim)
+        assert cf is not None, "_prim_to_cf returned None on corrupted JSON"
+        assert cf.hypothesis == {}
+
+    def test_valid_hypothesis_json_parsed_correctly(self):
+        """_prim_to_cf with valid JSON hypothesis must parse it correctly."""
+        import json
+        from agent.stage.counterfactuals import _prim_to_cf
+        hypothesis = {"sampler": "dpm++", "cfg": 7.5}
+        prim = self._make_mock_prim(hypothesis_json=json.dumps(hypothesis))
+        cf = _prim_to_cf(prim)
+        assert cf is not None
+        assert cf.hypothesis == hypothesis
+
+    def test_empty_string_hypothesis_falls_back_to_empty_dict(self):
+        """_prim_to_cf with empty string hypothesis must not crash."""
+        from agent.stage.counterfactuals import _prim_to_cf
+        prim = self._make_mock_prim(hypothesis_json="")
+        # json.loads("") raises JSONDecodeError — guard must catch it
+        cf = _prim_to_cf(prim)
+        # Either returns None (invalid prim) or a CF with empty hypothesis
+        if cf is not None:
+            assert isinstance(cf.hypothesis, dict)
+
+
+class TestValidateCfHypothesisJsonGuard:
+    """Cycle 65: validate_counterfactual must not crash on corrupted USD hypothesis."""
+
+    def test_validate_reads_hypothesis_without_crash(self, usd_stage, source_chunk, hypothesis):
+        """validate_counterfactual must complete even if the stored hypothesis JSON is somehow corrupted."""
+        cf = generate_counterfactual(
+            usd_stage, source_chunk, hypothesis, {"aesthetic": 0.8},
+            confidence=0.9, timestamp=1000.0,
+        )
+        # Overwrite the hypothesis attribute with corrupted JSON
+        prim_path = f"/counterfactuals/pending/{cf.cf_id}"
+        usd_stage._stage.GetPrimAtPath(prim_path).CreateAttribute(
+            "hypothesis", __import__("pxr").Sdf.ValueTypeNames.String
+        ).Set("{{broken json")
+
+        # validate_counterfactual must not crash
+        result = validate_counterfactual(
+            usd_stage, cf.cf_id,
+            actual_outcome={"aesthetic": 0.85},
+            timestamp=2000.0,
+        )
+        assert result is not None
+        assert result.cf_id == cf.cf_id
