@@ -178,7 +178,12 @@ def _get(path: str, timeout: float = _TIMEOUT) -> dict:
         resp = _get_client().get(f"{COMFYUI_URL}{path}", timeout=timeout)
         resp.raise_for_status()
         breaker.record_success()
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError as e:  # Cycle 43: guard against non-JSON response body
+            raise httpx.ConnectError(
+                f"ComfyUI returned non-JSON on {path} (HTML error page?): {e}"
+            ) from e
     except (httpx.ConnectError, httpx.TimeoutException) as e:
         breaker.record_failure()
         raise httpx.ConnectError(str(e)) from e

@@ -844,5 +844,5 @@ def handle(name: str, tool_input: dict) -> str:
     agent = BrainAgent._registry.get(name)
     if agent is not None:
         return agent.handle(name, tool_input)
-    from . import handle as _brain_handle
-    return _brain_handle(name, tool_input)
+    import json as _json  # Cycle 43: return error directly; avoid circular import via brain package
+    return _json.dumps({"error": f"Unknown tool: {name}"}, sort_keys=True)

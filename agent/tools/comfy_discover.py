@@ -633,13 +633,16 @@ def _search_civitai_unified(
     """Search CivitAI, return (normalized_results, error_or_None)."""
     from .civitai_api import _handle_search_civitai
 
-    raw = json.loads(_handle_search_civitai({
-        "query": query,
-        "model_type": model_type,
-        "base_model": base_model,
-        "sort": sort,
-        "max_results": max_results,
-    }))
+    try:
+        raw = json.loads(_handle_search_civitai({
+            "query": query,
+            "model_type": model_type,
+            "base_model": base_model,
+            "sort": sort,
+            "max_results": max_results,
+        }))
+    except (ValueError, TypeError) as _e:  # Cycle 43: guard non-JSON from civitai handler
+        return [], f"CivitAI search returned non-JSON: {_e}"
     if "error" in raw:
         return [], raw["error"]
 
@@ -673,7 +676,10 @@ def _search_hf_unified(
     query: str, model_type: str | None, max_results: int,
 ) -> tuple[list[dict], str | None]:
     """Search HuggingFace, return (normalized_results, error_or_None)."""
-    raw = json.loads(_search_huggingface(query, model_type, max_results))
+    try:
+        raw = json.loads(_search_huggingface(query, model_type, max_results))
+    except (ValueError, TypeError) as _e:  # Cycle 43: guard non-JSON from HuggingFace handler
+        return [], f"HuggingFace search returned non-JSON: {_e}"
     if "error" in raw:
         return [], raw["error"]
 

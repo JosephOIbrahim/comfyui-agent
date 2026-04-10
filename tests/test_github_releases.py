@@ -252,3 +252,61 @@ class TestCheckNodeUpdatesNonJsonGuard:
             result = json.loads(github_releases.handle("check_node_updates", {}))
         assert "error" in result
         assert "comfyui" in result["error"].lower() or "custom nodes" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 43 — intent_collector required field guards
+# ---------------------------------------------------------------------------
+# (Testing in github_releases test file would be wrong; create proper file via handle)
+
+class TestIntentCollectorRequiredFields:
+    """capture_intent must guard missing/wrong-type required fields."""
+
+    def test_missing_user_request_returns_error(self):
+        """capture_intent with no user_request returns structured error."""
+        from agent.brain import handle
+        import json
+        result = json.loads(handle("capture_intent", {
+            "interpretation": "Lower CFG to 5",
+        }))
+        assert "error" in result
+        assert "user_request" in result["error"].lower()
+
+    def test_missing_interpretation_returns_error(self):
+        """capture_intent with no interpretation returns structured error."""
+        from agent.brain import handle
+        import json
+        result = json.loads(handle("capture_intent", {
+            "user_request": "Make it dreamier",
+        }))
+        assert "error" in result
+        assert "interpretation" in result["error"].lower()
+
+    def test_empty_string_user_request_returns_error(self):
+        """capture_intent with empty user_request string returns error."""
+        from agent.brain import handle
+        import json
+        result = json.loads(handle("capture_intent", {
+            "user_request": "",
+            "interpretation": "Do something",
+        }))
+        assert "error" in result
+
+    def test_both_required_present_succeeds(self):
+        """capture_intent with both required fields succeeds."""
+        from agent.brain import handle
+        import json
+        result = json.loads(handle("capture_intent", {
+            "user_request": "Make it dreamier",
+            "interpretation": "Lower CFG to 5, switch to DPM++ 2M Karras",
+        }))
+        assert "error" not in result
+        assert result.get("status") == "captured"
+
+    def test_brain_shim_unknown_tool_returns_error_not_recursion(self):
+        """Module-level handle() with unknown tool returns JSON error, not infinite recursion."""
+        from agent.brain import intent_collector
+        import json
+        result = json.loads(intent_collector.handle("nonexistent_tool_xyz", {}))
+        assert "error" in result
+        assert "unknown" in result["error"].lower()

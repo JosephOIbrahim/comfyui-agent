@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 # Per-target install locks: prevents concurrent installs into the same directory.
 # Keyed by resolved target path string so different packs don't block each other.
+_MAX_INSTALL_LOCKS = 500  # Cycle 43: cap prevents unbounded growth on large installations
 _install_locks: dict[str, threading.Lock] = {}
 _install_locks_mutex = threading.Lock()
 
@@ -29,6 +30,9 @@ def _get_install_lock(target_path: str) -> threading.Lock:
     """Return (creating if needed) the lock for a given install target path."""
     with _install_locks_mutex:
         if target_path not in _install_locks:
+            if len(_install_locks) >= _MAX_INSTALL_LOCKS:  # Cycle 43: FIFO eviction
+                oldest_key = next(iter(_install_locks))
+                del _install_locks[oldest_key]
             _install_locks[target_path] = threading.Lock()
         return _install_locks[target_path]
 

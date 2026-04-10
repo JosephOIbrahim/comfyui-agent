@@ -1036,3 +1036,60 @@ class TestCacheConcurrency:
 
         assert all(t.is_alive() is False for t in threads), "Deadlock detected"
         assert all("ExampleNode" in r for r in results)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 43 — Unguarded json.loads guards in discover pipeline
+# ---------------------------------------------------------------------------
+
+class TestSearchUnifiedJsonGuard:
+    """Guard: non-JSON from sub-handlers propagates as structured error, not exception."""
+
+    def test_civitai_non_json_returns_error_not_exception(self):
+        """_search_civitai_unified: non-JSON from handler → ([], error_str), no raise."""
+        from unittest.mock import patch
+        from agent.tools.comfy_discover import _search_civitai_unified
+
+        with patch("agent.tools.civitai_api._handle_search_civitai", return_value="NOT JSON"):
+            results, error = _search_civitai_unified(
+                query="flux", model_type=None, base_model=None,
+                sort="Most Downloaded", max_results=5,
+            )
+        assert results == []
+        assert error is not None
+        assert "non-json" in error.lower() or "json" in error.lower()
+
+    def test_huggingface_non_json_returns_error_not_exception(self):
+        """_search_hf_unified: non-JSON from handler → ([], error_str), no raise."""
+        from unittest.mock import patch
+        from agent.tools.comfy_discover import _search_hf_unified
+
+        with patch("agent.tools.comfy_discover._search_huggingface", return_value="GARBAGE"):
+            results, error = _search_hf_unified(
+                query="flux", model_type=None, max_results=5,
+            )
+        assert results == []
+        assert error is not None
+        assert "non-json" in error.lower() or "json" in error.lower()
+
+    def test_civitai_valid_json_still_works(self):
+        """If civitai handler returns valid JSON, _search_civitai_unified processes it normally."""
+        from unittest.mock import patch
+        import json as _json
+        from agent.tools.comfy_discover import _search_civitai_unified
+
+        good_payload = _json.dumps({
+            "results": [
+                {"name": "TestModel", "url": "https://civitai.com/models/1",
+                 "downloads": 5000, "type": "Checkpoint", "base_model": "SDXL",
+                 "installed": False, "rating": 4.5},
+            ]
+        })
+        with patch("agent.tools.civitai_api._handle_search_civitai", return_value=good_payload):
+            results, error = _search_civitai_unified(
+                query="test", model_type=None, base_model=None,
+                sort="Most Downloaded", max_results=5,
+            )
+        assert error is None
+        assert len(results) == 1
+        assert results[0]["name"] == "TestModel"

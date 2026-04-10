@@ -154,9 +154,15 @@ class IntentCollectorAgent(BrainAgent):
 
     def handle(self, name: str, tool_input: dict) -> str:
         if name == "capture_intent":
+            user_request = tool_input.get("user_request")
+            interpretation = tool_input.get("interpretation")
+            if not user_request or not isinstance(user_request, str):  # Cycle 43: guard required fields
+                return self.to_json({"error": "user_request is required and must be a non-empty string."})
+            if not interpretation or not isinstance(interpretation, str):
+                return self.to_json({"error": "interpretation is required and must be a non-empty string."})
             intent = self.capture(
-                user_request=tool_input["user_request"],
-                interpretation=tool_input["interpretation"],
+                user_request=user_request,
+                interpretation=interpretation,
                 style_references=tool_input.get("style_references", []),
                 session_context=tool_input.get("session_context", ""),
             )
@@ -194,5 +200,5 @@ def handle(name: str, tool_input: dict) -> str:
     agent = BrainAgent._registry.get(name)
     if agent is not None:
         return agent.handle(name, tool_input)
-    from . import handle as _brain_handle
-    return _brain_handle(name, tool_input)
+    import json as _json  # Cycle 43: return error directly; avoid circular import via brain package
+    return _json.dumps({"error": f"Unknown tool: {name}"}, sort_keys=True)

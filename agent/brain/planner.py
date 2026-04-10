@@ -461,7 +461,8 @@ class PlannerAgent(BrainAgent):
             "replan_history": [],
         }
 
-        self._save_plan(session, plan)
+        with _get_plan_lock(session):  # Cycle 43: serialize plan_goal saves same as complete_step/replan
+            self._save_plan(session, plan)
 
         result = {
             "planned": True,
@@ -486,7 +487,8 @@ class PlannerAgent(BrainAgent):
 
     def _handle_get_plan(self, tool_input: dict) -> str:
         session = tool_input.get("session", "default")
-        plan = self._load_plan(session)
+        with _get_plan_lock(session):  # Cycle 43: consistent read under lock
+            plan = self._load_plan(session)
 
         if plan is None:
             return self.to_json({"error": "No active plan.", "hint": "Use plan_goal to create one."})

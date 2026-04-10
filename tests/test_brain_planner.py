@@ -436,3 +436,90 @@ class TestCompleteStepGuards:
         result = json.loads(handle("complete_step", {"step_id": first_id, "session": session}))
         assert "error" not in result
         assert result["completed"] == first_id
+
+
+# ---------------------------------------------------------------------------
+# Cycle 43 — plan_goal lock consistency + get_plan lock consistency
+# ---------------------------------------------------------------------------
+
+class TestPlanGoalLockConsistency:
+    """plan_goal must acquire the per-session lock before saving."""
+
+    def test_plan_goal_holds_lock_during_save(self):
+        """_save_plan inside plan_goal is called within the session lock."""
+        import threading
+        from agent.brain.planner import PlannerAgent, _get_plan_lock
+
+        agent = PlannerAgent()
+        session = "c43_lock_order"
+        save_called_in_lock = []
+
+        original_save = agent._save_plan
+
+        def spy_save(sess, plan):
+            lock = _get_plan_lock(sess)
+            # If we're inside the lock, lock.acquire(blocking=False) returns False
+            acquired = lock.acquire(blocking=False)
+            save_called_in_lock.append(not acquired)  # True = was holding lock
+            if acquired:
+                lock.release()
+            original_save(sess, plan)
+
+        with unittest.mock.patch.object(agent, "_save_plan", side_effect=spy_save):
+            agent._handle_plan_goal({"goal": "Test lock ordering", "session": session})
+
+        assert len(save_called_in_lock) >= 1
+        assert all(save_called_in_lock), "plan_goal must save while holding the session lock"
+
+    def test_concurrent_plan_goal_does_not_lose_last_write(self):
+        """Two concurrent plan_goal calls for same session serialize; last write wins cleanly."""
+        import threading
+        from agent.brain import handle
+
+        session = "c43_concurrent_plan"
+        results = []
+        errors = []
+
+        def make_plan(goal):
+            try:
+                import json as _j
+                r = _j.loads(handle("plan_goal", {"goal": goal, "session": session}))
+                results.append(r)
+            except Exception as e:
+                errors.append(str(e))
+
+        t1 = threading.Thread(target=make_plan, args=("Goal Alpha",))
+        t2 = threading.Thread(target=make_plan, args=("Goal Beta",))
+        t1.start(); t2.start()
+        t1.join(timeout=5); t2.join(timeout=5)
+
+        assert not errors, f"Concurrent plan_goal raised: {errors}"
+        assert len(results) == 2, "Both calls must complete"
+        assert all("error" not in r for r in results), "Neither should produce an error"
+
+    def test_get_plan_returns_consistent_state(self):
+        """get_plan under concurrent modification must not crash or return torn state."""
+        import threading
+        from agent.brain import handle
+
+        session = "c43_get_plan_concurrent"
+        handle("plan_goal", {"goal": "Baseline for read test", "session": session})
+
+        get_results = []
+        errors = []
+
+        def read_plan():
+            try:
+                import json as _j
+                r = _j.loads(handle("get_plan", {"session": session}))
+                get_results.append(r)
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=read_plan) for _ in range(5)]
+        for t in threads: t.start()
+        for t in threads: t.join(timeout=5)
+
+        assert not errors, f"Concurrent get_plan raised: {errors}"
+        assert len(get_results) == 5
+        assert all("error" not in r for r in get_results)

@@ -301,3 +301,53 @@ class TestGetAllNodesMalformedEntry:
         assert "error" not in result
         assert "ValidNode" in result["nodes"]
         assert "NullNode" not in result["nodes"]
+
+
+# ---------------------------------------------------------------------------
+# Cycle 43 — resp.json() JSONDecodeError guard
+# ---------------------------------------------------------------------------
+
+class TestGetJsonDecodeGuard:
+    """_get() must convert non-JSON response bodies into ConnectError, not crash."""
+
+    def _make_bad_json_resp(self):
+        """Create a mock response whose .json() raises ValueError (HTML page etc)."""
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status.return_value = None
+        resp.json.side_effect = ValueError("No JSON object could be decoded")
+        return resp
+
+    def test_non_json_response_raises_connect_error(self):
+        """_get() with non-JSON body raises httpx.ConnectError, not ValueError."""
+        import httpx
+
+        with patch("agent.tools.comfy_api._get_client") as mock_client, \
+             patch("agent.tools.comfy_api.COMFYUI_BREAKER") as mock_breaker:
+            mock_breaker.return_value.allow_request.return_value = True
+            mock_breaker.return_value.record_success.return_value = None
+            mock_client.return_value.get.return_value = self._make_bad_json_resp()
+
+            try:
+                from agent.tools.comfy_api import _get
+                _get("/test_path")
+                assert False, "Should have raised"
+            except httpx.ConnectError as e:
+                assert "non-json" in str(e).lower() or "json" in str(e).lower()
+            except ValueError:
+                assert False, "_get() leaked a raw ValueError — must be ConnectError"
+
+    def test_valid_json_response_passes_through(self):
+        """_get() with valid JSON response returns the parsed dict unchanged."""
+        with patch("agent.tools.comfy_api._get_client") as mock_client, \
+             patch("agent.tools.comfy_api.COMFYUI_BREAKER") as mock_breaker:
+            mock_breaker.return_value.allow_request.return_value = True
+            mock_breaker.return_value.record_success.return_value = None
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            resp.json.return_value = {"status": "ok", "nodes": 42}
+            mock_client.return_value.get.return_value = resp
+
+            from agent.tools.comfy_api import _get
+            result = _get("/valid_path")
+        assert result == {"status": "ok", "nodes": 42}
