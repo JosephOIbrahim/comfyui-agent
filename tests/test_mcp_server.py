@@ -239,3 +239,21 @@ class TestToolTimeout:
             timeout=5.0,
         )
         assert result == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: request context failure must log at DEBUG (source verification)
+# ---------------------------------------------------------------------------
+
+class TestRequestContextLogging:
+    """server.request_context failure → log.debug (Cycle 62)."""
+
+    def test_request_context_failure_logged_in_source(self):
+        """Source must contain log.debug() inside the request_context except block."""
+        import inspect
+        from agent import mcp_server
+        source = inspect.getsource(mcp_server)
+        # Verify the log.debug is present inside the except for request context
+        assert "log.debug" in source, "log.debug must be present in mcp_server"
+        assert "Request context unavailable" in source, \
+            "Specific debug message for request context failure must be present"

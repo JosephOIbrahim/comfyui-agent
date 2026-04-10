@@ -217,8 +217,8 @@ def create_mcp_server() -> "Server":
                 request_id = ctx.request_id
                 if ctx.meta:
                     progress_token = ctx.meta.progressToken
-        except Exception:
-            pass  # No request context available — progress will be noop
+        except Exception as _e:  # Cycle 62: log instead of silently swallow
+            log.debug("Request context unavailable — progress will be noop: %s", _e)
 
         if session and progress_token is not None:
             progress = ProgressReporter(loop, session, progress_token, request_id)

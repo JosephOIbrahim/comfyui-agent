@@ -126,7 +126,8 @@ class MutationBridge:
             attr_name = key[colon + 1 :]
             try:
                 pre_values[key] = stage.read(prim_path, attr_name)
-            except Exception:
+            except Exception as _e:  # Cycle 62: log instead of silently swallow
+                log.debug("Could not read pre-mutation value for %r: %s", key, _e)
                 pre_values[key] = None
 
         # Apply as agent delta sublayer

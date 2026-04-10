@@ -168,3 +168,44 @@ class TestParameterMutationsWalrus:
         if param_muts := intent_spec.get("parameter_mutations"):
             _ = list(param_muts)
         assert call_count == 1  # walrus calls .get() exactly once
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: node cache miss must log at DEBUG
+# ---------------------------------------------------------------------------
+
+class TestNodeCacheMissLogging:
+    """_validate_intent_mutations node info failure → log.debug (Cycle 62)."""
+
+    def test_node_info_failure_logs_debug(self, caplog):
+        """When get_node_info raises, a debug message must be emitted per miss."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        # Build a minimal intent_spec with one parameter mutation
+        intent_spec = MagicMock()
+        mutation = MagicMock()
+        mutation.target = "KSampler.steps"
+        mutation.value = 30
+        intent_spec.parameter_mutations = [mutation]
+
+        from agent.brain.iterative_refine import _validate_intent_mutations
+
+        with patch("agent.brain.iterative_refine._tools_mod") as mock_tools, \
+             caplog.at_level(logging.DEBUG, logger="agent.brain.iterative_refine"):
+            mock_tools.handle.side_effect = RuntimeError("ComfyUI offline")
+            results = _validate_intent_mutations(intent_spec)
+
+        assert any("cache miss" in r.message.lower() or "node info" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on node info failure"
+
+    def test_node_info_failure_returns_empty_list(self):
+        """_validate_intent_mutations must return [] on any uncaught error, not crash."""
+        from unittest.mock import MagicMock, patch
+        from agent.brain.iterative_refine import _validate_intent_mutations
+
+        intent_spec = MagicMock()
+        intent_spec.parameter_mutations = None  # Falsy → returns [] early
+
+        result = _validate_intent_mutations(intent_spec)
+        assert result == []

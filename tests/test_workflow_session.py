@@ -379,3 +379,38 @@ class TestSessionRegistryEviction:
 
         from agent.workflow_session import _sessions
         assert len(_sessions) <= _MAX_SESSIONS
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: observation log init failure must log at DEBUG (Commandment 2)
+# ---------------------------------------------------------------------------
+
+class TestObservationLogInitLogging:
+    """_ensure_observation_log silent swallow → log.debug (Cycle 62)."""
+
+    def test_observation_log_init_failure_logs_debug(self, caplog):
+        """When WorkflowObservationLog init raises, debug message must appear."""
+        import logging
+        from unittest.mock import patch
+
+        s = WorkflowSession("sess-log-test")
+        # Local imports inside _ensure_observation_log: patch source modules
+        with patch("agent.config.OBSERVATION_ENABLED", True), \
+             patch("agent.workflow_observation_log.WorkflowObservationLog",
+                   side_effect=RuntimeError("disk full")), \
+             caplog.at_level(logging.DEBUG, logger="agent.workflow_session"):
+            s._ensure_observation_log()
+
+        assert any("observation log" in r.message.lower() or "init" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on observation log init failure"
+
+    def test_observation_log_failure_does_not_raise(self):
+        """_ensure_observation_log must never raise, even on init crash."""
+        from unittest.mock import patch
+
+        s = WorkflowSession("sess-no-raise")
+        with patch("agent.config.OBSERVATION_ENABLED", True), \
+             patch("agent.workflow_observation_log.WorkflowObservationLog",
+                   side_effect=Exception("catastrophic")):
+            s._ensure_observation_log()  # Must not raise
+        assert s._observation_log is None

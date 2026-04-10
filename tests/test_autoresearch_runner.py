@@ -183,3 +183,43 @@ class TestAutoresearchRunner:
         d = result.to_dict()
         assert d["experiment_count"] == 2
         assert d["has_report"] is True
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: statistics failure must log at DEBUG
+# ---------------------------------------------------------------------------
+
+class TestStatisticsLogging:
+    """get_statistics failure → log.debug (Cycle 62)."""
+
+    def test_statistics_failure_logs_debug(self, caplog):
+        """When get_statistics raises, a debug message must appear in the report."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+        config = RunnerConfig(max_experiments=1)
+        runner = AutoresearchRunner(config, execute_fn=_mock_execute, cws=cws_mock)
+
+        # get_statistics is a local import inside _generate_report — patch source module
+        with patch("agent.stage.experience.get_statistics",
+                   side_effect=RuntimeError("USD unavailable")), \
+             caplog.at_level(logging.DEBUG, logger="agent.stage.autoresearch_runner"):
+            result = runner.run()
+
+        assert any("statistic" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on statistics failure"
+
+    def test_statistics_failure_still_produces_report(self):
+        """Report generation must complete even when statistics are unavailable."""
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+        config = RunnerConfig(max_experiments=2)
+        runner = AutoresearchRunner(config, execute_fn=_mock_execute, cws=cws_mock)
+
+        with patch("agent.stage.experience.get_statistics",
+                   side_effect=RuntimeError("stats broken")):
+            result = runner.run()
+
+        assert len(result.report) > 0

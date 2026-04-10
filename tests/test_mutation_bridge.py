@@ -286,3 +286,46 @@ class TestMutationBridgeThreadSafety:
 
         assert len(errors) == 0, f"Thread errors: {errors}"
         # No assertion on count — race is expected. Just no crash.
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: pre-mutation stage read failure must log at DEBUG
+# ---------------------------------------------------------------------------
+
+class TestPreMutationReadLogging:
+    """stage.read() failure in _mutate_usd → log.debug (Cycle 62)."""
+
+    def test_stage_read_failure_logs_debug(self, caplog):
+        """When stage.read() raises during pre-mutation snapshot, debug log appears."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        mock_stage = MagicMock()
+        mock_stage.read.side_effect = RuntimeError("USD not writeable")
+        mock_stage.add_agent_delta.return_value = "layer_001"
+
+        bridge = MutationBridge(stage=mock_stage)
+
+        # HAS_USD is False in test env — patch it so has_stage returns True
+        with patch("agent.stage.mutation_bridge.HAS_USD", True), \
+             caplog.at_level(logging.DEBUG, logger="agent.stage.mutation_bridge"):
+            # Use "key:attr" format so colon parsing resolves prim_path + attr_name
+            bridge.mutate("set_input", "test_agent", {"/workflows/current/seed:value": 42})
+
+        assert any("pre-mutation" in r.message.lower() or "read" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on pre-mutation read failure"
+
+    def test_stage_read_failure_continues_mutation(self):
+        """Pre-mutation read failure must not abort the mutation."""
+        from unittest.mock import MagicMock, patch
+
+        mock_stage = MagicMock()
+        mock_stage.read.side_effect = RuntimeError("USD error")
+        mock_stage.add_agent_delta.return_value = "layer_x"
+
+        bridge = MutationBridge(stage=mock_stage)
+        with patch("agent.stage.mutation_bridge.HAS_USD", True):
+            result = bridge.mutate("set_input", "agent_x", {"/w/current/cfg:value": 7.5})
+
+        assert result is not None
+        assert result.agent_name == "agent_x"

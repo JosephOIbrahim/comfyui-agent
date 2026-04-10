@@ -17,10 +17,13 @@ From the digital injection framework patent.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from .creative_profiles import (
     PROFILES,
@@ -149,8 +152,8 @@ def inject(
             if read_active_profile(cws) is None:
                 store_as_variant_set(cws)
             select_profile(cws, profile_name)
-        except Exception:
-            pass  # Degrade gracefully
+        except Exception as _e:  # Cycle 62: log instead of silently swallow
+            log.debug("Stage profile select failed for %r — degrading gracefully: %s", profile_name, _e)
 
     _state = InjectionState(
         profile_name=profile_name,
@@ -180,8 +183,8 @@ def inject_none(cws: Any | None = None) -> InjectionState:
     if cws is not None:
         try:
             select_profile(cws, "explore")  # Default/neutral
-        except Exception:
-            pass
+        except Exception as _e:  # Cycle 62: log instead of silently swallow
+            log.debug("Stage profile reset failed — degrading gracefully: %s", _e)
 
     _state = InjectionState()
     return _state

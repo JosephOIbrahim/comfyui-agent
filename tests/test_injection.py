@@ -163,3 +163,65 @@ class TestModulatedGain:
         gain = modulated_gain("cfg")
         # integration.cfg_gain = 0.6, so gain < 1.0
         assert gain < 1.0
+
+
+# ---------------------------------------------------------------------------
+# Cycle 62: stage profile select failure must log at DEBUG
+# ---------------------------------------------------------------------------
+
+class TestProfileSelectLogging:
+    """Stage profile select failure → log.debug (Cycle 62)."""
+
+    def test_inject_stage_failure_logs_debug(self, caplog, _reset_state):
+        """When cws profile select raises during inject(), debug message appears."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+
+        with patch("agent.stage.injection.read_active_profile", return_value="explore"), \
+             patch("agent.stage.injection.select_profile",
+                   side_effect=RuntimeError("USD prim error")), \
+             caplog.at_level(logging.DEBUG, logger="agent.stage.injection"):
+            inject(profile_name="explore", cws=cws_mock)
+
+        assert any("profile" in r.message.lower() or "degrad" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on profile select failure"
+
+    def test_inject_none_stage_failure_logs_debug(self, caplog, _reset_state):
+        """When cws profile reset raises during inject_none(), debug message appears."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+
+        with patch("agent.stage.injection.select_profile",
+                   side_effect=RuntimeError("USD write error")), \
+             caplog.at_level(logging.DEBUG, logger="agent.stage.injection"):
+            inject_none(cws=cws_mock)
+
+        assert any("profile" in r.message.lower() or "degrad" in r.message.lower()
+                   for r in caplog.records), "Expected debug log on profile reset failure"
+
+    def test_inject_stage_failure_does_not_raise(self, _reset_state):
+        """inject() must succeed even when the USD stage select raises."""
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+        with patch("agent.stage.injection.read_active_profile", return_value="explore"), \
+             patch("agent.stage.injection.select_profile",
+                   side_effect=RuntimeError("no USD")):
+            state = inject(profile_name="explore", cws=cws_mock)
+
+        assert state.active is True
+
+    def test_inject_none_stage_failure_does_not_raise(self, _reset_state):
+        """inject_none() must succeed even when the USD stage reset raises."""
+        from unittest.mock import MagicMock, patch
+
+        cws_mock = MagicMock()
+        with patch("agent.stage.injection.select_profile",
+                   side_effect=RuntimeError("no USD")):
+            state = inject_none(cws=cws_mock)
+
+        assert state.active is False

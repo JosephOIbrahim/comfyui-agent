@@ -9,7 +9,10 @@ and format — the same keys as the original _state dict.
 """
 
 import copy
+import logging
 import threading
+
+log = logging.getLogger(__name__)
 
 
 class WorkflowSession:
@@ -95,8 +98,8 @@ class WorkflowSession:
                     return
                 from .workflow_observation_log import WorkflowObservationLog
                 self._observation_log = WorkflowObservationLog(self.session_id)
-            except Exception:
-                pass
+            except Exception as _e:  # Cycle 62: log instead of silently swallow
+                log.debug("Observation log init failed for session %r: %s", self.session_id, _e)
 
     def observe(self, tool_name: str, tool_input: dict) -> "int | None":
         """Record a workflow observation after a tool call. Returns step_index or None."""

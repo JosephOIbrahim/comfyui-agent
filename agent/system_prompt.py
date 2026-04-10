@@ -1,7 +1,10 @@
 """Build the agent's system prompt from knowledge files and context."""
 
+import logging
 import threading
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from .config import (
     KNOWLEDGE_DIR, COMFYUI_DATABASE, CUSTOM_NODES_DIR, MODELS_DIR,
@@ -248,8 +251,8 @@ def build_system_prompt(session_context: dict | None = None) -> str:
                 try:
                     content = md_file.read_text(encoding="utf-8")
                     parts.append(f"\n--- {stem} ---\n{content}\n")
-                except Exception:
-                    pass
+                except Exception as _e:  # Cycle 62: log instead of silently swallow
+                    log.debug("Could not read knowledge file %s: %s", md_file.name, _e)
 
     parts.append(f"\n{_RULES}")
 

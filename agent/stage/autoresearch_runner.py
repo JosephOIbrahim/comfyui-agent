@@ -247,8 +247,8 @@ class AutoresearchRunner:
             if self._cws is not None:
                 try:
                     stats = get_statistics(self._cws)
-                except Exception:
-                    pass
+                except Exception as _e:  # Cycle 62: log instead of silently swallow
+                    log.debug("Statistics unavailable for autoresearch report: %s", _e)
 
             objective = ""
             if self._program:
