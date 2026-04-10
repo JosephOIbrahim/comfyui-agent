@@ -1586,4 +1586,8 @@ def handle(name: str, tool_input: dict) -> str:
         else:
             return to_json({"error": f"Unknown tool: {name}"})
     except Exception as e:
-        return to_json({"error": str(e)})
+        log.error("Unhandled error in comfy_discover tool %s: %s", name, e, exc_info=True)  # Cycle 49: add logging
+        return to_json({  # Cycle 49: user-friendly context
+            "error": f"Discovery failed ({type(e).__name__}): {e}",
+            "tool": name,
+        })

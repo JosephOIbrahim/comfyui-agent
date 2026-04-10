@@ -236,7 +236,11 @@ class VisionAgent(BrainAgent):
         try:
             img_data, media_type = self._read_image_as_base64(image_path)
         except FileNotFoundError as e:
-            return self.to_json({"error": str(e)})
+            return self.to_json({  # Cycle 49: user-friendly context
+                "error": f"Cannot analyze image: {e}",
+                "image_path": image_path,
+                "hint": "Verify the file exists and is readable.",
+            })
         except Exception as e:
             return self.to_json({"error": f"Failed to read image: {e}"})
 
@@ -369,7 +373,11 @@ class VisionAgent(BrainAgent):
         try:
             img_data, media_type = self._read_image_as_base64(image_path)
         except FileNotFoundError as e:
-            return self.to_json({"error": str(e)})
+            return self.to_json({  # Cycle 49: user-friendly context
+                "error": f"Cannot suggest improvements: {e}",
+                "image_path": image_path,
+                "hint": "The image may have been removed after generation. Re-run the workflow or provide a new image path.",
+            })
         except Exception as e:
             return self.to_json({"error": f"Failed to read image: {e}"})
 

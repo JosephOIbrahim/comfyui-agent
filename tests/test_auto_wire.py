@@ -387,3 +387,27 @@ class TestWireModelRequiredFields:
             "filename": "model.safetensors", "model_type": None,
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 49 — catch-all exception user-friendly context
+# ---------------------------------------------------------------------------
+
+class TestAutoWireExceptionContext:
+    """Unhandled exceptions in auto_wire must include tool name and hint."""
+
+    def test_exception_includes_tool_name(self):
+        """When an unhandled exception fires, result must include tool name."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import auto_wire
+
+        with patch("agent.tools.auto_wire._handle_wire_model", side_effect=RuntimeError("boom")):
+            result = json.loads(auto_wire.handle("wire_model", {
+                "filename": "model.safetensors",
+                "model_type": "checkpoints",
+            }))
+        assert "error" in result
+        assert "tool" in result
+        assert result["tool"] == "wire_model"
+        assert "hint" in result

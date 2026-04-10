@@ -514,3 +514,35 @@ class TestHashCompareRequiredFields:
         result = json.loads(handle("hash_compare_images", {"image_a": "/a.png"}))
         assert "error" in result
         assert "image_b" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 49 — FileNotFoundError user-friendly context
+# ---------------------------------------------------------------------------
+
+class TestVisionFileNotFoundContext:
+    """analyze_image and suggest_improvements must wrap FileNotFoundError with context."""
+
+    def test_analyze_image_file_not_found_has_context(self):
+        import json
+        from agent.brain import vision
+        v = vision.VisionAgent()
+        # Pass a path that definitely doesn't exist
+        result = json.loads(v.handle("analyze_image", {
+            "image_path": "/nonexistent/path/image_xyz_99999.png",
+        }))
+        assert "error" in result
+        assert "image_path" in result
+        assert "hint" in result
+
+    def test_suggest_improvements_file_not_found_has_context(self):
+        import json
+        from agent.brain import vision
+        v = vision.VisionAgent()
+        result = json.loads(v.handle("suggest_improvements", {
+            "image_path": "/nonexistent/path/image_xyz_99999.png",
+            "workflow_summary": "SDXL checkpoint with KSampler",
+        }))
+        assert "error" in result
+        assert "image_path" in result
+        assert "hint" in result

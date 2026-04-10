@@ -383,4 +383,8 @@ def handle(name: str, tool_input: dict) -> str:
             return to_json({"error": f"Unknown tool: {name}"})
     except Exception as e:
         log.error("Unhandled error in auto_wire tool %s: %s", name, e, exc_info=True)
-        return to_json({"error": str(e)})
+        return to_json({  # Cycle 49: user-friendly context
+            "error": f"Wire operation failed ({type(e).__name__}): {e}",
+            "tool": name,
+            "hint": "Check server logs for full details.",
+        })

@@ -1194,3 +1194,25 @@ class TestGetInstallInstructionsRequiredField:
         from agent.tools import comfy_discover
         result = json.loads(comfy_discover.handle("get_install_instructions", {"query": None}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 49 — catch-all exception logging and user-friendly context
+# ---------------------------------------------------------------------------
+
+class TestDiscoverExceptionContext:
+    """Unhandled exceptions in comfy_discover must include tool name and be logged."""
+
+    def test_exception_includes_tool_name(self):
+        """When an unhandled exception fires, result must include tool name."""
+        import json
+        from unittest.mock import patch
+        from agent.tools import comfy_discover
+
+        with patch("agent.tools.comfy_discover._handle_discover", side_effect=RuntimeError("db error")):
+            result = json.loads(comfy_discover.handle("discover", {
+                "query": "flux model",
+            }))
+        assert "error" in result
+        assert "tool" in result
+        assert result["tool"] == "discover"
