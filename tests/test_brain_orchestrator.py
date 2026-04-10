@@ -233,12 +233,65 @@ class TestSpawnSubtaskRequiredFields:
         assert "error" in result
         assert "tool_calls" in result["error"].lower()
 
-    def test_empty_tool_calls_list_passes_guard(self):
-        """Empty list is a valid tool_calls value — guard must not reject it."""
+    def test_empty_tool_calls_list_returns_error(self):
+        """Cycle 54: Empty tool_calls list must be rejected — spawning a task with no work is pointless."""
         result = json.loads(handle("spawn_subtask", {
             "task_description": "analyze models",
             "profile": "researcher",
             "tool_calls": [],
         }))
-        # Guard passed — may fail for other reasons (profile validation, etc.) but not field guard
-        assert "tool_calls" not in result.get("error", "").lower()
+        assert "error" in result
+        assert "tool_calls" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 54 — malformed tool_calls item guard
+# ---------------------------------------------------------------------------
+
+class TestSpawnSubtaskMalformedCalls:
+    """spawn_subtask must reject malformed items in tool_calls list."""
+
+    def test_string_item_returns_error(self):
+        result = json.loads(handle("spawn_subtask", {
+            "task_description": "do something",
+            "profile": "researcher",
+            "tool_calls": ["not_a_dict"],
+        }))
+        assert "error" in result
+        assert "tool" in result["error"].lower()
+
+    def test_dict_missing_tool_key_returns_error(self):
+        result = json.loads(handle("spawn_subtask", {
+            "task_description": "do something",
+            "profile": "researcher",
+            "tool_calls": [{"input": {}}],
+        }))
+        assert "error" in result
+        assert "tool" in result["error"].lower()
+
+    def test_dict_empty_tool_value_returns_error(self):
+        result = json.loads(handle("spawn_subtask", {
+            "task_description": "do something",
+            "profile": "researcher",
+            "tool_calls": [{"tool": "", "input": {}}],
+        }))
+        assert "error" in result
+
+    def test_integer_item_returns_error(self):
+        result = json.loads(handle("spawn_subtask", {
+            "task_description": "do something",
+            "profile": "researcher",
+            "tool_calls": [42],
+        }))
+        assert "error" in result
+
+    def test_valid_call_not_blocked_by_struct_guard(self):
+        """Well-formed call dict must pass the struct guard (may fail on profile/tool-allowed check)."""
+        result = json.loads(handle("spawn_subtask", {
+            "task_description": "do something",
+            "profile": "researcher",
+            "tool_calls": [{"tool": "list_models", "input": {}}],
+        }))
+        # Must not be a struct-guard error
+        assert "tool_calls must be" not in result.get("error", "")
+        assert "must be a dict" not in result.get("error", "")

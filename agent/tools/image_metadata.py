@@ -228,8 +228,8 @@ def _write_png_metadata(image_path: str, metadata: dict) -> None:
             try:
                 with open(tmp_path, "rb") as _sync_fd:
                     os.fsync(_sync_fd.fileno())
-            except OSError:
-                pass  # fsync failure is non-fatal — proceed with rename
+            except OSError as _fsync_err:
+                log.warning("fsync non-fatal: %s — proceeding with rename", _fsync_err)  # Cycle 54
             os.replace(tmp_path, image_path)
         except Exception:
             # Clean up temp file on any error, then re-raise.

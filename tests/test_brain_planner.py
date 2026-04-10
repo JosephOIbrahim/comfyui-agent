@@ -584,3 +584,62 @@ class TestPlanLocksFifoCap:
 
         with planner_mod._plan_locks_mutex:
             assert "new_session_after_eviction" in planner_mod._plan_locks
+
+
+# ---------------------------------------------------------------------------
+# Cycle 54 — replan new_remaining_steps item structure validation
+# ---------------------------------------------------------------------------
+
+class TestReplanStepItemValidation:
+    """Cycle 54: each step dict in new_remaining_steps must have 'id' and 'action'."""
+
+    def test_step_missing_id_returns_error(self):
+        handle("plan_goal", {"goal": "Step id validation", "session": "test_c54_id"})
+        result = json.loads(handle("replan", {
+            "reason": "Adjusting",
+            "new_remaining_steps": [{"action": "Do something"}],
+            "session": "test_c54_id",
+        }))
+        assert "error" in result
+        assert "id" in result["error"].lower()
+
+    def test_step_missing_action_returns_error(self):
+        handle("plan_goal", {"goal": "Step action validation", "session": "test_c54_action"})
+        result = json.loads(handle("replan", {
+            "reason": "Adjusting",
+            "new_remaining_steps": [{"id": "step_1"}],
+            "session": "test_c54_action",
+        }))
+        assert "error" in result
+        assert "action" in result["error"].lower()
+
+    def test_step_as_string_returns_error(self):
+        handle("plan_goal", {"goal": "Step type validation", "session": "test_c54_str"})
+        result = json.loads(handle("replan", {
+            "reason": "Adjusting",
+            "new_remaining_steps": ["not_a_dict"],
+            "session": "test_c54_str",
+        }))
+        assert "error" in result
+
+    def test_step_as_integer_returns_error(self):
+        handle("plan_goal", {"goal": "Step int validation", "session": "test_c54_int"})
+        result = json.loads(handle("replan", {
+            "reason": "Adjusting",
+            "new_remaining_steps": [42],
+            "session": "test_c54_int",
+        }))
+        assert "error" in result
+
+    def test_valid_step_not_blocked(self):
+        """Well-formed step dicts must pass the struct guard and replan successfully."""
+        handle("plan_goal", {"goal": "Valid step test", "session": "test_c54_valid"})
+        result = json.loads(handle("replan", {
+            "reason": "Adjusting approach",
+            "new_remaining_steps": [
+                {"id": "new_step_1", "action": "Do the new thing"},
+            ],
+            "session": "test_c54_valid",
+        }))
+        assert "error" not in result
+        assert result.get("replanned") is True

@@ -390,3 +390,57 @@ class TestGetNodeInfoRequiredField:
         with patch("agent.tools.comfy_api._get", side_effect=httpx.ConnectError("offline")):
             result = json.loads(comfy_api.handle("get_node_info", {"node_type": "KSampler"}))
         assert "node_type" not in result.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 54 — comfy_api null-safety and type guards
+# ---------------------------------------------------------------------------
+
+class TestGetQueueNullSafety:
+    """get_queue_status must handle null API values for queue_running / queue_pending."""
+
+    def test_null_queue_running_does_not_crash(self):
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", return_value={
+            "queue_running": None,
+            "queue_pending": None,
+        }):
+            result = json.loads(comfy_api.handle("get_queue_status", {}))
+        assert "error" not in result
+        assert result["running_count"] == 0
+        assert result["pending_count"] == 0
+
+    def test_missing_queue_keys_default_to_empty(self):
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", return_value={}):
+            result = json.loads(comfy_api.handle("get_queue_status", {}))
+        assert result["running_count"] == 0
+        assert result["pending_count"] == 0
+
+
+class TestGetHistoryOptionalField:
+    """get_history must type-check optional prompt_id."""
+
+    def test_integer_prompt_id_returns_error(self):
+        from agent.tools import comfy_api
+        result = json.loads(comfy_api.handle("get_history", {"prompt_id": 42}))
+        assert "error" in result
+        assert "prompt_id" in result["error"].lower()
+
+    def test_none_prompt_id_allowed(self):
+        """prompt_id=None must be allowed (fetches full history)."""
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", return_value={}):
+            result = json.loads(comfy_api.handle("get_history", {"prompt_id": None}))
+        assert "prompt_id" not in result.get("error", "").lower()
+
+    def test_omitted_prompt_id_allowed(self):
+        """Omitting prompt_id must fetch full history without error."""
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", return_value={}):
+            result = json.loads(comfy_api.handle("get_history", {}))
+        assert "prompt_id" not in result.get("error", "").lower()

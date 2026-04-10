@@ -163,7 +163,7 @@ def create_mcp_server() -> "Server":
         return mcp_tools
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict | None) -> list:
+    async def call_tool(name: str, arguments: dict | None) -> list | types.CallToolResult:
         """Execute a tool call and return the result.
 
         Note: stdio transport provides process-level isolation but cannot

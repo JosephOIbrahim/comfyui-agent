@@ -624,6 +624,12 @@ class PlannerAgent(BrainAgent):
             completed_steps = [s for s in plan["steps"] if s["status"] == "done"]
 
             if new_steps_raw:
+                # Cycle 54: validate step dicts before bracket access
+                for _sd in new_steps_raw:
+                    if not isinstance(_sd, dict) or "id" not in _sd or "action" not in _sd:
+                        return self.to_json({
+                            "error": "Each step in new_remaining_steps must be a dict with 'id' and 'action'."
+                        })
                 new_steps = []
                 for i, step_def in enumerate(new_steps_raw):
                     new_steps.append({

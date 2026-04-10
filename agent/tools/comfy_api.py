@@ -350,8 +350,8 @@ def _handle_get_system_stats() -> str:
 
 def _handle_get_queue() -> str:
     queue = _get("/queue", timeout=5.0)
-    running = queue.get("queue_running", [])
-    pending = queue.get("queue_pending", [])
+    running = queue.get("queue_running") or []  # Cycle 54: guard against explicit null from API
+    pending = queue.get("queue_pending") or []
     return to_json({
         "running_count": len(running),
         "pending_count": len(pending),
@@ -363,6 +363,8 @@ def _handle_get_queue() -> str:
 def _handle_get_history(tool_input: dict) -> str:
     prompt_id = tool_input.get("prompt_id")
     max_items = tool_input.get("max_items", 5)
+    if prompt_id is not None and not isinstance(prompt_id, str):  # Cycle 54: type guard optional field
+        return to_json({"error": "prompt_id must be a string if provided."})
 
     if prompt_id:
         history = _get(f"/history/{prompt_id}", timeout=10.0)

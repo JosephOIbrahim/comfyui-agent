@@ -196,8 +196,8 @@ class OrchestratorAgent(BrainAgent):
             return self.to_json({"error": "task_description is required and must be a non-empty string."})
         if not profile or not isinstance(profile, str):
             return self.to_json({"error": "profile is required and must be a non-empty string."})
-        if not isinstance(tool_calls, list):
-            return self.to_json({"error": "tool_calls is required and must be a list."})
+        if not isinstance(tool_calls, list) or not tool_calls:  # Cycle 54: guard empty list
+            return self.to_json({"error": "tool_calls is required and must be a non-empty list."})
 
         with self._tasks_lock:
             self._evict_stale_tasks()
@@ -217,7 +217,11 @@ class OrchestratorAgent(BrainAgent):
             })
 
         allowed = self.TOOL_PROFILES[profile]["allowed_tools"]
-        for call in tool_calls:
+        for call in tool_calls:  # Cycle 54: guard malformed call entries
+            if not isinstance(call, dict) or not call.get("tool"):
+                return self.to_json({
+                    "error": "Each item in tool_calls must be a dict with a non-empty 'tool' key.",
+                })
             if call["tool"] not in allowed:
                 return self.to_json({
                     "error": f"Tool '{call['tool']}' not allowed in '{profile}' profile.",
