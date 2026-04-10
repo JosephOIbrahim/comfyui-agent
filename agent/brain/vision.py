@@ -170,6 +170,15 @@ class VisionAgent(BrainAgent):
             ".webp": "image/webp",
         }
         media_type = media_types.get(suffix, "image/png")
+        # Guard against OOM on very large images before base64 encoding. (Cycle 33 fix)
+        _MAX_IMAGE_BYTES = 50 * 1024 * 1024  # 50 MB
+        file_size = p.stat().st_size
+        if file_size > _MAX_IMAGE_BYTES:
+            raise ValueError(
+                f"Image too large for Vision API: {file_size / (1024 * 1024):.1f} MB "
+                f"(limit: {_MAX_IMAGE_BYTES // (1024 * 1024)} MB). "
+                "Resize the image before analyzing."
+            )
         data = base64.b64encode(p.read_bytes()).decode("ascii")
         return data, media_type
 

@@ -699,11 +699,16 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
     workflow = _get_state()["current_workflow"]
 
-    # Validate nodes exist
+    # Validate nodes exist and are dicts (malformed workflows map IDs to non-dict values)
     if from_node not in workflow:
         return to_json({"error": f"Source node '{from_node}' not found in workflow."})
     if to_node not in workflow:
         return to_json({"error": f"Target node '{to_node}' not found in workflow."})
+    if not isinstance(workflow[from_node], dict):
+        return to_json({"error": f"Malformed workflow: node '{from_node}' is not a dict (got {type(workflow[from_node]).__name__})."})
+    if not isinstance(workflow[to_node], dict):
+        return to_json({"error": f"Malformed workflow: node '{to_node}' is not a dict (got {type(workflow[to_node]).__name__})."})
+    # (Cycle 33 fix)
 
     # Save state for undo
     _get_state()["history"].append(copy.deepcopy(workflow))
@@ -770,6 +775,9 @@ def _handle_set_input(tool_input: dict) -> str:
 
     if node_id not in workflow:
         return to_json({"error": f"Node '{node_id}' not found in workflow."})
+    if not isinstance(workflow[node_id], dict):
+        return to_json({"error": f"Malformed workflow: node '{node_id}' is not a dict (got {type(workflow[node_id]).__name__})."})
+    # (Cycle 33 fix)
 
     # Save state for undo
     _get_state()["history"].append(copy.deepcopy(workflow))

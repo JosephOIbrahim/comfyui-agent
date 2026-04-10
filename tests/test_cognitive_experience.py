@@ -342,3 +342,96 @@ class TestAccumulator:
         assert restored.model_family == good_chunk.model_family
         assert restored.quality.overall == good_chunk.quality.overall
         assert restored.quality.aesthetic == good_chunk.quality.aesthetic
+
+
+# ---------------------------------------------------------------------------
+# Cycle 33: accumulator O(n) eviction + exception handling
+# ---------------------------------------------------------------------------
+
+class TestAccumulatorEviction:
+    """Accumulator must evict the lowest-quality chunk using O(n) scan, not sort."""
+
+    def _make_chunk(self, model_family, quality_score, timestamp=None):
+        from cognitive.experience.chunk import QualityScore as QS
+        chunk = ExperienceChunk()
+        chunk.model_family = model_family
+        chunk.parameters = {"cfg": 7.0, "steps": 20}
+        chunk.quality = QS(overall=quality_score, aesthetic=quality_score)
+        if timestamp is not None:
+            chunk.timestamp = timestamp
+        return chunk
+
+    def test_evicts_lowest_quality_not_newest(self):
+        """When max_chunks exceeded, must remove lowest-quality chunk, not newest."""
+        acc = ExperienceAccumulator(max_chunks=3)
+        high1 = self._make_chunk("SD1.5", 0.9, timestamp=1.0)
+        high2 = self._make_chunk("SD1.5", 0.8, timestamp=2.0)
+        high3 = self._make_chunk("SDXL", 0.7, timestamp=3.0)
+        low = self._make_chunk("Flux", 0.1, timestamp=0.5)  # lowest quality
+
+        acc.record(high1)
+        acc.record(high2)
+        acc.record(high3)
+        acc.record(low)  # triggers eviction — max_chunks=3, low quality evicted
+
+        # After eviction: should have exactly 3 chunks (generation_count = current count)
+        assert acc.generation_count == 3
+        # The low quality chunk should be the one evicted
+        with acc._chunks_lock:
+            qualities = [c.quality.overall for c in acc._chunks]
+        assert 0.1 not in qualities, "Lowest-quality chunk should have been evicted"
+
+    def test_evicts_oldest_when_quality_tied(self):
+        """When quality is tied, must evict the oldest chunk (lowest timestamp)."""
+        acc = ExperienceAccumulator(max_chunks=2)
+        old_chunk = self._make_chunk("SD1.5", 0.5, timestamp=1.0)
+        new_chunk = self._make_chunk("SDXL", 0.5, timestamp=2.0)
+
+        acc.record(old_chunk)
+        acc.record(new_chunk)
+        # Record a 3rd to trigger eviction
+        newest = self._make_chunk("Flux", 0.5, timestamp=3.0)
+        acc.record(newest)
+
+        with acc._chunks_lock:
+            timestamps = [c.timestamp for c in acc._chunks]
+        # Oldest (timestamp=1.0) should be evicted; newer two remain
+        assert 1.0 not in timestamps
+
+    def test_no_eviction_under_max_chunks(self):
+        """Under max_chunks, no eviction should occur."""
+        acc = ExperienceAccumulator(max_chunks=10)
+        for i in range(5):
+            acc.record(self._make_chunk("SD1.5", 0.5 + i * 0.05))
+        with acc._chunks_lock:
+            count = len(acc._chunks)
+        assert count == 5
+
+
+class TestAccumulatorLoadErrorHandling:
+    """accumulator.load() must log warnings on deserialization errors."""
+
+    def test_corrupt_jsonl_line_is_skipped(self, tmp_path):
+        """A corrupt JSON line in JSONL must be skipped, not crash."""
+        jsonl = tmp_path / "chunks.jsonl"
+        jsonl.write_text('{"bad json"\n', encoding="utf-8")
+        # Should not raise
+        acc = ExperienceAccumulator.load(str(jsonl))
+        with acc._chunks_lock:
+            assert len(acc._chunks) == 0
+
+    def test_partial_chunk_data_is_skipped_with_warning(self, tmp_path, caplog):
+        """A JSON line with a bad quality score triggers the warning path."""
+        import logging, json as _json
+        jsonl = tmp_path / "chunks.jsonl"
+        # "overall": "not_a_float" causes QualityScore.__post_init__ to call
+        # float("not_a_float"), which raises ValueError — caught by the
+        # except Exception handler that logs a warning. (Cycle 33 fix)
+        jsonl.write_text(_json.dumps({"quality": {"overall": "not_a_float"}}) + "\n",
+                         encoding="utf-8")
+        with caplog.at_level(logging.WARNING):
+            acc = ExperienceAccumulator.load(str(jsonl))
+        # Should have logged a warning about the failed chunk
+        assert any("Failed" in r.message or "chunk" in r.message.lower() for r in caplog.records)
+        with acc._chunks_lock:
+            assert len(acc._chunks) == 0

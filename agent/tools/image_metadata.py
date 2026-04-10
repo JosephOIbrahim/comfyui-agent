@@ -10,6 +10,9 @@ Schema versioned (v1) for forward compatibility.
 
 import json
 import logging
+import os
+import tempfile
+from pathlib import Path as _Path
 
 from ._util import to_json, validate_path
 
@@ -210,8 +213,21 @@ def _write_png_metadata(image_path: str, metadata: dict) -> None:
         # Add our chunk
         png_info.add_text(METADATA_CHUNK_KEY, to_json(metadata))
 
-        # Re-save
-        img.save(image_path, pnginfo=png_info)
+        # Atomic write: save to a temp file then rename so a process crash
+        # during write doesn't corrupt the original PNG. (Cycle 33 fix)
+        parent_dir = _Path(image_path).parent
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".png", dir=parent_dir)
+        try:
+            os.close(tmp_fd)
+            img.save(tmp_path, pnginfo=png_info)
+            os.replace(tmp_path, image_path)
+        except Exception:
+            # Clean up temp file on any error, then re-raise.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     finally:
         img.close()
 

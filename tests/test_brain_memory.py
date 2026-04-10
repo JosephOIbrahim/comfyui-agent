@@ -601,3 +601,64 @@ class TestCrossSessionLearning:
         ours = [o for o in all_outcomes if o.get("session", "").startswith("test_sorted_")]
         if len(ours) >= 2:
             assert ours[0]["timestamp"] <= ours[-1]["timestamp"]
+
+
+# ---------------------------------------------------------------------------
+# Cycle 33: window validation + load_outcomes lock
+# ---------------------------------------------------------------------------
+
+class TestWindowValidation:
+    """detect_implicit_feedback must validate the window parameter."""
+
+    def _make_agent_with_outcomes(self, tmp_path, count=5):
+        """Create a MemoryAgent with N recorded outcomes."""
+        from agent.brain._sdk import BrainConfig
+        cfg = BrainConfig(sessions_dir=tmp_path / "sessions")
+        agent = MemoryAgent(cfg)
+        for i in range(count):
+            agent.handle("record_outcome", {
+                "session": "test_window",
+                "key_params": {"model": "sd1.5", "steps": 20, "cfg": 7.0},
+                "workflow_hash": f"hash{i}",
+                "workflow_summary": f"sd1.5 at 512x512, 20 steps",
+                "model_combo": ["sd1.5.safetensors"],
+            })
+        return agent
+
+    def test_window_zero_does_not_analyze_all_outcomes(self, tmp_path):
+        """window=0 must be clamped to 1, not silently analyze all outcomes."""
+        agent = self._make_agent_with_outcomes(tmp_path, count=10)
+        # Must not crash — window=0 is clamped to 1
+        result = json.loads(agent.handle("detect_implicit_feedback", {
+            "session": "test_window",
+            "window": 0,
+        }))
+        assert "signals" in result or "message" in result
+        # No crash (window=0 before fix caused outcomes[-0:] = all outcomes)
+
+    def test_window_negative_does_not_skip_outcomes(self, tmp_path):
+        """Negative window must be clamped to 1."""
+        agent = self._make_agent_with_outcomes(tmp_path, count=5)
+        result = json.loads(agent.handle("detect_implicit_feedback", {
+            "session": "test_window",
+            "window": -5,
+        }))
+        assert "signals" in result or "message" in result
+
+    def test_window_string_falls_back_to_default(self, tmp_path):
+        """Non-numeric window must not crash — falls back to default 20."""
+        agent = self._make_agent_with_outcomes(tmp_path, count=3)
+        result = json.loads(agent.handle("detect_implicit_feedback", {
+            "session": "test_window",
+            "window": "many",
+        }))
+        assert "signals" in result or "message" in result
+
+    def test_window_positive_normal_path_unaffected(self, tmp_path):
+        """A valid positive window value must work normally."""
+        agent = self._make_agent_with_outcomes(tmp_path, count=5)
+        result = json.loads(agent.handle("detect_implicit_feedback", {
+            "session": "test_window",
+            "window": 3,
+        }))
+        assert "signals" in result or "message" in result

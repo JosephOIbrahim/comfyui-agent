@@ -101,11 +101,14 @@ class ExperienceAccumulator:
             self._chunks.append(chunk)
 
             if len(self._chunks) > self._max_chunks:
-                # Remove oldest lowest-quality chunk
-                self._chunks.sort(
-                    key=lambda c: (c.quality.overall, c.timestamp),
+                # Remove the lowest-quality (oldest if tied) chunk.
+                # O(n) linear scan instead of O(n log n) sort — reduces lock-hold
+                # time so concurrent retrieve() calls aren't stalled. (Cycle 33 fix)
+                min_idx = min(
+                    range(len(self._chunks)),
+                    key=lambda i: (self._chunks[i].quality.overall, self._chunks[i].timestamp),
                 )
-                self._chunks.pop(0)
+                self._chunks.pop(min_idx)
 
     def retrieve(
         self,
@@ -214,7 +217,15 @@ class ExperienceAccumulator:
                     data = json.loads(line)
                     chunk = ExperienceChunk.from_dict(data)
                     acc._chunks.append(chunk)
-                except (json.JSONDecodeError, Exception):
+                except json.JSONDecodeError:
+                    # Malformed JSON line — skip silently.
+                    continue
+                except Exception as _e:
+                    # Deserialization error — log so data corruption is visible. (Cycle 33 fix)
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "Failed to load experience chunk: %s", _e
+                    )
                     continue
         # Enforce max_chunks (load() is called at init time; no lock needed here
         # since no other thread has a reference to acc yet)

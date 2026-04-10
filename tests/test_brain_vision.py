@@ -285,3 +285,46 @@ class TestDispatchBrainMessage:
         with patch("agent.tools.handle", side_effect=RuntimeError("boom")):
             # Should not raise
             dispatch_brain_message(msg)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 33: image size limit before base64 encoding
+# ---------------------------------------------------------------------------
+
+class TestImageSizeLimit:
+    """_read_image_as_base64 must refuse files larger than 50 MB."""
+
+    def test_large_image_raises_value_error(self, tmp_path):
+        """Image > 50 MB must raise ValueError before base64 encoding."""
+        from agent.brain.vision import VisionAgent
+        from agent.brain._sdk import BrainConfig
+
+        big_img = tmp_path / "huge.png"
+        # Write a file larger than 50 MB (just header bytes, not a real PNG — size check only)
+        big_img.write_bytes(b"\x89PNG" + b"\x00" * (51 * 1024 * 1024))
+
+        cfg = BrainConfig(validate_path=lambda *a, **kw: None)
+        agent = VisionAgent(cfg)
+
+        with pytest.raises(ValueError, match="too large"):
+            agent._read_image_as_base64(str(big_img))
+
+    def test_small_image_not_rejected(self, tmp_path):
+        """Image under the size limit must not be rejected (path validation aside)."""
+        from agent.brain.vision import VisionAgent
+        from agent.brain._sdk import BrainConfig
+
+        # Write a tiny "image" under 1 KB
+        small_img = tmp_path / "tiny.png"
+        small_img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        cfg = BrainConfig(validate_path=lambda *a, **kw: None)
+        agent = VisionAgent(cfg)
+
+        # Should not raise ValueError for size — may raise other errors (not PIL-related)
+        try:
+            agent._read_image_as_base64(str(small_img))
+        except ValueError as e:
+            assert "too large" not in str(e), "Small image should not fail size check"
+        except Exception:
+            pass  # Other exceptions (PIL decode, etc.) are acceptable here

@@ -647,6 +647,12 @@ def _search_civitai_unified(
     for item in raw.get("results", []):
         # Normalize relevance from downloads (log scale)
         downloads = item.get("downloads", 0)
+        # Guard: API may return downloads as string or None. (Cycle 33 fix)
+        if not isinstance(downloads, (int, float)):
+            try:
+                downloads = float(downloads)
+            except (ValueError, TypeError):
+                downloads = 0
         rel = min(1.0, (downloads / 1_000_000) ** 0.3) if downloads > 0 else 0.1
         results.append(_normalize_result(
             name=item.get("name", ""),
@@ -674,6 +680,12 @@ def _search_hf_unified(
     results = []
     for item in raw.get("results", []):
         downloads = item.get("downloads", 0)
+        # Guard: API may return downloads as string or None. (Cycle 33 fix)
+        if not isinstance(downloads, (int, float)):
+            try:
+                downloads = float(downloads)
+            except (ValueError, TypeError):
+                downloads = 0
         rel = min(1.0, (downloads / 1_000_000) ** 0.3) if downloads > 0 else 0.1
         results.append(_normalize_result(
             name=item.get("name", ""),

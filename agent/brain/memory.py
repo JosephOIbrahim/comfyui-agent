@@ -237,18 +237,26 @@ class MemoryAgent(BrainAgent):
         return self.cfg.sessions_dir / f"{session}_outcomes.jsonl"
 
     def _load_outcomes(self, session: str) -> list[dict]:
-        """Load all outcomes for a session, migrating old records."""
-        path = self._outcomes_path(session)
-        if not path.exists():
-            return []
-        outcomes = []
-        for line in path.read_text(encoding="utf-8").strip().split("\n"):
-            if line:
-                try:
-                    outcomes.append(_migrate_outcome(json.loads(line)))
-                except json.JSONDecodeError:
-                    continue
-        return outcomes
+        """Load all outcomes for a session, migrating old records.
+
+        Acquires the per-session write lock before reading so that concurrent
+        calls to _append_outcome() (which also holds the lock) cannot interleave
+        a partial write with this read. Without this guard a concurrent append
+        could produce a truncated or malformed JSONL line mid-read. (Cycle 33 fix)
+        """
+        lock = _get_outcomes_lock(session)
+        with lock:
+            path = self._outcomes_path(session)
+            if not path.exists():
+                return []
+            outcomes = []
+            for line in path.read_text(encoding="utf-8").strip().split("\n"):
+                if line:
+                    try:
+                        outcomes.append(_migrate_outcome(json.loads(line)))
+                    except json.JSONDecodeError:
+                        continue
+            return outcomes
 
     def _load_all_outcomes(self) -> list[dict]:
         """Load outcomes from ALL sessions for cross-session learning."""
@@ -472,7 +480,12 @@ class MemoryAgent(BrainAgent):
     def _handle_detect_implicit_feedback(self, tool_input: dict) -> str:
         """Analyze behavior patterns to infer implicit feedback."""
         session = tool_input.get("session", "default")
-        window = tool_input.get("window", 20)
+        # Clamp window to [1, ∞). window=0 → outcomes[-0:] = all outcomes (wrong).
+        # Negative values → outcomes[N:] skips from the front (also wrong). (Cycle 33 fix)
+        try:
+            window = max(1, int(tool_input.get("window", 20)))
+        except (ValueError, TypeError):
+            window = 20
 
         outcomes = self._load_outcomes(session)
         if not outcomes:

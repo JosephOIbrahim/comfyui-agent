@@ -346,3 +346,52 @@ class TestReconstructContext:
         assert ctx["intent"]["what_artist_wanted"] == "dramatic lighting"
         assert "iteration_history" not in ctx
         assert "session" not in ctx
+
+
+# ---------------------------------------------------------------------------
+# Cycle 33: atomic write verification
+# ---------------------------------------------------------------------------
+
+class TestAtomicWrite:
+    """PNG metadata write must be atomic (temp file + rename)."""
+
+    def test_write_leaves_no_temp_files_on_success(self, tmp_path):
+        """A successful write must clean up temp files."""
+        from PIL import Image
+        from agent.tools.image_metadata import handle
+
+        # Create a real PNG
+        img_path = tmp_path / "test.png"
+        img = Image.new("RGB", (10, 10), color=(255, 0, 0))
+        img.save(str(img_path))
+        img.close()
+
+        handle("write_image_metadata", {
+            "image_path": str(img_path),
+            "metadata": {"schema_version": 1, "timestamp": 1.0, "session": {}},
+        })
+
+        # After write, no .png temp files should remain in the directory
+        leftover = [f for f in tmp_path.iterdir() if f != img_path]
+        assert leftover == [], f"Temp files left behind: {leftover}"
+
+    def test_write_preserves_original_on_success(self, tmp_path):
+        """Original file path must still exist and be readable after atomic write."""
+        from PIL import Image
+        from agent.tools.image_metadata import handle, _read_png_metadata
+
+        img_path = tmp_path / "original.png"
+        img = Image.new("RGB", (8, 8), color=(0, 255, 0))
+        img.save(str(img_path))
+        img.close()
+
+        handle("write_image_metadata", {
+            "image_path": str(img_path),
+            "metadata": {"schema_version": 1, "timestamp": 9999.0, "session": {"test": True}},
+        })
+
+        # File must still exist at the same path
+        assert img_path.exists()
+        # Must be a valid PNG (PIL can open it)
+        reopened = Image.open(str(img_path))
+        reopened.close()

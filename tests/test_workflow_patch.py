@@ -514,3 +514,72 @@ class TestPatchElementValidation:
             "patches": [None],
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 33: non-dict node value guard for connect_nodes and set_input
+# ---------------------------------------------------------------------------
+
+class TestNonDictNodeGuard:
+    """connect_nodes and set_input must return error when a workflow node is not a dict.
+
+    We inject the malformed node directly into workflow state (rather than via
+    load_workflow, which may filter such nodes at parse time).
+    """
+
+    def _inject_malformed_node(self, sample_workflow):
+        """Load a valid workflow via apply_workflow_patch (which also loads), then inject a non-dict node."""
+        # Trigger a no-op patch to load the workflow into state
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+        # Directly inject a non-dict node — simulates corrupted in-memory state.
+        state = workflow_patch._get_state()
+        state["current_workflow"]["99"] = "not_a_dict"
+
+    def test_connect_nodes_from_node_non_dict_returns_error(self, sample_workflow):
+        """connect_nodes: from_node is non-dict — must return error, not AttributeError."""
+        self._inject_malformed_node(sample_workflow)
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "99",
+            "from_output": 0,
+            "to_node": "1",
+            "to_input": "model",
+        }))
+        assert "error" in result
+        assert "Malformed" in result["error"] or "not a dict" in result["error"]
+
+    def test_connect_nodes_to_node_non_dict_returns_error(self, sample_workflow):
+        """connect_nodes: to_node is non-dict — must return error, not AttributeError."""
+        self._inject_malformed_node(sample_workflow)
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "99",
+            "to_input": "model",
+        }))
+        assert "error" in result
+        assert "Malformed" in result["error"] or "not a dict" in result["error"]
+
+    def test_set_input_non_dict_node_returns_error(self, sample_workflow):
+        """set_input: node is non-dict — must return error, not AttributeError."""
+        self._inject_malformed_node(sample_workflow)
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "99",
+            "input_name": "ckpt_name",
+            "value": "my_model.safetensors",
+        }))
+        assert "error" in result
+        assert "Malformed" in result["error"] or "not a dict" in result["error"]
+
+    def test_valid_nodes_still_work(self, sample_workflow):
+        """Valid dict nodes must not be affected by the guard."""
+        self._inject_malformed_node(sample_workflow)
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "1",
+            "input_name": "ckpt_name",
+            "value": "sd15_base.safetensors",
+        }))
+        assert "error" not in result
+        assert result.get("set") is True
