@@ -143,11 +143,20 @@ TOOLS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 def _handle_propose_improvement(tool_input: dict) -> str:
+    category = tool_input.get("category")  # Cycle 55: guard required fields
+    description = tool_input.get("description")
+    proposed_change = tool_input.get("proposed_change")
+    if not category or not isinstance(category, str):
+        return _to_json({"error": "category is required and must be a non-empty string."})
+    if not description or not isinstance(description, str):
+        return _to_json({"error": "description is required and must be a non-empty string."})
+    if proposed_change is None:
+        return _to_json({"error": "proposed_change is required."})
     ma = _get_meta_agent()
     improvement = ma.propose_improvement(
-        category=tool_input["category"],
-        description=tool_input["description"],
-        proposed_change=tool_input["proposed_change"],
+        category=category,
+        description=description,
+        proposed_change=proposed_change,
         rationale=tool_input.get("rationale", ""),
     )
     result = improvement.to_dict()
@@ -158,8 +167,10 @@ def _handle_propose_improvement(tool_input: dict) -> str:
 
 
 def _handle_check_evolution_tier(tool_input: dict) -> str:
+    category = tool_input.get("category")  # Cycle 55: guard required field
+    if not category or not isinstance(category, str):
+        return _to_json({"error": "category is required and must be a non-empty string."})
     ma = _get_meta_agent()
-    category = tool_input["category"]
     tier = ma.classify_change(category)
     tier_labels = {1: "auto-evolve", 2: "ratchet-validated", 3: "human-gate"}
     return _to_json({

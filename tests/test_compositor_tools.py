@@ -116,3 +116,28 @@ class TestDispatch:
     def test_unknown(self):
         result = json.loads(handle("nonexistent", {}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 55 — required field guard for export_scene handler
+# ---------------------------------------------------------------------------
+
+class TestExportSceneRequiredField:
+    """export_scene must return error when output_path is missing or invalid."""
+
+    def test_missing_output_path_returns_error(self):
+        result = json.loads(handle("export_scene", {}))
+        assert "error" in result
+        assert "output_path" in result["error"].lower()
+
+    def test_empty_output_path_returns_error(self):
+        result = json.loads(handle("export_scene", {"output_path": ""}))
+        assert "error" in result
+
+    def test_none_output_path_returns_error(self):
+        result = json.loads(handle("export_scene", {"output_path": None}))
+        assert "error" in result
+
+    def test_integer_output_path_returns_error(self):
+        result = json.loads(handle("export_scene", {"output_path": 42}))
+        assert "error" in result

@@ -189,7 +189,9 @@ def _to_python(value: object) -> object:
 # ---------------------------------------------------------------------------
 
 def _handle_stage_read(tool_input: dict) -> str:
-    prim_path: str = tool_input["prim_path"]
+    prim_path = tool_input.get("prim_path")  # Cycle 55: guard required field
+    if not prim_path or not isinstance(prim_path, str):
+        return to_json({"error": "prim_path is required and must be a non-empty string."})
     attr_name: str | None = tool_input.get("attr_name")
 
     stage = _get_stage()
@@ -205,8 +207,14 @@ def _handle_stage_read(tool_input: dict) -> str:
 
 
 def _handle_stage_write(tool_input: dict) -> str:
-    prim_path: str = tool_input["prim_path"]
-    attr_name: str = tool_input["attr_name"]
+    prim_path = tool_input.get("prim_path")  # Cycle 55: guard required fields
+    if not prim_path or not isinstance(prim_path, str):
+        return to_json({"error": "prim_path is required and must be a non-empty string."})
+    attr_name = tool_input.get("attr_name")
+    if not attr_name or not isinstance(attr_name, str):
+        return to_json({"error": "attr_name is required and must be a non-empty string."})
+    if "value" not in tool_input:
+        return to_json({"error": "value is required."})
     value = tool_input["value"]
     node_type: str | None = tool_input.get("node_type")
 
@@ -228,8 +236,12 @@ def _handle_stage_write(tool_input: dict) -> str:
 
 
 def _handle_stage_add_delta(tool_input: dict) -> str:
-    agent_name: str = tool_input["agent_name"]
-    delta: dict = tool_input["delta"]
+    agent_name = tool_input.get("agent_name")  # Cycle 55: guard required fields
+    if not agent_name or not isinstance(agent_name, str):
+        return to_json({"error": "agent_name is required and must be a non-empty string."})
+    delta = tool_input.get("delta")
+    if delta is None or not isinstance(delta, dict):
+        return to_json({"error": "delta is required and must be a dict."})
 
     stage = _get_stage()
     if stage is None:
@@ -249,7 +261,11 @@ def _handle_stage_add_delta(tool_input: dict) -> str:
 
 
 def _handle_stage_rollback(tool_input: dict) -> str:
-    n_deltas: int = tool_input["n_deltas"]
+    n_deltas = tool_input.get("n_deltas")  # Cycle 55: guard required field
+    if n_deltas is None:
+        return to_json({"error": "n_deltas is required."})
+    if not isinstance(n_deltas, int) or isinstance(n_deltas, bool):
+        return to_json({"error": "n_deltas must be an integer."})
 
     stage = _get_stage()
     if stage is None:

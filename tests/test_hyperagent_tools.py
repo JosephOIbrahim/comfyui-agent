@@ -192,3 +192,51 @@ class TestErrorHandling:
     def test_unknown_tool(self):
         result = _parse(handle("nonexistent_tool", {}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 55 — required field guards for hyperagent_tools handlers
+# ---------------------------------------------------------------------------
+
+class TestProposeImprovementRequiredFields:
+    """propose_improvement must return errors when required fields are missing."""
+
+    def test_missing_category_returns_error(self):
+        result = json.loads(handle("propose_improvement", {
+            "description": "desc", "proposed_change": {},
+        }))
+        assert "error" in result
+        assert "category" in result["error"].lower()
+
+    def test_empty_category_returns_error(self):
+        result = json.loads(handle("propose_improvement", {
+            "category": "", "description": "desc", "proposed_change": {},
+        }))
+        assert "error" in result
+
+    def test_missing_description_returns_error(self):
+        result = json.loads(handle("propose_improvement", {
+            "category": "performance", "proposed_change": {},
+        }))
+        assert "error" in result
+        assert "description" in result["error"].lower()
+
+    def test_missing_proposed_change_returns_error(self):
+        result = json.loads(handle("propose_improvement", {
+            "category": "performance", "description": "desc",
+        }))
+        assert "error" in result
+        assert "proposed_change" in result["error"].lower()
+
+
+class TestCheckEvolutionTierRequiredField:
+    """check_evolution_tier must return error when category is missing."""
+
+    def test_missing_category_returns_error(self):
+        result = json.loads(handle("check_evolution_tier", {}))
+        assert "error" in result
+        assert "category" in result["error"].lower()
+
+    def test_none_category_returns_error(self):
+        result = json.loads(handle("check_evolution_tier", {"category": None}))
+        assert "error" in result

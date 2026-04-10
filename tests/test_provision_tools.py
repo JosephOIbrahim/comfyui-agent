@@ -443,3 +443,44 @@ def test_handle_always_returns_valid_json(tool_name, extra_kwargs, patch_get_pro
     raw = handle(tool_name, {"prim_path": "/models/loras/test", **extra_kwargs})
     parsed = json.loads(raw)
     assert isinstance(parsed, dict)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 55 — required field guards for provision_tools handlers
+# ---------------------------------------------------------------------------
+
+class TestProvisionDownloadRequiredField:
+    def test_missing_prim_path_returns_error(self):
+        result = json.loads(handle("provision_download", {}))
+        assert "error" in result
+        assert "prim_path" in result["error"].lower()
+
+    def test_empty_prim_path_returns_error(self):
+        result = json.loads(handle("provision_download", {"prim_path": ""}))
+        assert "error" in result
+
+    def test_none_prim_path_returns_error(self):
+        result = json.loads(handle("provision_download", {"prim_path": None}))
+        assert "error" in result
+
+
+class TestProvisionVerifyRequiredField:
+    def test_missing_prim_path_returns_error(self):
+        result = json.loads(handle("provision_verify", {}))
+        assert "error" in result
+        assert "prim_path" in result["error"].lower()
+
+    def test_integer_prim_path_returns_error(self):
+        result = json.loads(handle("provision_verify", {"prim_path": 123}))
+        assert "error" in result
+
+
+class TestProvisionStatusRequiredField:
+    def test_missing_prim_path_returns_error(self):
+        result = json.loads(handle("provision_status", {}))
+        assert "error" in result
+        assert "prim_path" in result["error"].lower()
+
+    def test_none_prim_path_returns_error(self):
+        result = json.loads(handle("provision_status", {"prim_path": None}))
+        assert "error" in result

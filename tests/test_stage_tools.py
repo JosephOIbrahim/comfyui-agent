@@ -496,3 +496,82 @@ class TestDispatch:
                 assert "Unknown tool" not in r.get("error", ""), (
                     f"Tool '{name}' was not dispatched"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Cycle 55 — required field guards for stage_tools handlers
+# ---------------------------------------------------------------------------
+
+class TestStageReadRequiredField:
+    """stage_read must return structured error when prim_path is missing or invalid."""
+
+    def test_missing_prim_path_returns_error(self):
+        result = json.loads(handle("stage_read", {}))
+        assert "error" in result
+        assert "prim_path" in result["error"].lower()
+
+    def test_empty_prim_path_returns_error(self):
+        result = json.loads(handle("stage_read", {"prim_path": ""}))
+        assert "error" in result
+
+    def test_none_prim_path_returns_error(self):
+        result = json.loads(handle("stage_read", {"prim_path": None}))
+        assert "error" in result
+
+    def test_integer_prim_path_returns_error(self):
+        result = json.loads(handle("stage_read", {"prim_path": 42}))
+        assert "error" in result
+
+
+class TestStageWriteRequiredFields:
+    """stage_write must return structured errors when required fields are missing."""
+
+    def test_missing_prim_path_returns_error(self):
+        result = json.loads(handle("stage_write", {"attr_name": "x", "value": 1}))
+        assert "error" in result
+        assert "prim_path" in result["error"].lower()
+
+    def test_missing_attr_name_returns_error(self):
+        result = json.loads(handle("stage_write", {"prim_path": "/p", "value": 1}))
+        assert "error" in result
+        assert "attr_name" in result["error"].lower()
+
+    def test_missing_value_returns_error(self):
+        result = json.loads(handle("stage_write", {"prim_path": "/p", "attr_name": "x"}))
+        assert "error" in result
+        assert "value" in result["error"].lower()
+
+
+class TestStageAddDeltaRequiredFields:
+    """stage_add_delta must return structured errors when required fields are missing."""
+
+    def test_missing_agent_name_returns_error(self):
+        result = json.loads(handle("stage_add_delta", {"delta": {}}))
+        assert "error" in result
+        assert "agent_name" in result["error"].lower()
+
+    def test_missing_delta_returns_error(self):
+        result = json.loads(handle("stage_add_delta", {"agent_name": "test"}))
+        assert "error" in result
+        assert "delta" in result["error"].lower()
+
+    def test_non_dict_delta_returns_error(self):
+        result = json.loads(handle("stage_add_delta", {"agent_name": "test", "delta": "bad"}))
+        assert "error" in result
+
+
+class TestStageRollbackRequiredField:
+    """stage_rollback must return structured error when n_deltas is missing or invalid."""
+
+    def test_missing_n_deltas_returns_error(self):
+        result = json.loads(handle("stage_rollback", {}))
+        assert "error" in result
+        assert "n_deltas" in result["error"].lower()
+
+    def test_string_n_deltas_returns_error(self):
+        result = json.loads(handle("stage_rollback", {"n_deltas": "three"}))
+        assert "error" in result
+
+    def test_bool_n_deltas_returns_error(self):
+        result = json.loads(handle("stage_rollback", {"n_deltas": True}))
+        assert "error" in result

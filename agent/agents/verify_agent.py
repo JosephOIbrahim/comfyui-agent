@@ -307,9 +307,12 @@ class VerifyAgent:
 
         # --- Use quality_score from analysis as additional signal ----------
         if "quality_score" in output_analysis:
-            qs = float(output_analysis["quality_score"])
-            # Blend: 70% profile-based, 30% reported quality_score
-            score = score * 0.7 + qs * 0.3
+            try:  # Cycle 55: vision may return "unknown" or None — guard float() conversion
+                qs = float(output_analysis["quality_score"])
+                # Blend: 70% profile-based, 30% reported quality_score
+                score = score * 0.7 + qs * 0.3
+            except (TypeError, ValueError):
+                pass  # Non-numeric quality_score: skip this signal
 
         return max(0.0, min(1.0, score))
 

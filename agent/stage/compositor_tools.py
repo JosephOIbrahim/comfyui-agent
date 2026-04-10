@@ -214,13 +214,16 @@ def _handle_extract_conditioning(tool_input: dict) -> str:  # noqa: ARG001
 
 
 def _handle_export_scene(tool_input: dict) -> str:
+    output_path = tool_input.get("output_path")  # Cycle 55: guard before scene check
+    if not output_path or not isinstance(output_path, str):
+        return to_json({"error": "output_path is required and must be a non-empty string."})
+
     scene = _get_scene()
     if scene is None:
         return _NO_SCENE
 
     try:
         from .compositor import export_scene
-        output_path = tool_input["output_path"]
         fmt = tool_input.get("format", "usda")
         path = export_scene(scene, output_path, fmt=fmt)
         return to_json({"exported": path, "format": fmt})

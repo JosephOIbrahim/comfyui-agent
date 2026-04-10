@@ -131,7 +131,9 @@ TOOLS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 def _handle_provision_download(tool_input: dict) -> str:
-    prim_path = tool_input["prim_path"]
+    prim_path = tool_input.get("prim_path")  # Cycle 55: guard required field
+    if not prim_path or not isinstance(prim_path, str):
+        return to_json({"error": "prim_path is required and must be a non-empty string."})
 
     prov = _get_provisioner()
     if prov is None:
@@ -161,7 +163,9 @@ def _handle_provision_download(tool_input: dict) -> str:
 
 
 def _handle_provision_verify(tool_input: dict) -> str:
-    prim_path = tool_input["prim_path"]
+    prim_path = tool_input.get("prim_path")  # Cycle 55: guard required field
+    if not prim_path or not isinstance(prim_path, str):
+        return to_json({"error": "prim_path is required and must be a non-empty string."})
 
     prov = _get_provisioner()
     if prov is None:
@@ -185,7 +189,9 @@ def _handle_provision_verify(tool_input: dict) -> str:
 
 
 def _handle_provision_status(tool_input: dict) -> str:
-    prim_path = tool_input["prim_path"]
+    prim_path = tool_input.get("prim_path")  # Cycle 55: guard required field
+    if not prim_path or not isinstance(prim_path, str):
+        return to_json({"error": "prim_path is required and must be a non-empty string."})
 
     prov = _get_provisioner()
     if prov is None:

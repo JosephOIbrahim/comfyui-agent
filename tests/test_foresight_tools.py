@@ -294,3 +294,45 @@ class TestGetPredictionAccuracy:
             result = json.loads(handle("get_prediction_accuracy", {}))
         assert result["predictions_made"] >= 1
         assert "avg_accuracy" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 55 — required field guards for foresight_tools handlers
+# ---------------------------------------------------------------------------
+
+class TestPredictExperimentRequiredField:
+    """predict_experiment must return error when proposed_change is missing."""
+
+    def test_missing_proposed_change_returns_error(self):
+        result = json.loads(handle("predict_experiment", {}))
+        assert "error" in result
+        assert "proposed_change" in result["error"].lower()
+
+    def test_none_proposed_change_returns_error(self):
+        result = json.loads(handle("predict_experiment", {"proposed_change": None}))
+        assert "error" in result
+
+
+class TestRecordExperienceRequiredFields:
+    """record_experience must return errors when required fields are missing."""
+
+    def test_missing_initial_state_returns_error(self):
+        result = json.loads(handle("record_experience", {
+            "decisions": [], "outcome": {},
+        }))
+        assert "error" in result
+        assert "initial_state" in result["error"].lower()
+
+    def test_missing_decisions_returns_error(self):
+        result = json.loads(handle("record_experience", {
+            "initial_state": {}, "outcome": {},
+        }))
+        assert "error" in result
+        assert "decisions" in result["error"].lower()
+
+    def test_missing_outcome_returns_error(self):
+        result = json.loads(handle("record_experience", {
+            "initial_state": {}, "decisions": [],
+        }))
+        assert "error" in result
+        assert "outcome" in result["error"].lower()

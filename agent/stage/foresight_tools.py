@@ -172,7 +172,9 @@ _NO_STAGE = to_json({
 # ---------------------------------------------------------------------------
 
 def _handle_predict_experiment(tool_input: dict) -> str:
-    proposed_change = tool_input["proposed_change"]
+    proposed_change = tool_input.get("proposed_change")  # Cycle 55: guard before stage check
+    if proposed_change is None:
+        return to_json({"error": "proposed_change is required."})
 
     stage = _get_stage()
     if stage is None:
@@ -209,6 +211,17 @@ def _handle_predict_experiment(tool_input: dict) -> str:
 
 
 def _handle_record_experience(tool_input: dict) -> str:
+    # Cycle 55: guard required fields before stage/infrastructure checks
+    initial_state = tool_input.get("initial_state")
+    decisions = tool_input.get("decisions")
+    outcome = tool_input.get("outcome")
+    if initial_state is None:
+        return to_json({"error": "initial_state is required."})
+    if decisions is None:
+        return to_json({"error": "decisions is required."})
+    if outcome is None:
+        return to_json({"error": "outcome is required."})
+
     stage = _get_stage()
     if stage is None:
         return _NO_STAGE
@@ -219,12 +232,11 @@ def _handle_record_experience(tool_input: dict) -> str:
         sig_hash = tool_input.get("context_signature_hash", "")
         if not sig_hash and ctx.workflow_signature:
             sig_hash = ctx.workflow_signature.signature_hash()
-
         chunk = record_experience(
             stage,
-            initial_state=tool_input["initial_state"],
-            decisions=tool_input["decisions"],
-            outcome=tool_input["outcome"],
+            initial_state=initial_state,
+            decisions=decisions,
+            outcome=outcome,
             context_signature_hash=sig_hash,
         )
         return to_json({
