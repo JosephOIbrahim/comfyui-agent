@@ -444,3 +444,57 @@ class TestGetHistoryOptionalField:
         with patch("agent.tools.comfy_api._get", return_value={}):
             result = json.loads(comfy_api.handle("get_history", {}))
         assert "prompt_id" not in result.get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 67: input validation guards
+# ---------------------------------------------------------------------------
+
+class TestGetHistoryCycle67Guards:
+    """Cycle 67: get_history max_items must reject non-integer values."""
+
+    def test_string_max_items_returns_error(self):
+        """String max_items ('ten') must return JSON error, not TypeError in slice."""
+        from agent.tools import comfy_api
+        result = json.loads(comfy_api.handle("get_history", {"max_items": "ten"}))
+        assert "error" in result
+        assert "max_items" in result["error"].lower()
+
+    def test_float_string_max_items_returns_error(self):
+        """Float string '5.5' must return error (int() rejects it)."""
+        from agent.tools import comfy_api
+        result = json.loads(comfy_api.handle("get_history", {"max_items": "5.5"}))
+        assert "error" in result
+        assert "max_items" in result["error"].lower()
+
+    def test_integer_max_items_not_blocked(self):
+        """Integer max_items must not trigger the type guard."""
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        with patch("agent.tools.comfy_api._get", return_value={}):
+            result = json.loads(comfy_api.handle("get_history", {"max_items": 3}))
+        assert result.get("error", "") != "max_items must be an integer."
+
+
+class TestIsRunningCycle67Guards:
+    """Cycle 67: is_comfyui_running must handle non-dict device entries."""
+
+    def test_non_dict_device_does_not_crash(self):
+        """devices list with string element must not raise AttributeError."""
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        malformed_stats = {"devices": ["gpu_name_string"], "system": {}}
+        with patch("agent.tools.comfy_api._get", return_value=malformed_stats):
+            result = json.loads(comfy_api.handle("is_comfyui_running", {}))
+        assert result.get("running") is True
+        assert "no gpu" in result.get("gpu", "").lower()
+
+    def test_none_device_entry_does_not_crash(self):
+        """devices list with None element must not raise AttributeError."""
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        malformed_stats = {"devices": [None], "system": {}}
+        with patch("agent.tools.comfy_api._get", return_value=malformed_stats):
+            result = json.loads(comfy_api.handle("is_comfyui_running", {}))
+        assert result.get("running") is True
+        assert "no gpu" in result.get("gpu", "").lower()

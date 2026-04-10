@@ -213,3 +213,91 @@ class TestURLValidationExceptionLogging:
         assert result == "Invalid URL format."
         assert any("url" in r.message.lower() or "invalid" in r.message.lower()
                    for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 67: boolean coercion guards (auto_install, auto_fix)
+# ---------------------------------------------------------------------------
+
+class TestBooleanCoercionCycle67:
+    """Cycle 67: string 'false' must not be truthy for action-gating boolean flags."""
+
+    def test_auto_install_string_false_does_not_install(self):
+        """repair_workflow with auto_install='false' (string) must not trigger install."""
+        import json as _json
+        from unittest.mock import patch, MagicMock
+        from agent.tools import comfy_provision
+
+        # find_missing_nodes returns dicts with class_type, pack_url, pack_name
+        missing_result = _json.dumps({
+            "missing": [
+                {"class_type": "SomeNode",
+                 "pack_url": "https://github.com/org/pack",
+                 "pack_name": "SomePack"},
+            ],
+            "installed": [],
+        })
+
+        # _handle_install_node_pack is called directly (not via handle()) when auto_install is truthy
+        mock_install = MagicMock(return_value=_json.dumps({"installed": True}))
+
+        # discover_handle is a local import from comfy_discover — patch at source module
+        with patch("agent.tools.comfy_discover.handle", return_value=missing_result), \
+             patch("agent.tools.comfy_provision._handle_install_node_pack", mock_install):
+            comfy_provision._handle_repair_workflow({"auto_install": "false"})
+
+        assert mock_install.call_count == 0, \
+            "auto_install='false' (string) was truthy — install was triggered"
+
+    def _make_refs(self, exists: bool):
+        return [
+            {"node_id": "1", "class_type": "CheckpointLoaderSimple",
+             "field": "ckpt_name", "value": "missing.safetensors",
+             "model_type": "checkpoint",
+             "exists": exists, "best_match": "found.safetensors" if not exists else None},
+        ]
+
+    def test_auto_fix_string_false_does_not_modify_workflow(self):
+        """reconfigure_workflow with auto_fix='false' must not apply substitutions."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        workflow = {
+            "1": {"class_type": "CheckpointLoaderSimple",
+                  "inputs": {"ckpt_name": "missing.safetensors"}}
+        }
+
+        # _get_state is a local import from workflow_patch — patch at source module
+        with patch("agent.tools.workflow_patch._get_state",
+                   return_value={"current_workflow": workflow}), \
+             patch("agent.tools.comfy_provision._scan_model_references",
+                   return_value=self._make_refs(exists=False)):
+            result = _json.loads(comfy_provision._handle_reconfigure_workflow(
+                {"auto_fix": "false"}
+            ))
+
+        assert result.get("fixes_applied", 0) == 0, \
+            "auto_fix='false' (string) was truthy — workflow was modified"
+
+    def test_auto_fix_true_bool_applies_fix(self):
+        """reconfigure_workflow with auto_fix=True (bool) must apply substitutions."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        workflow = {
+            "1": {"class_type": "CheckpointLoaderSimple",
+                  "inputs": {"ckpt_name": "missing.safetensors"}}
+        }
+
+        with patch("agent.tools.workflow_patch._get_state",
+                   return_value={"current_workflow": workflow}), \
+             patch("agent.tools.comfy_provision._scan_model_references",
+                   return_value=self._make_refs(exists=False)):
+            result = _json.loads(comfy_provision._handle_reconfigure_workflow(
+                {"auto_fix": True}
+            ))
+
+        assert result.get("fixes_applied", 0) == 1, \
+            "auto_fix=True (bool) must apply the substitution"

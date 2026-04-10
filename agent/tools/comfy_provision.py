@@ -838,7 +838,8 @@ def _scan_model_references(workflow: dict) -> list[dict]:
 def _handle_repair_workflow(tool_input: dict) -> str:
     """Find missing nodes and auto-install the packs that provide them."""
     import json
-    auto_install = tool_input.get("auto_install", True)
+    _raw_install = tool_input.get("auto_install", True)  # Cycle 67: coerce string "false" (truthy)
+    auto_install = _raw_install if isinstance(_raw_install, bool) else str(_raw_install).lower() not in ("false", "0", "no", "")
 
     # Step 1: Find missing nodes
     try:
@@ -916,7 +917,8 @@ def _handle_repair_workflow(tool_input: dict) -> str:
 
 def _handle_reconfigure_workflow(tool_input: dict) -> str:
     """Scan workflow model references and fix missing ones."""
-    auto_fix = tool_input.get("auto_fix", False)
+    _raw_fix = tool_input.get("auto_fix", False)  # Cycle 67: coerce string "false" (truthy)
+    auto_fix = _raw_fix if isinstance(_raw_fix, bool) else str(_raw_fix).lower() not in ("false", "0", "no", "")
 
     # Get current workflow from PILOT state
     try:

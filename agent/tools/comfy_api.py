@@ -197,7 +197,12 @@ def _handle_is_running() -> str:
     try:
         stats = _get("/system_stats", timeout=5.0)
         devices = stats.get("devices", [])
-        gpu = devices[0].get("name", "unknown") if devices else "no GPU detected"
+        # Cycle 67: guard non-dict element (malformed API shape)
+        gpu = (
+            devices[0].get("name", "unknown")
+            if devices and isinstance(devices[0], dict)
+            else "no GPU detected"
+        )
         py_ver = stats.get("system", {}).get("python_version", "unknown")
         return to_json({
             "running": True,
@@ -362,7 +367,10 @@ def _handle_get_queue() -> str:
 
 def _handle_get_history(tool_input: dict) -> str:
     prompt_id = tool_input.get("prompt_id")
-    max_items = tool_input.get("max_items", 5)
+    try:
+        max_items = int(tool_input.get("max_items", 5))  # Cycle 67: guard string input
+    except (TypeError, ValueError):
+        return to_json({"error": "max_items must be an integer."})
     if prompt_id is not None and not isinstance(prompt_id, str):  # Cycle 54: type guard optional field
         return to_json({"error": "prompt_id must be a string if provided."})
 

@@ -1012,3 +1012,92 @@ class TestOutcomesLockWeakRef:
 
         assert len(set(id(lk) for lk in results)) == 1, \
             "All concurrent callers must receive the same lock object"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 67: render_time_s validation + JSONDecodeError log guard
+# ---------------------------------------------------------------------------
+
+_GOOD_PARAMS = {
+    "key_params": {"sampler": "euler", "steps": 20, "cfg": 7.0},
+    "session": "test_cycle67",
+}
+
+
+class TestRenderTimeSValidation:
+    """Cycle 67: record_outcome must validate render_time_s before allow_nan=False."""
+
+    def test_nan_render_time_returns_error(self):
+        """float('nan') render_time_s must return error, not crash in _append_outcome."""
+        result = json.loads(handle("record_outcome", {
+            **_GOOD_PARAMS,
+            "render_time_s": float("nan"),
+        }))
+        assert "error" in result
+        assert "render_time_s" in result["error"].lower()
+
+    def test_inf_render_time_returns_error(self):
+        """float('inf') render_time_s must return error, not crash."""
+        result = json.loads(handle("record_outcome", {
+            **_GOOD_PARAMS,
+            "render_time_s": float("inf"),
+        }))
+        assert "error" in result
+        assert "render_time_s" in result["error"].lower()
+
+    def test_negative_render_time_returns_error(self):
+        """Negative render_time_s must return error (seconds cannot be negative)."""
+        result = json.loads(handle("record_outcome", {
+            **_GOOD_PARAMS,
+            "render_time_s": -1.5,
+        }))
+        assert "error" in result
+        assert "render_time_s" in result["error"].lower()
+
+    def test_string_render_time_returns_error(self):
+        """String render_time_s ('fast') must return error."""
+        result = json.loads(handle("record_outcome", {
+            **_GOOD_PARAMS,
+            "render_time_s": "fast",
+        }))
+        assert "error" in result
+        assert "render_time_s" in result["error"].lower()
+
+    def test_valid_render_time_is_recorded(self):
+        """Valid float render_time_s must be recorded without error."""
+        result = json.loads(handle("record_outcome", {
+            **_GOOD_PARAMS,
+            "render_time_s": 12.5,
+        }))
+        assert result.get("recorded") is True
+
+    def test_none_render_time_allowed(self):
+        """Omitting render_time_s must succeed (it's optional)."""
+        result = json.loads(handle("record_outcome", _GOOD_PARAMS))
+        assert result.get("recorded") is True
+
+
+class TestOutcomeJsonDecodeLog:
+    """Cycle 67: corrupted JSONL lines must be logged at DEBUG, not silently skipped."""
+
+    def test_corrupted_line_logged_at_debug(self, tmp_path, caplog):
+        """A corrupted JSONL line must emit a DEBUG log entry."""
+        import logging
+        from agent.brain.memory import MemoryAgent
+        from agent.brain._sdk import BrainConfig
+
+        cfg = BrainConfig(sessions_dir=tmp_path)
+        mem = MemoryAgent(cfg)
+
+        # Write a corrupted JSONL line directly into the outcomes file
+        session = "logtest"
+        outcomes_path = tmp_path / f"{session}_outcomes.jsonl"
+        outcomes_path.write_text("{corrupted json{\n", encoding="utf-8")
+
+        with caplog.at_level(logging.DEBUG, logger="agent.brain.memory"):
+            outcomes = mem._load_outcomes(session)
+
+        assert outcomes == []  # corrupted line skipped
+        assert any("corrupt" in r.message.lower() or "skip" in r.message.lower()
+                   for r in caplog.records), \
+            "Expected DEBUG log about corrupted outcome line"

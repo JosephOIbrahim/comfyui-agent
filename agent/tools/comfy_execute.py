@@ -766,7 +766,8 @@ def _handle_execute_with_progress(
         timeout = float(tool_input.get("timeout", 300))  # Cycle 63: guard string input
     except (TypeError, ValueError):
         return to_json({"error": "timeout must be a number (seconds)"})
-    auto_verify = tool_input.get("auto_verify", False)
+    _raw_verify = tool_input.get("auto_verify", False)  # Cycle 67: coerce string "false" (truthy)
+    auto_verify = _raw_verify if isinstance(_raw_verify, bool) else str(_raw_verify).lower() not in ("false", "0", "no", "")
     session = tool_input.get("session", "default")
     goal_id = tool_input.get("goal_id")
 

@@ -257,7 +257,10 @@ class MemoryAgent(BrainAgent):
                 if line:
                     try:
                         outcomes.append(_migrate_outcome(json.loads(line)))
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as _e:
+                        log.debug(  # Cycle 67: silent swallow → debug log (Cycle 62 pattern)
+                            "Skipping corrupted outcome line in session %r: %s", session, _e
+                        )
                         continue
             return outcomes
 
@@ -349,6 +352,16 @@ class MemoryAgent(BrainAgent):
                     "error": f"quality_score must be in [0, 1], got {quality_score}."
                 })
 
+        render_time_s = tool_input.get("render_time_s")
+        if render_time_s is not None:
+            try:
+                render_time_s = float(render_time_s)  # Cycle 67: coerce before NaN-safe json.dumps
+            except (TypeError, ValueError):
+                return self.to_json({"error": "render_time_s must be a number."})
+            import math
+            if math.isnan(render_time_s) or math.isinf(render_time_s) or render_time_s < 0:
+                return self.to_json({"error": "render_time_s must be a finite non-negative number."})
+
         outcome = {
             "schema_version": OUTCOME_SCHEMA_VERSION,
             "timestamp": time.time(),
@@ -357,7 +370,7 @@ class MemoryAgent(BrainAgent):
             "workflow_hash": _workflow_hash(key_params),  # Cycle 58: use validated variable
             "key_params": key_params,
             "model_combo": tool_input.get("model_combo", []),
-            "render_time_s": tool_input.get("render_time_s"),
+            "render_time_s": render_time_s,  # Cycle 67: validated above
             "quality_score": quality_score,
             "vision_notes": tool_input.get("vision_notes", []),
             "user_feedback": tool_input.get("user_feedback", "neutral"),
