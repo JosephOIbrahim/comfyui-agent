@@ -942,3 +942,49 @@ class TestProvisionModelBoolCoercionCycle70:
         assert wire_mock.call_count == 0, \
             "auto_wire='false' (string) was truthy — wiring was triggered"
         assert result.get("step") == "already_installed"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 72: discover error dict silently becoming [] → wrong "No models found"
+# ---------------------------------------------------------------------------
+
+class TestProvisionModelDiscoverErrorPropagationCycle72:
+    """Cycle 72: when discover returns error dict, provision_model must surface it."""
+
+    def test_discover_rate_limit_surfaces_as_error_not_no_models(self):
+        """discover returning {'error': 'Rate limited'} must NOT become 'No models found'."""
+        from unittest.mock import patch
+        error_result = json.dumps({"error": "Rate limited by CivitAI API."})
+        with patch("agent.tools.comfy_discover.handle", return_value=error_result):
+            result = json.loads(provision_pipeline.handle("provision_model", {
+                "query": "Flux dev",
+            }))
+        assert "error" in result, "must propagate error from discover"
+        assert "rate" in result["error"].lower() or "limited" in result["error"].lower(), \
+            f"must surface original error, not 'No models found': {result['error']}"
+
+    def test_discover_connection_error_propagated(self):
+        """discover returning connection error must be surfaced with original message."""
+        from unittest.mock import patch
+        error_result = json.dumps({"error": "ComfyUI not reachable at localhost:8188."})
+        with patch("agent.tools.comfy_discover.handle", return_value=error_result):
+            result = json.loads(provision_pipeline.handle("provision_model", {
+                "query": "SDXL base",
+            }))
+        assert result.get("step") == "discover"
+        assert "comfyui" in result["error"].lower() or "reachable" in result["error"].lower()
+
+    def test_discover_success_with_results_still_works(self):
+        """discover returning valid results must proceed normally (regression check)."""
+        from unittest.mock import patch
+        ok_result = json.dumps({"results": [
+            {"name": "Flux Dev", "filename": "flux.safetensors",
+             "url": "https://example.com/flux.safetensors",
+             "model_type": "checkpoints", "installed": False},
+        ]})
+        with patch("agent.tools.comfy_discover.handle", return_value=ok_result):
+            result = json.loads(provision_pipeline.handle("provision_model", {
+                "query": "Flux dev",
+                "auto_download": False,
+            }))
+        assert result.get("step") == "candidates"

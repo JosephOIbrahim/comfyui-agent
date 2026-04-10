@@ -377,6 +377,8 @@ def _handle_get_history(tool_input: dict) -> str:
         max_items = int(tool_input.get("max_items", 5))  # Cycle 67: guard string input
     except (TypeError, ValueError):
         return to_json({"error": "max_items must be an integer."})
+    if max_items < 1:  # Cycle 72: negative value causes wrong slice [-n:] = [n:]
+        return to_json({"error": "max_items must be >= 1."})
     if prompt_id is not None and not isinstance(prompt_id, str):  # Cycle 54: type guard optional field
         return to_json({"error": "prompt_id must be a string if provided."})
 

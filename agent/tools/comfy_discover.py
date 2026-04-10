@@ -789,6 +789,8 @@ def _handle_discover(tool_input: dict) -> str:
         max_results = int(tool_input.get("max_results", 5))  # Cycle 65: guard string input
     except (TypeError, ValueError):
         return to_json({"error": "max_results must be an integer"})
+    if max_results < 1:  # Cycle 72: negative values cause unexpected slice behavior
+        return to_json({"error": "max_results must be >= 1."})
 
     all_results: list[dict] = []
     sources_searched: list[str] = []

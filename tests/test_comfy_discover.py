@@ -1345,3 +1345,39 @@ class TestDiscoverJsonDecodeGuard:
             "workflow": {"1": {"class_type": "KSampler", "inputs": {}}},
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 72: max_results negative value guard in discover
+# ---------------------------------------------------------------------------
+
+class TestDiscoverMaxResultsGuardCycle72:
+    """Cycle 72: negative max_results causes wrong slice behavior."""
+
+    def test_negative_max_results_returns_error(self):
+        """max_results=-1 must return structured error, not return wrong items."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "Flux",
+            "max_results": -1,
+        }))
+        assert "error" in result, "negative max_results must return error"
+        assert ">= 1" in result["error"] or "must be" in result["error"].lower()
+
+    def test_zero_max_results_returns_error(self):
+        """max_results=0 must return structured error."""
+        result = json.loads(comfy_discover.handle("discover", {
+            "query": "SDXL",
+            "max_results": 0,
+        }))
+        assert "error" in result
+
+    def test_valid_max_results_not_blocked(self):
+        """max_results=5 (valid) must not be blocked by the guard."""
+        from unittest.mock import patch
+        with patch("agent.tools.comfy_discover._search_catalog_unified", return_value=[]), \
+             patch("agent.tools.comfy_discover._search_nodes_unified", return_value=[]):
+            result = json.loads(comfy_discover.handle("discover", {
+                "query": "Flux",
+                "max_results": 5,
+            }))
+        assert "error" not in result or "max_results" not in result.get("error", "")

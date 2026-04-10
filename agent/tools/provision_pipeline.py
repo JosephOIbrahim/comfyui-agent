@@ -162,6 +162,8 @@ def _handle_provision_model(tool_input: dict) -> str:
         discover_result = json.loads(discover_handle("discover", discover_input))
     except (ValueError, TypeError) as _e:
         return to_json({"error": f"discover returned non-JSON: {_e}", "step": "discover"})
+    if discover_result.get("error"):  # Cycle 72: error dict silently became [] → "No models found"
+        return to_json({"error": discover_result["error"], "step": "discover"})
     results = discover_result.get("results", [])
     if not results:
         return to_json({"error": f"No models found for '{query}'", "step": "discover"})

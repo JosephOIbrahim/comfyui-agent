@@ -527,3 +527,36 @@ class TestIsRunningCycle68ErrorMessage:
         error_msg = result.get("error", "")
         assert "econnrefused" not in error_msg.lower()
         assert "connecterror" not in error_msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Cycle 72: max_items negative value guard in get_history
+# ---------------------------------------------------------------------------
+
+class TestGetHistoryMaxItemsGuardCycle72:
+    """Cycle 72: negative max_items causes wrong slice [-n:] = [n:] (skips items)."""
+
+    def test_negative_max_items_returns_error(self):
+        """max_items=-5 must return structured error, not silently skip items."""
+        import json as _json
+        from agent.tools import comfy_api
+        result = _json.loads(comfy_api.handle("get_history", {"max_items": -5}))
+        assert "error" in result, "negative max_items must return error"
+        assert "1" in result["error"] or ">=" in result["error"]
+
+    def test_zero_max_items_returns_error(self):
+        """max_items=0 must return structured error."""
+        import json as _json
+        from agent.tools import comfy_api
+        result = _json.loads(comfy_api.handle("get_history", {"max_items": 0}))
+        assert "error" in result
+
+    def test_positive_max_items_accepted(self):
+        """max_items=10 (valid) must not be blocked by the guard."""
+        import json as _json
+        from unittest.mock import patch
+        from agent.tools import comfy_api
+        import httpx
+        with patch("agent.tools.comfy_api._get", return_value={}):
+            result = _json.loads(comfy_api.handle("get_history", {"max_items": 10}))
+        assert "error" not in result or "max_items" not in result.get("error", "")
