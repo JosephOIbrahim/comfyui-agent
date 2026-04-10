@@ -606,6 +606,18 @@ def _handle_download_model(tool_input: dict) -> str:
         else:
             return to_json({"error": "Too many redirects during download (max 10).", "url": url})
 
+        # Cycle 36: guard against zero-byte downloads (HTTP 200 with empty body)
+        if downloaded == 0:
+            temp_path.unlink(missing_ok=True)
+            return to_json({
+                "error": (
+                    "Download produced an empty file (0 bytes). "
+                    "The server returned HTTP 200 but sent no data. "
+                    "Check the URL or try again."
+                ),
+                "url": url,
+            })
+
         # Rename temp to final
         temp_path.rename(target)
         elapsed = time.time() - start_time

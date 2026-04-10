@@ -137,7 +137,10 @@ class BrainAgent:
         agent = cls._registry.get(name)
         if agent is None:
             return _json.dumps({"error": f"Unknown brain tool: {name}"}, sort_keys=True)
-        return agent.handle(name, tool_input)
+        try:
+            return agent.handle(name, tool_input)
+        except Exception as exc:  # Cycle 36: defense-in-depth — isolate agent crashes
+            return _json.dumps({"error": f"Brain tool '{name}' raised: {exc}"}, sort_keys=True)
 
     @classmethod
     def _reset_registry(cls):

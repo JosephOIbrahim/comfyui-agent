@@ -343,3 +343,57 @@ class TestToJsonExtendedTypes:
         from agent.tools._util import to_json
         with pytest.raises(TypeError):
             to_json({"bad": object()})
+
+
+# ---------------------------------------------------------------------------
+# Cycle 36: dispatch() defense-in-depth — agent.handle() exceptions are caught
+# ---------------------------------------------------------------------------
+
+class TestDispatchExceptionIsolation:
+    """dispatch() must catch exceptions from agent.handle() and return error JSON."""
+
+    def setup_method(self):
+        from agent.brain._sdk import BrainAgent
+        BrainAgent._reset_registry()
+
+    def teardown_method(self):
+        from agent.brain._sdk import BrainAgent
+        BrainAgent._reset_registry()
+
+    def test_handle_exception_returns_error_json(self):
+        """If agent.handle() raises, dispatch() must return {"error": ...} not propagate."""
+        from agent.brain._sdk import BrainAgent, BrainConfig
+
+        class BombAgent(BrainAgent):
+            TOOLS = [{"name": "boom", "description": "explodes", "input_schema": {}}]
+
+            def handle(self, name, tool_input):
+                raise RuntimeError("kaboom")
+
+        BrainAgent._register_all()
+        BrainAgent._registry["boom"] = BombAgent(config=BrainConfig())
+
+        result = json.loads(BrainAgent.dispatch("boom", {}))
+        assert "error" in result
+        assert "kaboom" in result["error"]
+
+    def test_handle_exception_does_not_propagate(self):
+        """dispatch() must not raise even if handle() raises a non-JSON-safe exception."""
+        from agent.brain._sdk import BrainAgent, BrainConfig
+
+        class CrashAgent(BrainAgent):
+            TOOLS = [{"name": "crash_tool", "description": "crash", "input_schema": {}}]
+
+            def handle(self, name, tool_input):
+                raise ValueError("deliberate crash")
+
+        BrainAgent._register_all()
+        BrainAgent._registry["crash_tool"] = CrashAgent(config=BrainConfig())
+
+        try:
+            result = BrainAgent.dispatch("crash_tool", {})
+        except Exception as exc:
+            pytest.fail(f"dispatch() propagated exception: {exc}")
+
+        parsed = json.loads(result)
+        assert "error" in parsed

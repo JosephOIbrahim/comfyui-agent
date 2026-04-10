@@ -578,3 +578,75 @@ class TestErrorHierarchy:
     def test_error_json_returns_str(self):
         result = error_json("test message")
         assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 36: zero-byte download guard
+# ---------------------------------------------------------------------------
+
+class TestZeroByteDownloadGuard:
+    """download_model must return an error (not create an empty file) when the
+    server returns HTTP 200 with an empty response body. (Cycle 36 fix)"""
+
+    def test_empty_body_returns_error(self, tmp_path, monkeypatch):
+        """HTTP 200 + zero bytes must produce error JSON, not an empty model file."""
+        from unittest.mock import MagicMock, patch
+
+        from agent.tools.comfy_provision import handle
+
+        monkeypatch.setattr("agent.tools.comfy_provision.MODELS_DIR", tmp_path)
+        (tmp_path / "checkpoints").mkdir()
+
+        # Mock an HTTP 200 response that yields no bytes
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-length": "0"}
+        mock_resp.iter_bytes = MagicMock(return_value=iter([]))  # empty body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("agent.tools.comfy_provision.httpx.stream", return_value=mock_resp), \
+             patch("agent.tools.comfy_provision._resolve_and_check_private", return_value=None):
+            result = handle("download_model", {
+                "url": "https://huggingface.co/models/test/model.safetensors",
+                "model_type": "checkpoints",
+                "filename": "model.safetensors",
+            })
+
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "empty" in parsed["error"].lower() or "0 byte" in parsed["error"].lower()
+        # Must not have created any file
+        assert not any(tmp_path.rglob("model.safetensors"))
+        # Temp file must also be cleaned up
+        assert not any(tmp_path.rglob("*.download"))
+
+    def test_empty_body_does_not_rename_temp_file(self, tmp_path, monkeypatch):
+        """No .download temp file should survive after a zero-byte response."""
+        from unittest.mock import MagicMock, patch
+
+        from agent.tools.comfy_provision import handle
+
+        monkeypatch.setattr("agent.tools.comfy_provision.MODELS_DIR", tmp_path)
+        (tmp_path / "checkpoints").mkdir()
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {}
+        mock_resp.iter_bytes = MagicMock(return_value=iter([]))
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("agent.tools.comfy_provision.httpx.stream", return_value=mock_resp), \
+             patch("agent.tools.comfy_provision._resolve_and_check_private", return_value=None):
+            handle("download_model", {
+                "url": "https://huggingface.co/models/test/model.safetensors",
+                "model_type": "checkpoints",
+                "filename": "model.safetensors",
+            })
+
+        remaining = list(tmp_path.rglob("*"))
+        file_names = [f.name for f in remaining if f.is_file()]
+        assert not any(".download" in n for n in file_names), (
+            f"Temp .download file survived: {file_names}"
+        )

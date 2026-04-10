@@ -145,3 +145,41 @@ class TestToolProfiles:
         assert "validate_before_execute" in allowed
         assert "execute_workflow" in allowed
         assert "analyze_image" in allowed
+
+
+# ---------------------------------------------------------------------------
+# Cycle 36: daemon thread fix — spawned worker thread must not block exit
+# ---------------------------------------------------------------------------
+
+class TestSubtaskDaemonThread:
+    """spawn_subtask worker thread must be a daemon thread (Cycle 36 fix)."""
+
+    def test_spawned_worker_is_daemon(self):
+        """After spawn, the worker thread running _run_subtask must be daemon=True."""
+        import threading
+        agent = _get_orch_instance()
+
+        captured_threads: list[threading.Thread] = []
+        original_start = threading.Thread.start
+
+        def _recording_start(self_thread, *args, **kwargs):
+            # Capture the thread BEFORE it starts (daemon attribute is set before start)
+            if "subtask-" in (self_thread.name or ""):
+                captured_threads.append(self_thread)
+            original_start(self_thread, *args, **kwargs)
+
+        with patch.object(threading.Thread, "start", _recording_start), \
+             patch.object(agent, "_run_subtask", return_value={
+                 "task_id": "t1", "status": "completed", "results": [],
+                 "completed_at": time.time(),
+             }):
+            agent.handle("spawn_subtask", {
+                "task_description": "Daemon check",
+                "profile": "researcher",
+                "tool_calls": [{"tool": "list_models", "input": {}}],
+            })
+            time.sleep(0.05)  # Let the thread start
+
+        assert len(captured_threads) >= 1, "No subtask thread was recorded"
+        for t in captured_threads:
+            assert t.daemon is True, f"Thread {t.name!r} is not a daemon thread"

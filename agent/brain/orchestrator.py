@@ -229,7 +229,11 @@ class OrchestratorAgent(BrainAgent):
                 "tool_count": len(tool_calls),
             }
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        # Cycle 36: use a daemon thread + manual Future instead of ThreadPoolExecutor.
+        # ThreadPoolExecutor registers an atexit handler that blocks process exit until
+        # all submitted work completes — up to _SUBTASK_TIMEOUT_S seconds. A daemon
+        # thread is killed automatically when the main thread exits with no blocking.
+        future: concurrent.futures.Future = concurrent.futures.Future()
 
         def _on_timeout():
             """Watchdog: fires if subtask exceeds timeout before completing."""
@@ -239,7 +243,8 @@ class OrchestratorAgent(BrainAgent):
                     self._active_tasks[task_id]["error"] = (
                         f"Subtask timed out after {_SUBTASK_TIMEOUT_S}s"
                     )
-            executor.shutdown(wait=False)
+            # Cancel the future so _on_done sees a cancelled state (best-effort)
+            future.cancel()
 
         timer = threading.Timer(_SUBTASK_TIMEOUT_S, _on_timeout)
         timer.daemon = True
@@ -253,21 +258,36 @@ class OrchestratorAgent(BrainAgent):
                     # Only update if the watchdog hasn't already marked it timed out
                     if self._active_tasks.get(task_id, {}).get("status") == "running":
                         self._active_tasks[task_id].update(result)
+            except concurrent.futures.CancelledError:
+                pass  # Timeout already updated the task state
             except Exception as e:
                 with self._tasks_lock:
                     if self._active_tasks.get(task_id, {}).get("status") == "running":
                         self._active_tasks[task_id]["status"] = "error"
                         self._active_tasks[task_id]["error"] = str(e)
-            finally:
-                executor.shutdown(wait=False)
 
+        future.add_done_callback(_on_done)
+
+        def _worker():
+            if future.cancelled():
+                return
+            try:
+                result = self._run_subtask(task_id, profile, tool_calls)
+                if not future.cancelled():
+                    future.set_result(result)
+            except Exception as exc:
+                if not future.cancelled():
+                    future.set_exception(exc)
+
+        worker = threading.Thread(
+            target=_worker,
+            daemon=True,  # dies automatically when the process exits — no atexit blocking
+            name=f"subtask-{task_id}",
+        )
         try:
-            future = executor.submit(self._run_subtask, task_id, profile, tool_calls)
-            future.add_done_callback(_on_done)
+            worker.start()
         except Exception:
-            # submit() failed — cancel watchdog and release the executor immediately
             timer.cancel()
-            executor.shutdown(wait=False)
             raise
 
         return self.to_json({
