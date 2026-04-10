@@ -60,3 +60,49 @@ class TestTemplateNameSecurity:
                 assert "/" not in name and "\\" not in name, (
                     f"Template name contains path separator: {name!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Cycle 45 — get_workflow_template required field guard
+# ---------------------------------------------------------------------------
+
+class TestGetTemplateRequiredField:
+    """get_workflow_template must return a structured error when 'template' is
+    missing, empty, or not a string — never KeyError or TypeError.
+    """
+
+    def test_missing_template_returns_error(self):
+        """Omitting 'template' must return an error dict, not raise."""
+        result = json.loads(workflow_templates.handle("get_workflow_template", {}))
+        assert "error" in result
+        assert "template" in result["error"].lower()
+
+    def test_empty_string_template_returns_error(self):
+        """Empty string 'template' must return an error dict."""
+        result = json.loads(workflow_templates.handle("get_workflow_template", {
+            "template": "",
+        }))
+        assert "error" in result
+
+    def test_none_template_returns_error(self):
+        """None 'template' must return an error dict, not AttributeError."""
+        result = json.loads(workflow_templates.handle("get_workflow_template", {
+            "template": None,
+        }))
+        assert "error" in result
+
+    def test_integer_template_returns_error(self):
+        """Non-string 'template' (int) must return an error dict."""
+        result = json.loads(workflow_templates.handle("get_workflow_template", {
+            "template": 123,
+        }))
+        assert "error" in result
+
+    def test_valid_template_name_not_blocked_by_guard(self):
+        """Guard must not break the normal not-found error path for an unknown name."""
+        result = json.loads(workflow_templates.handle("get_workflow_template", {
+            "template": "nonexistent_template_xyz",
+        }))
+        # Should return not-found error (not the required-field error)
+        assert "error" in result
+        assert "nonexistent_template_xyz" in result["error"]

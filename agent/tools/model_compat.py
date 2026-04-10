@@ -332,7 +332,9 @@ def _handle_check_compatibility(tool_input: dict) -> str:
 
 
 def _handle_identify_family(tool_input: dict) -> str:
-    model_name = tool_input["model_name"]
+    model_name = tool_input.get("model_name")  # Cycle 45: guard required field
+    if not model_name or not isinstance(model_name, str):
+        return to_json({"error": "model_name is required and must be a non-empty string."})
     family = _identify_family(model_name)
     info = MODEL_FAMILIES.get(family, {})
 

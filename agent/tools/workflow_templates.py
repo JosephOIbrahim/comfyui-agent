@@ -257,7 +257,10 @@ def _resolve_template_path(template_name: str) -> Path | None:
 
 
 def _handle_get_template(tool_input: dict) -> str:
-    template_name = tool_input["template"]
+    template_name = tool_input.get("template")  # Cycle 45: guard required field
+    if not template_name or not isinstance(template_name, str):
+        return to_json({"error": "template is required and must be a non-empty string."})
+
     path = _resolve_template_path(template_name)
 
     if path is None:

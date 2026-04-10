@@ -633,3 +633,271 @@ class TestPreviewPatchValidation:
             "patches": [{"op": "replace", "path": "/1/inputs/ckpt_name", "value": "v2.safetensors"}],
         }))
         assert "error" not in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 45 — Engine mutation fallback guards
+# ---------------------------------------------------------------------------
+
+class TestAddNodeEngineFallback:
+    """_handle_add_node: engine.mutate_workflow failure falls back to direct write.
+
+    CRITICAL invariant: undo stack must have exactly 1 snapshot pushed before the
+    engine call, and the node must appear in current_workflow regardless of engine
+    outcome. A throwing engine must NOT leave a stale undo entry with the node absent.
+    """
+
+    def _load(self, sample_workflow):
+        """Load via apply_workflow_patch (standard path — also creates engine)."""
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_node_added_when_engine_raises(self, sample_workflow):
+        """Node must appear in current_workflow even if engine.mutate_workflow raises."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("engine exploded")
+        workflow_patch._set_engine(bad_engine)
+
+        result = json.loads(workflow_patch.handle("add_node", {
+            "class_type": "VAEDecode",
+            "inputs": {},
+        }))
+
+        assert result.get("added") is True
+        nid = result["node_id"]
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert nid in wf, "node must be in current_workflow after engine fallback"
+        assert wf[nid]["class_type"] == "VAEDecode"
+
+    def test_undo_stack_has_one_entry_after_engine_failure(self, sample_workflow):
+        """Exactly one snapshot must be pushed to history even when engine raises."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+        # Clear history so we start from 0
+        workflow_patch._get_state()["history"].clear()
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = ValueError("boom")
+        workflow_patch._set_engine(bad_engine)
+
+        workflow_patch.handle("add_node", {"class_type": "KSampler", "inputs": {}})
+        assert len(workflow_patch._get_state()["history"]) == 1
+
+    def test_undo_after_engine_fallback_restores_state(self, sample_workflow):
+        """Undo must restore workflow to the pre-add snapshot (engine was bypassed)."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+        node_count_before = len(workflow_patch._get_state()["current_workflow"])
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("fail")
+        bad_engine.pop_delta.return_value = None
+        workflow_patch._set_engine(bad_engine)
+
+        workflow_patch.handle("add_node", {"class_type": "SaveImage", "inputs": {}})
+        assert len(workflow_patch._get_state()["current_workflow"]) == node_count_before + 1
+
+        # Restore engine to None so undo doesn't try the broken engine
+        workflow_patch._set_engine(None)
+
+        undo_result = json.loads(workflow_patch.handle("undo_workflow_patch", {}))
+        assert undo_result.get("undone") is True
+        assert len(workflow_patch._get_state()["current_workflow"]) == node_count_before
+
+
+class TestConnectNodesEngineFallback:
+    """_handle_connect_nodes: engine failure falls back to direct write (non-autogrow)
+    or rebuilds engine (autogrow). Connection must always be applied.
+    """
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_connection_made_when_engine_raises_non_autogrow(self, sample_workflow):
+        """Non-dotted to_input: connection applied via direct write when engine fails."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("oops")
+        workflow_patch._set_engine(bad_engine)
+
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "2",
+            "to_input": "clip",
+        }))
+
+        assert result.get("connected") is True
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["2"]["inputs"]["clip"] == ["1", 0]
+
+    def test_undo_stack_intact_after_connect_engine_failure(self, sample_workflow):
+        """Exactly 1 snapshot pushed before engine call regardless of engine failure."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+        workflow_patch._get_state()["history"].clear()
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = ValueError("kaboom")
+        workflow_patch._set_engine(bad_engine)
+
+        workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "3",
+            "to_input": "model",
+        })
+        assert len(workflow_patch._get_state()["history"]) == 1
+
+    def test_autogrow_connection_made_when_engine_raises(self, sample_workflow):
+        """Dotted to_input (autogrow): dict mutation already applied, engine rebuild attempted."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("crash")
+        workflow_patch._set_engine(bad_engine)
+
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 0,
+            "to_node": "2",
+            "to_input": "extra.my_slot",
+        }))
+
+        assert result.get("connected") is True
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["2"]["inputs"]["extra"]["my_slot"] == ["1", 0]
+
+
+class TestSetInputEngineFallback:
+    """_handle_set_input: engine failure falls back to direct write (non-autogrow)
+    or rebuilds engine (autogrow). Input value must always be applied.
+    """
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_value_set_when_engine_raises_non_autogrow(self, sample_workflow):
+        """Non-dotted input_name: value applied via direct write when engine fails."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("engine dead")
+        workflow_patch._set_engine(bad_engine)
+
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "3",
+            "input_name": "steps",
+            "value": 42,
+        }))
+
+        assert result.get("set") is True
+        assert result["new_value"] == 42
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["3"]["inputs"]["steps"] == 42
+
+    def test_undo_stack_intact_after_set_input_engine_failure(self, sample_workflow):
+        """1 snapshot in history even when engine raises in set_input."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+        workflow_patch._get_state()["history"].clear()
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = ValueError("nope")
+        workflow_patch._set_engine(bad_engine)
+
+        workflow_patch.handle("set_input", {
+            "node_id": "1",
+            "input_name": "ckpt_name",
+            "value": "new_model.safetensors",
+        })
+        assert len(workflow_patch._get_state()["history"]) == 1
+
+    def test_autogrow_value_set_when_engine_raises(self, sample_workflow):
+        """Dotted input_name (autogrow): dict mutation applied, engine rebuild attempted."""
+        from unittest.mock import MagicMock
+        self._load(sample_workflow)
+
+        bad_engine = MagicMock()
+        bad_engine.mutate_workflow.side_effect = RuntimeError("oops")
+        workflow_patch._set_engine(bad_engine)
+
+        result = json.loads(workflow_patch.handle("set_input", {
+            "node_id": "3",
+            "input_name": "extra.strength",
+            "value": 0.75,
+        }))
+
+        assert result.get("set") is True
+        wf = workflow_patch._get_state()["current_workflow"]
+        assert wf["3"]["inputs"]["extra"]["strength"] == 0.75
+
+
+class TestUndoEngineRebuildFailure:
+    """_handle_undo: if engine rebuild after a history-only undo raises,
+    undo still succeeds and engine is set to None (disabled).
+    """
+
+    def _load(self, sample_workflow):
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow),
+            "patches": [],
+        })
+
+    def test_undo_succeeds_when_engine_rebuild_raises(self, sample_workflow):
+        """Undo must restore workflow even if _create_engine raises during rebuild."""
+        from unittest.mock import MagicMock, patch as mock_patch
+        self._load(sample_workflow)
+
+        # Make a real change to populate history
+        workflow_patch.handle("apply_workflow_patch", {
+            "patches": [{"op": "replace", "path": "/3/inputs/steps", "value": 99}],
+        })
+        assert workflow_patch._get_state()["current_workflow"]["3"]["inputs"]["steps"] == 99
+
+        # Set an engine whose pop_delta() returns None → triggers rebuild path
+        mock_engine = MagicMock()
+        mock_engine.pop_delta.return_value = None
+        workflow_patch._set_engine(mock_engine)
+
+        # Make _create_engine raise so the rebuild fails
+        with mock_patch.object(workflow_patch, "_create_engine", side_effect=RuntimeError("no engine")):
+            undo_result = json.loads(workflow_patch.handle("undo_workflow_patch", {}))
+
+        assert undo_result.get("undone") is True, "undo must still succeed when engine rebuild fails"
+        # Workflow must be restored to pre-change state
+        assert workflow_patch._get_state()["current_workflow"]["3"]["inputs"]["steps"] == 20
+
+    def test_engine_disabled_when_rebuild_raises(self, sample_workflow):
+        """Engine must be set to None (disabled) when rebuild after undo raises."""
+        from unittest.mock import MagicMock, patch as mock_patch
+        self._load(sample_workflow)
+
+        # Make a change so history is non-empty
+        workflow_patch.handle("apply_workflow_patch", {
+            "patches": [{"op": "replace", "path": "/3/inputs/cfg", "value": 5.0}],
+        })
+
+        mock_engine = MagicMock()
+        mock_engine.pop_delta.return_value = None
+        workflow_patch._set_engine(mock_engine)
+
+        with mock_patch.object(workflow_patch, "_create_engine", side_effect=RuntimeError("unavail")):
+            workflow_patch.handle("undo_workflow_patch", {})
+
+        assert workflow_patch._get_engine() is None, "engine must be disabled after rebuild failure"

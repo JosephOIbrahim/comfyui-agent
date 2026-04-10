@@ -528,8 +528,12 @@ def _handle_undo() -> str:
         if popped is not None:
             _sync_state_from_engine()
         else:
-            # Engine stack empty but history had entries — rebuild engine
-            _set_engine(_create_engine(_get_state()["current_workflow"]))
+            # Engine stack empty but history had entries — rebuild engine from restored state
+            try:
+                _set_engine(_create_engine(_get_state()["current_workflow"]))
+            except Exception as exc:  # Cycle 45: guard — undo already succeeded, engine is optional
+                log.warning("Could not rebuild engine after undo: %s. Engine disabled.", exc)
+                _set_engine(None)
 
     remaining = len(
         jsonpatch.make_patch(_get_state()["base_workflow"], _get_state()["current_workflow"]).patch
@@ -659,13 +663,20 @@ def _handle_add_node(tool_input: dict) -> str:
     # Use engine if available
     engine = _get_engine()
     if engine is not None:
-        mutations = {node_id: {"class_type": class_type, **inputs}}
-        engine.mutate_workflow(
-            mutations,
-            opinion="L",
-            description=f"add_node: {class_type} as {node_id}",
-        )
-        _sync_state_from_engine()
+        try:
+            mutations = {node_id: {"class_type": class_type, **inputs}}
+            engine.mutate_workflow(
+                mutations,
+                opinion="L",
+                description=f"add_node: {class_type} as {node_id}",
+            )
+            _sync_state_from_engine()
+        except Exception as exc:  # Cycle 45: guard undo stack — engine failure falls back to direct write
+            log.debug("Engine mutation failed in add_node, using direct write: %s", exc)
+            _get_state()["current_workflow"][node_id] = {
+                "class_type": class_type,
+                "inputs": inputs,
+            }
     else:
         _get_state()["current_workflow"][node_id] = {
             "class_type": class_type,
@@ -734,22 +745,30 @@ def _handle_connect_nodes(tool_input: dict) -> str:
         inputs[group] = autogrow_dict
 
         if engine is not None:
-            engine.mutate_workflow(
-                {to_node: {group: copy.deepcopy(inputs[group])}},
-                opinion="L",
-                description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
-            )
-            _sync_state_from_engine()
+            try:
+                engine.mutate_workflow(
+                    {to_node: {group: copy.deepcopy(inputs[group])}},
+                    opinion="L",
+                    description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
+                )
+                _sync_state_from_engine()
+            except Exception as exc:  # Cycle 45: guard undo stack — autogrow direct write already applied
+                log.debug("Engine mutation failed in connect_nodes (autogrow), rebuilding: %s", exc)
+                _set_engine(_create_engine(_get_state()["current_workflow"]))
     else:
         old_value = workflow[to_node].get("inputs", {}).get(to_input)
 
         if engine is not None:
-            engine.mutate_workflow(
-                {to_node: {to_input: connection}},
-                opinion="L",
-                description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
-            )
-            _sync_state_from_engine()
+            try:
+                engine.mutate_workflow(
+                    {to_node: {to_input: connection}},
+                    opinion="L",
+                    description=f"connect_nodes: {from_node}[{from_output}] -> {to_node}.{to_input}",
+                )
+                _sync_state_from_engine()
+            except Exception as exc:  # Cycle 45: guard undo stack — fall back to direct write
+                log.debug("Engine mutation failed in connect_nodes, using direct write: %s", exc)
+                workflow[to_node].setdefault("inputs", {})[to_input] = connection
         else:
             workflow[to_node].setdefault("inputs", {})[to_input] = connection
 
@@ -800,22 +819,30 @@ def _handle_set_input(tool_input: dict) -> str:
         inputs[group] = autogrow_dict
 
         if engine is not None:
-            engine.mutate_workflow(
-                {node_id: {group: copy.deepcopy(inputs[group])}},
-                opinion="L",
-                description=f"set_input: {node_id}.{input_name} = {value!r}",
-            )
-            _sync_state_from_engine()
+            try:
+                engine.mutate_workflow(
+                    {node_id: {group: copy.deepcopy(inputs[group])}},
+                    opinion="L",
+                    description=f"set_input: {node_id}.{input_name} = {value!r}",
+                )
+                _sync_state_from_engine()
+            except Exception as exc:  # Cycle 45: guard undo stack — autogrow direct write already applied
+                log.debug("Engine mutation failed in set_input (autogrow), rebuilding: %s", exc)
+                _set_engine(_create_engine(_get_state()["current_workflow"]))
     else:
         old_value = workflow[node_id].get("inputs", {}).get(input_name)
 
         if engine is not None:
-            engine.mutate_workflow(
-                {node_id: {input_name: value}},
-                opinion="L",
-                description=f"set_input: {node_id}.{input_name} = {value!r}",
-            )
-            _sync_state_from_engine()
+            try:
+                engine.mutate_workflow(
+                    {node_id: {input_name: value}},
+                    opinion="L",
+                    description=f"set_input: {node_id}.{input_name} = {value!r}",
+                )
+                _sync_state_from_engine()
+            except Exception as exc:  # Cycle 45: guard undo stack — fall back to direct write
+                log.debug("Engine mutation failed in set_input, using direct write: %s", exc)
+                workflow[node_id].setdefault("inputs", {})[input_name] = value
         else:
             workflow[node_id].setdefault("inputs", {})[input_name] = value
 

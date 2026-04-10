@@ -286,3 +286,48 @@ class TestUnknownFamilyKeyGuard:
         # reason and message must not KeyError — GHOST_FAMILY falls back to its key name
         assert isinstance(result["conflicts"][0]["reason"], str)
         assert isinstance(result["message"], str)
+
+
+# ---------------------------------------------------------------------------
+# Cycle 45 — identify_model_family required field guard
+# ---------------------------------------------------------------------------
+
+class TestIdentifyFamilyRequiredField:
+    """identify_model_family must return a structured error when model_name is
+    missing, empty, or not a string — never KeyError or AttributeError.
+    """
+
+    def test_missing_model_name_returns_error(self):
+        """Omitting model_name must return an error dict, not raise."""
+        result = json.loads(model_compat.handle("identify_model_family", {}))
+        assert "error" in result
+        assert "model_name" in result["error"].lower()
+
+    def test_empty_string_model_name_returns_error(self):
+        """Empty string model_name must return an error dict."""
+        result = json.loads(model_compat.handle("identify_model_family", {
+            "model_name": "",
+        }))
+        assert "error" in result
+
+    def test_none_model_name_returns_error(self):
+        """None model_name must return an error dict, not AttributeError."""
+        result = json.loads(model_compat.handle("identify_model_family", {
+            "model_name": None,
+        }))
+        assert "error" in result
+
+    def test_integer_model_name_returns_error(self):
+        """Non-string model_name (int) must return an error dict."""
+        result = json.loads(model_compat.handle("identify_model_family", {
+            "model_name": 42,
+        }))
+        assert "error" in result
+
+    def test_valid_model_name_still_works(self):
+        """Guard must not break the happy path for a valid model name."""
+        result = json.loads(model_compat.handle("identify_model_family", {
+            "model_name": "sdxl_base_1.0.safetensors",
+        }))
+        assert "error" not in result
+        assert result["family"] == "sdxl"
