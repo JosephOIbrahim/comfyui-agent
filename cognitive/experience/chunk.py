@@ -22,6 +22,14 @@ class QualityScore:
     prompt_adherence: float = 0.0  # How well it matches the prompt
     source: str = ""  # "vision", "rule", "human", "hash"
 
+    def __post_init__(self):
+        # Clamp all scores to [0.0, 1.0] — callers may pass raw floats from
+        # evaluators or deserialized data that are out of range.
+        self.overall = max(0.0, min(1.0, float(self.overall)))
+        self.technical = max(0.0, min(1.0, float(self.technical)))
+        self.aesthetic = max(0.0, min(1.0, float(self.aesthetic)))
+        self.prompt_adherence = max(0.0, min(1.0, float(self.prompt_adherence)))
+
     @property
     def is_scored(self) -> bool:
         return self.overall > 0.0

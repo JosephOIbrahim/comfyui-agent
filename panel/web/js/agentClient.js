@@ -239,6 +239,14 @@ export class AgentClient {
 
     this._ws.onopen = () => {
       console.debug("[Comfy Cozy] WebSocket connected");
+      // Drain any messages queued while the socket was disconnected
+      if (this._sendQueue && this._sendQueue.length > 0) {
+        const queued = this._sendQueue.splice(0);
+        for (const text of queued) {
+          this._ws.send(JSON.stringify({ type: "chat", content: text }));
+        }
+        console.debug(`[Comfy Cozy] Drained ${queued.length} queued message(s)`);
+      }
     };
 
     this._ws.onmessage = (evt) => {
@@ -273,6 +281,11 @@ export class AgentClient {
   sendChat(text) {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify({ type: "chat", content: text }));
+    } else {
+      // Socket is not open — queue the message and drain on reconnect
+      if (!this._sendQueue) this._sendQueue = [];
+      this._sendQueue.push(text);
+      console.debug("[Comfy Cozy] WS not open — message queued:", text.slice(0, 60));
     }
   }
 

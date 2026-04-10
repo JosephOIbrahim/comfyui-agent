@@ -59,6 +59,7 @@ class CounterfactualGenerator:
             "denoise": (0.3, 1.0),
         }
         self._lock = threading.Lock()
+        self._param_cursor: int = 0  # Round-robin cursor — prevents cfg-only bias
 
     @property
     def total_generated(self) -> int:
@@ -98,8 +99,20 @@ class CounterfactualGenerator:
         Returns:
             Counterfactual or None.
         """
-        # Find a parameter we can vary
-        for param_name, (low, high) in self._parameter_ranges.items():
+        # Round-robin across parameters to prevent cfg-only bias.
+        # Python dict insertion order is stable (3.7+), so without rotation
+        # the generator always picks "cfg" — "steps" and "denoise" are never varied.
+        param_names = list(self._parameter_ranges.keys())
+        n = len(param_names)
+
+        with self._lock:
+            start = self._param_cursor
+
+        for offset in range(n):
+            idx = (start + offset) % n
+            param_name = param_names[idx]
+            low, high = self._parameter_ranges[param_name]
+
             current_val = current_params.get(param_name)
             if current_val is None:
                 continue
@@ -134,6 +147,7 @@ class CounterfactualGenerator:
             )
             with self._lock:
                 self._counterfactuals.append(cf)
+                self._param_cursor = (idx + 1) % n  # Advance past the chosen param
             return cf
 
         return None

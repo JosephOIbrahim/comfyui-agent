@@ -104,6 +104,26 @@ class TestQualityScore:
         q = QualityScore(overall=0.5)
         assert q.is_scored is True
 
+    def test_clamps_above_one(self):
+        """Cycle 27 fix: overall > 1.0 must be clamped to 1.0, not stored raw."""
+        q = QualityScore(overall=1.5, technical=2.0, aesthetic=99.0, prompt_adherence=3.3)
+        assert q.overall == 1.0
+        assert q.technical == 1.0
+        assert q.aesthetic == 1.0
+        assert q.prompt_adherence == 1.0
+
+    def test_clamps_below_zero(self):
+        """Negative scores must be clamped to 0.0."""
+        q = QualityScore(overall=-0.5, technical=-1.0)
+        assert q.overall == 0.0
+        assert q.technical == 0.0
+
+    def test_valid_range_unchanged(self):
+        """Values already in [0, 1] must not be altered."""
+        q = QualityScore(overall=0.75, technical=0.6, aesthetic=0.9, prompt_adherence=0.5)
+        assert q.overall == pytest.approx(0.75)
+        assert q.technical == pytest.approx(0.6)
+
 
 # ---------------------------------------------------------------------------
 # GenerationContextSignature

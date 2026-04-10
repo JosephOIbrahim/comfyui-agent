@@ -18,27 +18,63 @@ SDK classes (for standalone/testing use):
   DemoAgent, IterativeRefineAgent, IntentCollectorAgent, IterationAccumulatorAgent
 """
 
+import importlib
 import logging
 
-from . import (  # noqa: F401 — trigger subclass registration
-    vision, planner, memory, orchestrator, optimizer,
-    demo, iterative_refine, intent_collector, iteration_accumulator,
-)
 from ._sdk import BrainAgent, BrainConfig  # noqa: F401
 from ..errors import error_json
 
-# Re-export agent classes (keep ALL existing re-exports)
-from .demo import DemoAgent  # noqa: F401
-from .intent_collector import IntentCollectorAgent  # noqa: F401
-from .iterative_refine import IterativeRefineAgent  # noqa: F401
-from .iteration_accumulator import IterationAccumulatorAgent  # noqa: F401
-from .memory import MemoryAgent  # noqa: F401
-from .optimizer import OptimizerAgent  # noqa: F401
-from .orchestrator import OrchestratorAgent  # noqa: F401
-from .planner import PlannerAgent  # noqa: F401
-from .vision import VisionAgent  # noqa: F401
-
 log = logging.getLogger(__name__)
+
+# Register brain submodules individually — each is isolated so a single broken
+# module (missing pip dep, syntax error) does NOT crash the entire brain layer.
+_BRAIN_SUBMODULES = [
+    "vision", "planner", "memory", "orchestrator", "optimizer",
+    "demo", "iterative_refine", "intent_collector", "iteration_accumulator",
+]
+for _bmod in _BRAIN_SUBMODULES:
+    try:
+        importlib.import_module(f".{_bmod}", package=__name__)
+    except Exception as _e:
+        log.warning("Brain submodule %r failed to register: %s", _bmod, _e)
+
+# Re-export agent classes (guarded — a submodule may have failed above)
+try:
+    from .demo import DemoAgent  # noqa: F401
+except ImportError:
+    DemoAgent = None  # type: ignore[assignment,misc]
+try:
+    from .intent_collector import IntentCollectorAgent  # noqa: F401
+except ImportError:
+    IntentCollectorAgent = None  # type: ignore[assignment,misc]
+try:
+    from .iterative_refine import IterativeRefineAgent  # noqa: F401
+except ImportError:
+    IterativeRefineAgent = None  # type: ignore[assignment,misc]
+try:
+    from .iteration_accumulator import IterationAccumulatorAgent  # noqa: F401
+except ImportError:
+    IterationAccumulatorAgent = None  # type: ignore[assignment,misc]
+try:
+    from .memory import MemoryAgent  # noqa: F401
+except ImportError:
+    MemoryAgent = None  # type: ignore[assignment,misc]
+try:
+    from .optimizer import OptimizerAgent  # noqa: F401
+except ImportError:
+    OptimizerAgent = None  # type: ignore[assignment,misc]
+try:
+    from .orchestrator import OrchestratorAgent  # noqa: F401
+except ImportError:
+    OrchestratorAgent = None  # type: ignore[assignment,misc]
+try:
+    from .planner import PlannerAgent  # noqa: F401
+except ImportError:
+    PlannerAgent = None  # type: ignore[assignment,misc]
+try:
+    from .vision import VisionAgent  # noqa: F401
+except ImportError:
+    VisionAgent = None  # type: ignore[assignment,misc]
 
 ALL_BRAIN_TOOLS = BrainAgent.get_all_tools()
 

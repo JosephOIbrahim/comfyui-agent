@@ -238,3 +238,22 @@ class TestCounterfactuals:
         generator.generate({"cfg": 7.0}, 0.7)
         assert generator.total_generated == 1
         assert generator.total_validated == 0
+
+    def test_round_robin_fairness(self, generator):
+        """Cycle 27 fix: generate() must rotate across parameters, not always pick cfg."""
+        params = {"cfg": 7.0, "steps": 20, "denoise": 0.8}
+        changed = [
+            generator.generate(params, 0.7).changed_parameter
+            for _ in range(6)
+        ]
+        # After 6 rounds across 3 parameters, all three must have appeared at least once
+        assert "cfg" in changed
+        assert "steps" in changed
+        assert "denoise" in changed
+
+    def test_round_robin_sequential(self, generator):
+        """Consecutive calls cycle through parameters in order, not always the same one."""
+        params = {"cfg": 7.0, "steps": 20, "denoise": 0.8}
+        first = generator.generate(params, 0.7).changed_parameter
+        second = generator.generate(params, 0.7).changed_parameter
+        assert first != second  # Must not repeat the same parameter back-to-back
