@@ -127,9 +127,14 @@ def to_json(obj, **kwargs) -> str:
 
     Uses _json_default as fallback encoder so Path and set/frozenset values
     don't crash the serializer. Callers can override default= if needed.
+
+    allow_nan=False (Cycle 51): NaN/Infinity are not valid JSON per spec.
+    Raising ValueError here is strictly better than silently producing invalid
+    JSON that downstream parsers will reject or misinterpret.
     """
     kwargs.setdefault("sort_keys", True)
     kwargs.setdefault("default", _json_default)
+    kwargs.setdefault("allow_nan", False)
     return _json.dumps(obj, **kwargs)
 
 

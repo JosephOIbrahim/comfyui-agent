@@ -798,6 +798,12 @@ def _handle_get_execution_status(tool_input: dict) -> str:
     prompt_id = tool_input.get("prompt_id")  # Cycle 47: guard required field
     if not prompt_id or not isinstance(prompt_id, str):
         return to_json({"error": "prompt_id is required and must be a non-empty string."})
+    if len(prompt_id) > 128:  # Cycle 51: UUIDs are 36 chars; cap at 128 for safety
+        return to_json({"error": "prompt_id too long (max 128 characters)."})
+    # Cycle 51: block path-traversal characters in prompt_id URL segment
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9\-_]+$', prompt_id):
+        return to_json({"error": "prompt_id must contain only alphanumeric characters, hyphens, or underscores."})
 
     try:
         with httpx.Client() as client:

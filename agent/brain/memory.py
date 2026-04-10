@@ -300,8 +300,11 @@ class MemoryAgent(BrainAgent):
                 try:
                     if path.stat().st_size > OUTCOME_MAX_BYTES:
                         _rotate_outcomes(path)
-                except OSError:
-                    pass
+                except OSError as _rot_err:
+                    log.warning(  # Cycle 51: log instead of silent pass
+                        "Outcome rotation failed for session %r: %s — continuing with append",
+                        session, _rot_err,
+                    )
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(outcome, sort_keys=True) + "\n")
                 f.flush()

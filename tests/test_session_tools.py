@@ -116,3 +116,41 @@ class TestAddNoteRequiredFields:
             "session_name": None, "note": "some note",
         }))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 51 — session name path traversal guard (defense-in-depth)
+# ---------------------------------------------------------------------------
+
+class TestSaveSessionPathTraversalGuard:
+    """save_session and load_session must reject path traversal names."""
+
+    def test_path_traversal_save_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {
+            "name": "../../etc/passwd",
+        }))
+        assert "error" in result
+
+    def test_slash_in_name_save_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {
+            "name": "sessions/../../evil",
+        }))
+        assert "error" in result
+
+    def test_null_byte_save_returns_error(self):
+        result = json.loads(session_tools.handle("save_session", {
+            "name": "session\x00name",
+        }))
+        assert "error" in result
+
+    def test_path_traversal_load_returns_error(self):
+        result = json.loads(session_tools.handle("load_session", {
+            "name": "../../etc/shadow",
+        }))
+        assert "error" in result
+
+    def test_backslash_name_load_returns_error(self):
+        result = json.loads(session_tools.handle("load_session", {
+            "name": "sub\\evil",  # backslash is a path separator on Windows
+        }))
+        assert "error" in result

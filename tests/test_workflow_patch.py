@@ -1118,3 +1118,46 @@ class TestSetInputHappyPath:
         }))
         assert result.get("set") is True
         assert result["new_value"] == "cinematic sunset"
+
+
+# ---------------------------------------------------------------------------
+# Cycle 51 — from_output upper bound validation
+# ---------------------------------------------------------------------------
+
+class TestConnectNodesFromOutputBounds:
+    """connect_nodes must reject from_output values outside valid range."""
+
+    def test_from_output_too_large_returns_error(self):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 999999999,
+            "to_node": "2",
+            "to_input": "model",
+        }))
+        assert "error" in result
+        assert "from_output" in result["error"].lower() or "unreasonably" in result["error"].lower()
+
+    def test_from_output_101_returns_error(self):
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 101,
+            "to_node": "2",
+            "to_input": "model",
+        }))
+        assert "error" in result
+
+    def test_from_output_100_is_accepted(self, sample_workflow):
+        """Boundary value 100 must pass the upper-bound check (then fail on node lookup)."""
+        # Load a workflow so we get past _ensure_loaded
+        workflow_patch.handle("apply_workflow_patch", {
+            "path": str(sample_workflow), "patches": [],
+        })
+        result = json.loads(workflow_patch.handle("connect_nodes", {
+            "from_node": "1",
+            "from_output": 100,
+            "to_node": "2",
+            "to_input": "clip",
+        }))
+        # May succeed or fail for other reasons; must NOT be the upper-bound error
+        assert "unreasonably large" not in result.get("error", "")
+        assert "max 100" not in result.get("error", "")

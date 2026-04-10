@@ -601,3 +601,44 @@ class TestGetExecutionStatusRequiredField:
         from agent.tools import comfy_execute
         result = json.loads(comfy_execute.handle("get_execution_status", {"prompt_id": 42}))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Cycle 51 — prompt_id format/length validation
+# ---------------------------------------------------------------------------
+
+class TestGetExecutionStatusPromptIdFormat:
+    """get_execution_status must reject malformed or oversized prompt_ids."""
+
+    def test_path_traversal_prompt_id_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {
+            "prompt_id": "../../admin",
+        }))
+        assert "error" in result
+
+    def test_prompt_id_too_long_returns_error(self):
+        import json
+        from agent.tools import comfy_execute
+        result = json.loads(comfy_execute.handle("get_execution_status", {
+            "prompt_id": "a" * 200,
+        }))
+        assert "error" in result
+
+    def test_valid_uuid_prompt_id_passes_format(self):
+        import json
+        from unittest.mock import patch
+        from agent.tools import comfy_execute
+        # Only check that format guard doesn't block a valid UUID
+        with patch("httpx.Client") as mock_client:
+            mock_resp = mock_client.return_value.__enter__.return_value.get.return_value
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {}
+            mock_resp.raise_for_status = lambda: None
+            result = json.loads(comfy_execute.handle("get_execution_status", {
+                "prompt_id": "3d2f5b1a-e4c7-4f8d-a2b3-c1d4e5f60789",
+            }))
+        # Should NOT error on format — may error on empty history but not format
+        assert "alphanumeric" not in result.get("error", "")
+        assert "too long" not in result.get("error", "")

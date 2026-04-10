@@ -12,6 +12,7 @@ from ..memory.session import (
     save_session, load_session, list_sessions, add_note,
     restore_workflow_state, save_stage, load_stage,
     save_ratchet, load_ratchet,
+    _validate_session_name,  # Cycle 51: defense-in-depth at handler level
 )
 from ._util import to_json
 
@@ -117,6 +118,9 @@ def _handle_save_session(tool_input: dict) -> str:
     name = tool_input.get("name")  # Cycle 47: guard required field
     if not name or not isinstance(name, str):
         return to_json({"error": "name is required and must be a non-empty string."})
+    name_err = _validate_session_name(name)  # Cycle 51: defense-in-depth path traversal guard
+    if name_err:
+        return to_json({"error": name_err})
 
     # Capture current workflow state from session.
     # workflow_patch._state is always get_session("default") — it is bound at
@@ -160,6 +164,9 @@ def _handle_load_session(tool_input: dict) -> str:
     name = tool_input.get("name")  # Cycle 47: guard required field
     if not name or not isinstance(name, str):
         return to_json({"error": "name is required and must be a non-empty string."})
+    name_err = _validate_session_name(name)  # Cycle 51: defense-in-depth path traversal guard
+    if name_err:
+        return to_json({"error": name_err})
     session = load_session(name)
 
     if "error" in session:

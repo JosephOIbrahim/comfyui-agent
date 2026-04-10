@@ -703,21 +703,26 @@ def _handle_connect_nodes(tool_input: dict) -> str:
     for _f in ("from_node", "from_output", "to_node", "to_input"):  # Cycle 48: guard required fields before _ensure_loaded
         if _f not in tool_input:
             return to_json({"error": f"{_f} is required."})
+    # Cycle 51: validate from_output format/range before _ensure_loaded so format errors
+    # fire regardless of whether a workflow is loaded.
+    try:
+        _fo_check = int(tool_input["from_output"])
+        if _fo_check < 0:
+            raise ValueError(f"from_output must be >= 0, got {_fo_check}")
+        if _fo_check > 100:
+            raise ValueError(f"from_output={_fo_check} is unreasonably large (max 100)")
+    except (TypeError, ValueError) as e:
+        return to_json({"error": f"Invalid from_output: {e}"})
     err = _ensure_loaded()
     if err:
         return to_json({"error": err})
     from_node = tool_input["from_node"]
-    from_output = tool_input["from_output"]
+    from_output = _fo_check  # already validated above
     to_node = tool_input["to_node"]
     to_input = tool_input["to_input"]
 
     # Validate from_output is a non-negative integer (ComfyUI output slot index)
-    try:
-        from_output = int(from_output)
-        if from_output < 0:
-            raise ValueError(f"from_output must be >= 0, got {from_output}")
-    except (TypeError, ValueError) as e:
-        return to_json({"error": f"Invalid from_output: {e}"})
+    # (range already checked above; keep local alias for clarity downstream)
 
     workflow = _get_state()["current_workflow"]
 
