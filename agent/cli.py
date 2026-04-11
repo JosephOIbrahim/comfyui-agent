@@ -176,7 +176,22 @@ def run(
     )
 
     handler = CLIHandler(console)
-    run_interactive(client, session_context=session_context, handler=handler)
+
+    # Cycle 15: thread the --session flag through the _conn_session ContextVar
+    # so every tool call inside run_interactive sees the right session.  Cycles
+    # 0+1+4+12 fixed sidebar / MCP / panel / stage modules; the CLI was the
+    # last transport that wasn't setting the contextvar, so `agent run --session
+    # foo` was functionally equivalent to `agent run` for tool isolation.
+    from ._conn_ctx import _conn_session
+    from .logging_config import set_correlation_id
+
+    sid = session or "default"
+    _conn_session_token = _conn_session.set(sid)
+    set_correlation_id(sid)
+    try:
+        run_interactive(client, session_context=session_context, handler=handler)
+    finally:
+        _conn_session.reset(_conn_session_token)
 
     # Save session on normal exit (atexit handles abnormal exit)
     _save_and_exit()

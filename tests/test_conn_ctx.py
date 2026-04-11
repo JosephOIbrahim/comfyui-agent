@@ -331,6 +331,119 @@ class TestSharedSessionHelpers:
         assert captured["session"] == "conv_executor_x"
 
 
+class TestCLISessionContextvar:
+    """agent run --session foo must thread the session_id through
+    _conn_session ContextVar so all tool calls inside run_interactive
+    see the right session.
+
+    Cycle 15 fix: cycles 0+1+4+12 fixed sidebar/MCP/panel/stage but the
+    CLI was the last transport that didn't set the contextvar. Without
+    this fix, `agent run --session foo` was functionally equivalent to
+    `agent run` for tool isolation purposes.
+    """
+
+    def teardown_method(self, method):
+        """Reset the global _shutdown flag in agent.main after each test.
+
+        cli.run calls _save_and_exit() at the end of run() which invokes
+        request_shutdown() — that sets agent.main._shutdown. Subsequent
+        TestRunAgentTurn tests see the flag set and bail out early. We
+        clear it here so the leak doesn't propagate.
+        """
+        from agent.main import _shutdown
+        _shutdown.clear()
+
+    def test_cli_run_sets_conn_session_from_session_flag(self):
+        """`agent run --session foo` must set _conn_session to 'foo' before run_interactive."""
+        from unittest.mock import patch, MagicMock
+        from typer.testing import CliRunner
+        from agent.cli import app
+        from agent._conn_ctx import current_conn_session
+
+        captured = {}
+
+        def _capture_session(*args, **kwargs):
+            # When run_interactive is called from inside cli.run, the
+            # contextvar should already be set.
+            captured["session"] = current_conn_session()
+
+        runner = CliRunner()
+        # Mock everything that would do real work — we only care about the
+        # contextvar being set when run_interactive fires.
+        with patch("agent.cli.session_tools") as mock_session_tools, \
+             patch("agent.main.run_interactive", side_effect=_capture_session), \
+             patch("agent.main.create_client", return_value=MagicMock()), \
+             patch("agent.cli.ANTHROPIC_API_KEY", "sk-test"), \
+             patch("agent.cli.signal.signal"), \
+             patch("agent.cli.atexit.register"):
+            mock_session_tools.handle.return_value = '{"saved_at": "now"}'
+            result = runner.invoke(app, ["run", "--session", "foo_test_sid"])
+
+        # The capture happens inside cli.run, before the finally block
+        # resets the contextvar. So at capture time, the session_id is set.
+        assert "session" in captured, (
+            f"run_interactive was not called. CLI exit code: {result.exit_code}, "
+            f"output: {result.output}"
+        )
+        assert captured["session"] == "foo_test_sid", (
+            f"Expected 'foo_test_sid', got {captured['session']!r}"
+        )
+
+    def test_cli_run_without_session_uses_default(self):
+        """`agent run` (no --session flag) sets contextvar to 'default'."""
+        from unittest.mock import patch, MagicMock
+        from typer.testing import CliRunner
+        from agent.cli import app
+        from agent._conn_ctx import current_conn_session
+
+        captured = {}
+
+        def _capture_session(*args, **kwargs):
+            captured["session"] = current_conn_session()
+
+        runner = CliRunner()
+        with patch("agent.main.run_interactive", side_effect=_capture_session), \
+             patch("agent.main.create_client", return_value=MagicMock()), \
+             patch("agent.cli.ANTHROPIC_API_KEY", "sk-test"), \
+             patch("agent.cli.signal.signal"), \
+             patch("agent.cli.atexit.register"):
+            result = runner.invoke(app, ["run"])
+
+        assert "session" in captured, (
+            f"run_interactive was not called. CLI exit code: {result.exit_code}, "
+            f"output: {result.output}"
+        )
+        assert captured["session"] == "default"
+
+    def test_cli_resets_contextvar_after_run_interactive(self):
+        """The try/finally in cli.run must reset _conn_session after the loop exits."""
+        from unittest.mock import patch, MagicMock
+        from typer.testing import CliRunner
+        from agent.cli import app
+        from agent._conn_ctx import _conn_session
+
+        runner = CliRunner()
+        with patch("agent.main.run_interactive", return_value=None), \
+             patch("agent.main.create_client", return_value=MagicMock()), \
+             patch("agent.cli.ANTHROPIC_API_KEY", "sk-test"), \
+             patch("agent.cli.signal.signal"), \
+             patch("agent.cli.atexit.register"):
+            runner.invoke(app, ["run", "--session", "cleanup_test"])
+
+        # After cli.run returns, the contextvar should be reset to its
+        # prior state (whatever the autouse _reset_conn_session fixture
+        # set, typically "default" or absent).
+        try:
+            current = _conn_session.get()
+            # The autouse fixture pre-sets "default" before each test,
+            # so post-cli the contextvar should still be "default".
+            assert current == "default", (
+                f"Expected contextvar reset to 'default', got {current!r}"
+            )
+        except LookupError:
+            pass  # Also acceptable — original state was unset
+
+
 class TestOrchestratorSubtaskContext:
     """orchestrator.spawn_subtask must propagate _conn_session to the
     spawned worker thread via contextvars.copy_context(), otherwise

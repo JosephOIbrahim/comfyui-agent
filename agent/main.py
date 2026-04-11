@@ -284,7 +284,12 @@ def run_interactive(
                  if not provided.
     """
     h = handler or NullHandler()
-    set_correlation_id()  # Unique ID for this session's log entries
+    # Cycle 15: only generate a fresh correlation ID if no upstream caller
+    # already set one. cli.py:run sets it from the --session flag, so
+    # respect that. Programmatic callers (tests, embeddings) get a UUID.
+    from .logging_config import get_correlation_id
+    if get_correlation_id() is None:
+        set_correlation_id()  # Unique ID for this session's log entries
     system = build_system_prompt(session_context=session_context)
     messages = []
 
