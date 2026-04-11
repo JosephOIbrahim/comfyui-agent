@@ -55,6 +55,53 @@ def _ensure_brain():
 
 
 # ---------------------------------------------------------------------------
+# Session + correlation propagation
+# ---------------------------------------------------------------------------
+# The sidebar previously trampled MCP's "default" workflow slot because no
+# code path set agent._conn_ctx._conn_session before invoking tools.  These
+# helpers spawn worker threads / executor tasks with:
+#   1. _conn_session ContextVar set → workflow_patch._get_state() picks the
+#      right session (isolation between sidebar tabs and MCP connections).
+#   2. set_correlation_id() called → all log entries from this conversation
+#      get tagged with the conv.id, so a single chat is greppable end-to-end.
+#      threading.local() is per-thread, so the corr ID must be set inside
+#      the worker — not the parent — to take effect.
+
+def _spawn_with_session(target, args, session_id: str, *, daemon: bool = True):
+    """threading.Thread wrapper that sets _conn_session + correlation ID."""
+    import contextvars
+    from agent._conn_ctx import _conn_session
+    from agent.logging_config import set_correlation_id
+
+    def runner():
+        _conn_session.set(session_id)
+        set_correlation_id(session_id)
+        return target(*args)
+
+    ctx = contextvars.copy_context()
+    return threading.Thread(
+        target=ctx.run,
+        args=(runner,),
+        daemon=daemon,
+    )
+
+
+def _run_in_executor_with_session(loop, target, *args, session_id: str):
+    """run_in_executor wrapper that sets _conn_session + correlation ID."""
+    import contextvars
+    from agent._conn_ctx import _conn_session
+    from agent.logging_config import set_correlation_id
+
+    def runner():
+        _conn_session.set(session_id)
+        set_correlation_id(session_id)
+        return target(*args)
+
+    ctx = contextvars.copy_context()
+    return loop.run_in_executor(None, lambda: ctx.run(runner))
+
+
+# ---------------------------------------------------------------------------
 # Per-connection conversation state
 # ---------------------------------------------------------------------------
 
@@ -1090,10 +1137,10 @@ async def _handle_panel_action(ws, conv, loop, action, data):
         conv.busy = True
         await ws.send_json({"type": "stage", "stage": "THINKING", "detail": ""})
         msg_queue = queue.Queue()
-        thread = threading.Thread(
-            target=_run_agent_sync,
-            args=(conv, message, msg_queue),
-            daemon=True,
+        thread = _spawn_with_session(
+            _run_agent_sync,
+            (conv, message, msg_queue),
+            session_id=conv.id,
         )
         thread.start()
         accumulated_text = []
@@ -1165,12 +1212,14 @@ async def _handle_panel_action(ws, conv, loop, action, data):
         from agent.tools.comfy_execute import handle as execute_handle
 
         if tool_name == "validate_before_execute":
-            result_json = await loop.run_in_executor(
-                None, execute_handle, tool_name, tool_input
+            result_json = await _run_in_executor_with_session(
+                loop, execute_handle, tool_name, tool_input,
+                session_id=conv.id,
             )
         else:
-            result_json = await loop.run_in_executor(
-                None, provision_handle, tool_name, tool_input
+            result_json = await _run_in_executor_with_session(
+                loop, provision_handle, tool_name, tool_input,
+                session_id=conv.id,
             )
 
         # Build and send panel
@@ -1252,13 +1301,17 @@ async def websocket_handler(request):
                         })
                         continue
 
-                    # Inject workflow if provided by frontend
+                    # Inject workflow if provided by frontend.  The executor
+                    # call sets _conn_session = conv.id so load_workflow_from_data
+                    # writes into THIS conversation's WorkflowSession instead of
+                    # the shared "default" slot.
                     loop = asyncio.get_running_loop()
                     workflow_data = data.get("workflow")
                     if workflow_data and isinstance(workflow_data, dict):
                         try:
-                            await loop.run_in_executor(
-                                None, _inject_workflow, conv, workflow_data
+                            await _run_in_executor_with_session(
+                                loop, _inject_workflow, conv, workflow_data,
+                                session_id=conv.id,
                             )
                         except Exception as e:
                             log.warning("Workflow injection error: %s", e)
@@ -1271,13 +1324,15 @@ async def websocket_handler(request):
                     conv.busy = True
                     await ws.send_json({"type": "stage", "stage": "THINKING", "detail": ""})
 
-                    # Run agent in background thread, stream results back
+                    # Run agent in background thread, stream results back.
+                    # The thread sets _conn_session = conv.id so every tool call
+                    # made by the agent loop sees this conversation's session.
                     msg_queue = queue.Queue()
 
-                    thread = threading.Thread(
-                        target=_run_agent_sync,
-                        args=(conv, content, msg_queue),
-                        daemon=True,
+                    thread = _spawn_with_session(
+                        _run_agent_sync,
+                        (conv, content, msg_queue),
+                        session_id=conv.id,
                     )
                     thread.start()
 
@@ -1416,8 +1471,9 @@ async def handle_chat(request):
     msg_queue = queue.Queue()
 
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
-        None, _run_agent_sync, conv, content, msg_queue
+    await _run_in_executor_with_session(
+        loop, _run_agent_sync, conv, content, msg_queue,
+        session_id=conv.id,
     )
 
     # Collect all text

@@ -122,13 +122,12 @@ def _handle_save_session(tool_input: dict) -> str:
     if name_err:
         return to_json({"error": name_err})
 
-    # Capture current workflow state from session.
-    # workflow_patch._state is always get_session("default") — it is bound at
-    # module import time and never rebinds per connection.  Reading any other
-    # session key would return an empty WorkflowSession.  Cognitive state
-    # (stage, ratchet) IS session-scoped and uses current_conn_session() below.
+    # Capture current workflow state from this connection's session.
+    # workflow_patch._get_state() reads the same _conn_session ContextVar,
+    # so save_session and the patch engine always agree on which workflow
+    # belongs to this conversation.
     from ..workflow_session import get_session
-    wf_state = get_session("default")
+    wf_state = get_session(current_conn_session())
     workflow_state = copy.deepcopy(dict(wf_state.items())) if wf_state.get("current_workflow") else None
 
     # Preserve existing notes from prior add_note calls.
@@ -178,8 +177,8 @@ def _handle_load_session(tool_input: dict) -> str:
 
     if wf and wf.get("base_workflow") and wf.get("current_workflow"):
         from ..workflow_session import get_session
-        # See save_session note: workflow_patch._state is always get_session("default").
-        wf_state = get_session("default")
+        # Restore into this connection's session — matches workflow_patch._get_state().
+        wf_state = get_session(current_conn_session())
         wf_state["loaded_path"] = wf.get("loaded_path")
         wf_state["base_workflow"] = copy.deepcopy(wf["base_workflow"])
         wf_state["current_workflow"] = copy.deepcopy(wf["current_workflow"])

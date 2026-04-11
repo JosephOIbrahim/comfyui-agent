@@ -173,3 +173,233 @@ class TestParallelToolDispatch:
 
         assert not found_wrong_patch, "chat.py must NOT monkey-patch agent.tools.handle or agent.main.handle_tool"
         assert found_progress_kwarg, "chat.py must call run_agent_turn(..., progress=...) to forward the progress reporter"
+
+
+class TestWorkflowPatchSessionIsolation:
+    """workflow_patch._get_state() must read from _conn_session ContextVar.
+
+    Before the fix, _get_state() always returned get_session("default"),
+    so the sidebar and the MCP server trampled each other's workflow state.
+    After the fix, each connection gets its own WorkflowSession.
+    """
+
+    def test_get_state_reads_from_contextvar(self):
+        """_get_state() returns different sessions when contextvar differs."""
+        import contextvars as _cv
+        from agent._conn_ctx import _conn_session
+        from agent.tools.workflow_patch import _get_state
+
+        ctx_alpha = _cv.copy_context()
+        ctx_beta = _cv.copy_context()
+
+        def _capture_alpha():
+            _conn_session.set("sess_alpha")
+            return id(_get_state())
+
+        def _capture_beta():
+            _conn_session.set("sess_beta")
+            return id(_get_state())
+
+        alpha_id = ctx_alpha.run(_capture_alpha)
+        beta_id = ctx_beta.run(_capture_beta)
+
+        # Different sessions → different WorkflowSession instances
+        assert alpha_id != beta_id
+
+    def test_two_sessions_do_not_trample_each_other(self):
+        """Loading a workflow under sess_alpha does not appear in sess_beta."""
+        import contextvars as _cv
+        from agent._conn_ctx import _conn_session
+        from agent.tools.workflow_patch import _get_state
+        from agent.workflow_session import _sessions, _registry_lock
+
+        # Clean slate — drop any leftover test sessions
+        with _registry_lock:
+            for sid in ("sess_alpha_iso", "sess_beta_iso"):
+                _sessions.pop(sid, None)
+
+        wf_alpha = {"node_1": {"class_type": "AlphaCheckpoint", "inputs": {}}}
+        wf_beta = {"node_2": {"class_type": "BetaCheckpoint", "inputs": {}}}
+
+        ctx_alpha = _cv.copy_context()
+        ctx_beta = _cv.copy_context()
+
+        def _write_alpha():
+            _conn_session.set("sess_alpha_iso")
+            state = _get_state()
+            state["current_workflow"] = wf_alpha
+            state["loaded_path"] = "/tmp/alpha.json"
+
+        def _write_beta():
+            _conn_session.set("sess_beta_iso")
+            state = _get_state()
+            state["current_workflow"] = wf_beta
+            state["loaded_path"] = "/tmp/beta.json"
+
+        def _read_alpha():
+            _conn_session.set("sess_alpha_iso")
+            return _get_state().get("current_workflow"), _get_state().get("loaded_path")
+
+        ctx_alpha.run(_write_alpha)
+        ctx_beta.run(_write_beta)
+
+        alpha_wf, alpha_path = ctx_alpha.run(_read_alpha)
+
+        # Alpha must still see ITS workflow, not beta's
+        assert alpha_wf == wf_alpha
+        assert alpha_path == "/tmp/alpha.json"
+
+        # Cleanup
+        with _registry_lock:
+            _sessions.pop("sess_alpha_iso", None)
+            _sessions.pop("sess_beta_iso", None)
+
+    def test_default_session_unchanged_when_contextvar_unset(self):
+        """CLI / test code with no contextvar still hits the 'default' session."""
+        from agent.tools.workflow_patch import _get_state
+        from agent.workflow_session import get_session
+
+        # No contextvar set → _get_state() should equal get_session("default")
+        assert _get_state() is get_session("default")
+
+
+class TestStageGateInteraction:
+    """Stage tools must respect the gate AND let the gate see stage state.
+
+    Before the fix, the gate's session_active/has_undo calculation only
+    looked at workflow_patch state. A REVERSIBLE stage tool like stage_write
+    was incorrectly DENIED when a USD stage existed but no workflow was
+    loaded. After the fix, the gate falls back to checking
+    SessionContext.stage for stage_* tool names.
+    """
+
+    def _run_in_session(self, session_id: str, fn):
+        """Run fn() with _conn_session set to session_id in a copied context."""
+        import contextvars as _cv
+        from agent._conn_ctx import _conn_session
+
+        copied = _cv.copy_context()
+
+        def _runner():
+            _conn_session.set(session_id)
+            return fn()
+
+        return copied.run(_runner)
+
+    def _clean_session(self, session_id: str):
+        """Wipe both the WorkflowSession and SessionContext for this session_id."""
+        from agent.workflow_session import _sessions, _registry_lock
+        from agent.session_context import _registry as _ctx_registry
+
+        with _registry_lock:
+            _sessions.pop(session_id, None)
+        _ctx_registry.destroy(session_id)
+
+    def test_stage_read_always_allowed_read_only_bypass(self):
+        """stage_read is READ_ONLY → gate bypasses all checks regardless of state."""
+        from agent import tools as _tools
+
+        sid = "test_stage_gate_read"
+        self._clean_session(sid)
+
+        def _call():
+            return _tools.handle("stage_read", {
+                "prim_path": "/Test/foo",
+                "attr_name": "bar",
+            })
+
+        result = self._run_in_session(sid, _call)
+
+        # READ_ONLY tools never produce a "Gate denied" — even if usd-core
+        # isn't installed and the handler returns _NO_STAGE, the gate must
+        # not block.
+        assert "Gate denied" not in result
+        self._clean_session(sid)
+
+    def test_stage_write_denied_when_no_workflow_and_no_stage(self):
+        """stage_write is REVERSIBLE → denied when neither workflow nor stage exists."""
+        from agent import tools as _tools
+
+        sid = "test_stage_gate_write_empty"
+        self._clean_session(sid)
+
+        def _call():
+            return _tools.handle("stage_write", {
+                "prim_path": "/Test/foo",
+                "attr_name": "bar",
+                "value": 42,
+            })
+
+        result = self._run_in_session(sid, _call)
+
+        # Gate should DENY — no workflow loaded, no stage attached
+        assert "Gate denied" in result or "no active session" in result.lower()
+        self._clean_session(sid)
+
+    def test_stage_write_allowed_when_stage_exists_without_workflow(self):
+        """stage_write should pass the gate when SessionContext.stage exists."""
+        from agent import tools as _tools
+        from agent.session_context import get_session_context
+
+        sid = "test_stage_gate_write_with_stage"
+        self._clean_session(sid)
+
+        # Mock stage that records the write call
+        class _MockStage:
+            def __init__(self):
+                self.writes = []
+                self.delta_count = 0
+
+            def write(self, prim_path, attr_name, value, node_type=None):
+                self.writes.append((prim_path, attr_name, value, node_type))
+
+            def list_deltas(self):
+                return []
+
+        mock_stage = _MockStage()
+
+        def _call():
+            sess_ctx = get_session_context(sid)
+            sess_ctx.stage = mock_stage
+            return _tools.handle("stage_write", {
+                "prim_path": "/Test/foo",
+                "attr_name": "bar",
+                "value": 42,
+            })
+
+        result = self._run_in_session(sid, _call)
+
+        # Gate must NOT deny — stage exists, so the stage-state fallback
+        # in tools/__init__.py should set session_active=True.
+        assert "Gate denied" not in result, f"Gate incorrectly denied: {result}"
+        # Handler should have been reached and the mock recorded the write.
+        assert len(mock_stage.writes) == 1
+        assert mock_stage.writes[0] == ("/Test/foo", "bar", 42, None)
+        self._clean_session(sid)
+
+    def test_stage_rollback_always_locked_destructive(self):
+        """stage_rollback is DESTRUCTIVE → gate returns LOCKED even with stage."""
+        from agent import tools as _tools
+        from agent.session_context import get_session_context
+
+        sid = "test_stage_gate_rollback"
+        self._clean_session(sid)
+
+        # Even with a stage attached, DESTRUCTIVE tools return LOCKED.
+        class _MockStage:
+            delta_count = 5
+
+            def rollback_to(self, n):
+                return n
+
+        def _call():
+            sess_ctx = get_session_context(sid)
+            sess_ctx.stage = _MockStage()
+            return _tools.handle("stage_rollback", {"n_deltas": 1})
+
+        result = self._run_in_session(sid, _call)
+
+        # LOCKED → "destructive operation" in the error message per
+        # agent/tools/__init__.py:253-259.
+        assert "destructive" in result.lower(), f"Expected LOCKED, got: {result}"
+        self._clean_session(sid)

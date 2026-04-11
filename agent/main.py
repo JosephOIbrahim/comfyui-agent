@@ -8,6 +8,7 @@ Includes streaming responses, context management, retry logic, and logging.
 """
 
 import concurrent.futures
+import contextvars
 import logging
 import threading
 import time
@@ -193,8 +194,15 @@ def run_agent_turn(
             )
             return tc.id, result
 
+        # Copy the parent thread's context (which includes _conn_session from
+        # routes.py / mcp_server.py) into each worker so every parallel tool
+        # call lands in the right WorkflowSession.  Without this, the workers
+        # inherit an empty context and _get_state() falls back to "default".
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(_run_tool, tc): tc for tc in tool_calls}
+            futures = {}
+            for tc in tool_calls:
+                worker_ctx = contextvars.copy_context()
+                futures[executor.submit(worker_ctx.run, _run_tool, tc)] = tc
             results_map = {}
             for future in concurrent.futures.as_completed(futures):
                 tc_for_future = futures[future]

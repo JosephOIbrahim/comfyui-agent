@@ -32,20 +32,26 @@ except (ImportError, AttributeError, ModuleNotFoundError):
 
 from ._util import to_json
 from ..workflow_session import get_session
+from .._conn_ctx import current_conn_session
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Module-level state (one active workflow at a time)
+# Session-scoped state (per-connection workflow isolation)
 # ---------------------------------------------------------------------------
 
 # _get_state() is called per-operation instead of binding at import time.
 # This prevents stale-reference bugs when the session registry is cleared
-# (e.g., in tests or after a server restart) — get_session("default") always
-# returns the currently-live WorkflowSession for the default slot.
+# (e.g., in tests or after a server restart). The session ID is read from
+# the _conn_session ContextVar, which is set per-connection by:
+#   - mcp_server.py    (one ID per MCP client connection)
+#   - routes.py        (one ID per WebSocket / HTTP conversation)
+#   - cli.py / tests   (no contextvar set → falls back to "default")
+# This means the sidebar and MCP server each get their own isolated workflow
+# state instead of trampling each other through a shared "default" slot.
 def _get_state():
-    """Return the live 'default' WorkflowSession. Never cache the result."""
-    return get_session("default")
+    """Return the live WorkflowSession for the current connection."""
+    return get_session(current_conn_session())
 
 _MAX_HISTORY = 50
 

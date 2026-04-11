@@ -156,9 +156,19 @@ TOOLS: list[dict] = [
 # Stage accessor
 # ---------------------------------------------------------------------------
 
-def _get_stage(session_id: str = "default"):
-    """Return the CognitiveWorkflowStage for this session, or None."""
+def _get_stage(session_id: str | None = None):
+    """Return the CognitiveWorkflowStage for this session, or None.
+
+    If session_id is not provided, reads the _conn_session ContextVar so
+    each MCP connection / sidebar conversation operates on its own stage.
+    Falls back to "default" in CLI / test contexts where no contextvar is
+    set.  This mirrors workflow_patch._get_state() and keeps the gate's
+    session lookup aligned with what the handler actually mutates.
+    """
     from ..session_context import get_session_context
+    if session_id is None:
+        from .._conn_ctx import current_conn_session
+        session_id = current_conn_session()
     ctx = get_session_context(session_id)
     return ctx.ensure_stage()
 

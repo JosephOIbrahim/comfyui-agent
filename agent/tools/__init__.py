@@ -221,9 +221,12 @@ def handle(
         if GATE_ENABLED and _is_known:
             from ..gate import pre_dispatch_check, GateDecision
 
-            # Determine session_active: either explicit ctx, or a workflow
-            # is loaded in the module-level state (sidebar injects workflow
-            # before agent runs, but never passes ctx).
+            # Determine session_active: either explicit ctx (MCP path with
+            # SessionContext), or a workflow loaded in this connection's
+            # WorkflowSession.  _get_state() reads the _conn_session
+            # ContextVar, which is set per-connection by routes.py and
+            # mcp_server.py — so the sidebar's injected workflow lives in
+            # its own session and the gate sees it correctly.
             _session_active = ctx is not None
             _has_undo = bool(
                 ctx and hasattr(ctx, 'workflow')
@@ -236,6 +239,26 @@ def handle(
                     if _wf is not None:
                         _session_active = True
                         _has_undo = bool(_get_state().get("history"))
+                except Exception:
+                    pass
+
+            # Stage-state fallback for stage_* tools.  The workflow-state
+            # fallback above misses the case where a CognitiveWorkflowStage
+            # exists but no workflow is loaded — stage tools operate on USD
+            # stage prims, which can exist independently of workflow_patch
+            # state.  Without this, a REVERSIBLE stage tool like stage_write
+            # would be incorrectly DENIED by check_consent (no session) or
+            # check_reversibility (no workflow_patch undo history) even
+            # though the stage itself has its own delta-rollback mechanism.
+            if name.startswith("stage_") and not _session_active:
+                try:
+                    from ..session_context import get_session_context
+                    from .._conn_ctx import current_conn_session
+                    _stage_ctx = get_session_context(current_conn_session())
+                    if _stage_ctx.stage is not None:
+                        _session_active = True
+                        # Stage delta sublayers provide undo capability
+                        _has_undo = True
                 except Exception:
                     pass
 
