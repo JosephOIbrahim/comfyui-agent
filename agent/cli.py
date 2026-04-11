@@ -160,6 +160,15 @@ def run(
         request_shutdown()
         if session:
             try:
+                # Cycle 16 hotfix: ensure the _conn_session ContextVar matches
+                # the session we're saving. _save_and_exit can run from atexit
+                # or a SIGTERM handler AFTER cli.run's try/finally has reset
+                # the contextvar — without this self-set, save_session would
+                # read get_session("default") (the empty default workflow
+                # state) instead of the user's session, silently corrupting
+                # the user's foo.json on every normal exit.
+                from ._conn_ctx import _conn_session
+                _conn_session.set(session)
                 save_result = json.loads(
                     session_tools.handle("save_session", {"name": session})
                 )
@@ -169,13 +178,6 @@ def run(
                 log.warning(
                     "Failed to save session '%s' on exit: %s", session, e
                 )
-
-    signal.signal(signal.SIGTERM, _save_and_exit)
-    atexit.register(
-        lambda: _save_and_exit() if session and not _shutdown_done.is_set() else None
-    )
-
-    handler = CLIHandler(console)
 
     # Cycle 15: thread the --session flag through the _conn_session ContextVar
     # so every tool call inside run_interactive sees the right session.  Cycles
@@ -188,13 +190,25 @@ def run(
     sid = session or "default"
     _conn_session_token = _conn_session.set(sid)
     set_correlation_id(sid)
+
+    # Cycle 16 hotfix: register signal/atexit AFTER the contextvar is set,
+    # so a SIGTERM that fires during startup runs _save_and_exit with the
+    # contextvar already pointing at the right session.
+    signal.signal(signal.SIGTERM, _save_and_exit)
+    atexit.register(
+        lambda: _save_and_exit() if session and not _shutdown_done.is_set() else None
+    )
+
+    handler = CLIHandler(console)
     try:
         run_interactive(client, session_context=session_context, handler=handler)
+        # Cycle 16 hotfix: call _save_and_exit BEFORE the finally block
+        # resets the contextvar. _save_and_exit's own self-set is the
+        # belt; this is the suspenders — it ensures the normal-exit path
+        # never sees a reset contextvar.
+        _save_and_exit()
     finally:
         _conn_session.reset(_conn_session_token)
-
-    # Save session on normal exit (atexit handles abnormal exit)
-    _save_and_exit()
 
     console.print("\n[dim]Goodbye![/dim]")
 

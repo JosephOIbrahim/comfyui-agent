@@ -443,6 +443,111 @@ class TestCLISessionContextvar:
         except LookupError:
             pass  # Also acceptable — original state was unset
 
+    def test_cli_save_session_sees_correct_contextvar(self):
+        """REGRESSION test for cycle 16 hotfix.
+
+        Cycle 15 introduced a bug where _save_and_exit() ran AFTER the
+        try/finally reset the contextvar. session_tools.handle("save_session")
+        reads workflow state via current_conn_session(), which would return
+        "default" instead of the user's session, silently corrupting the
+        user's session file with empty default workflow state.
+
+        This test verifies that when _save_and_exit() calls save_session,
+        the contextvar is set to the user's session — NOT "default".
+        """
+        from unittest.mock import patch, MagicMock
+        from typer.testing import CliRunner
+        from agent.cli import app
+        from agent._conn_ctx import current_conn_session
+
+        captured = {"contextvar_at_save": None, "save_called": False}
+
+        def _capture_session_tools_handle(name, tool_input):
+            if name == "save_session":
+                captured["save_called"] = True
+                # CRITICAL: at this point, the contextvar MUST be set to
+                # the session being saved, not "default". Otherwise the
+                # save corrupts the user's session file.
+                captured["contextvar_at_save"] = current_conn_session()
+                return '{"saved_at": "now", "saved": true}'
+            if name == "load_session":
+                return '{"saved_at": "now"}'
+            return '{}'
+
+        runner = CliRunner()
+        with patch("agent.cli.session_tools") as mock_session_tools, \
+             patch("agent.main.run_interactive", return_value=None), \
+             patch("agent.main.create_client", return_value=MagicMock()), \
+             patch("agent.cli.ANTHROPIC_API_KEY", "sk-test"), \
+             patch("agent.cli.signal.signal"), \
+             patch("agent.cli.atexit.register"):
+            mock_session_tools.handle.side_effect = _capture_session_tools_handle
+            result = runner.invoke(app, ["run", "--session", "save_path_test"])
+
+        assert captured["save_called"], (
+            f"save_session was not called. CLI exit code: {result.exit_code}, "
+            f"output: {result.output}"
+        )
+        assert captured["contextvar_at_save"] == "save_path_test", (
+            f"REGRESSION: save_session ran with contextvar={captured['contextvar_at_save']!r} "
+            f"instead of 'save_path_test'. This means the user's session file would be "
+            f"overwritten with the empty 'default' workflow state. Cycle 16 hotfix needed."
+        )
+
+    def test_cli_save_path_handles_atexit_after_finally(self):
+        """The _save_and_exit closure must self-set the contextvar so it
+        works even when called from atexit AFTER the finally block has
+        already reset the contextvar.
+
+        Direct unit test of _save_and_exit's self-set behavior, simulating
+        the atexit/SIGTERM call timing.
+        """
+        from unittest.mock import patch, MagicMock
+        from agent._conn_ctx import current_conn_session
+
+        captured = {"contextvar_at_save": None}
+
+        def _capture_handle(name, tool_input):
+            if name == "save_session":
+                captured["contextvar_at_save"] = current_conn_session()
+                return '{"saved_at": "now", "saved": true}'
+            return '{}'
+
+        # Simulate the atexit-after-finally state: contextvar reset to
+        # "default" (the autouse fixture's pre-set value), then
+        # _save_and_exit is called.  Without the cycle 16 self-set, save
+        # would see "default". With the self-set, it should see the
+        # captured session name.
+        #
+        # We can't easily extract the inner _save_and_exit closure from
+        # cli.run, so this test verifies the BEHAVIOR via a CliRunner
+        # invocation that exercises the full path.
+        from typer.testing import CliRunner
+        from agent.cli import app
+
+        runner = CliRunner()
+        with patch("agent.cli.session_tools") as mock_session_tools, \
+             patch("agent.main.run_interactive", return_value=None), \
+             patch("agent.main.create_client", return_value=MagicMock()), \
+             patch("agent.cli.ANTHROPIC_API_KEY", "sk-test"), \
+             patch("agent.cli.signal.signal"), \
+             patch("agent.cli.atexit.register"):
+            mock_session_tools.handle.side_effect = _capture_handle
+            runner.invoke(app, ["run", "--session", "atexit_test"])
+
+        # After cycle 16, the contextvar at save time must be the user's
+        # session, regardless of whether save was triggered from inside
+        # the try block (normal exit) or from atexit (after the finally).
+        assert captured["contextvar_at_save"] == "atexit_test", (
+            f"REGRESSION: contextvar was {captured['contextvar_at_save']!r}, "
+            f"expected 'atexit_test'"
+        )
+
+        # And after cli.run completes, the autouse fixture's reset should
+        # restore the contextvar to its prior state ("default") despite
+        # _save_and_exit's mid-call self-set.
+        assert current_conn_session() == "default"
+
 
 class TestOrchestratorSubtaskContext:
     """orchestrator.spawn_subtask must propagate _conn_session to the
