@@ -398,9 +398,35 @@ graph LR
 3. **PILOT** -- Makes changes through safe, reversible delta layers (never edits your original)
 4. **VERIFY** -- Runs the workflow, checks the output, records what worked
 
-When validation finds errors, the agent **auto-repairs**: missing nodes → `repair_workflow` installs them → missing inputs → `set_input` fills them → re-validate → execute. One continuous flow.
+When validation finds errors, the agent **auto-repairs**. One continuous flow, no stopping to ask:
 
-Every change is undoable. Every generation teaches the agent something. The agent is a doer, not a describer -- say "wire the model" and it wires the model. Say "repair this" and it finds the missing nodes, installs them, and validates. Say "run it" and it validates then executes. No confirmation dialogs, no "would you like me to..." -- it acts, then tells you what it did.
+```mermaid
+flowchart TD
+    Run(["You: 'run this'"]) --> Validate["validate_before_execute"]
+    Validate --> Check{"Errors?"}
+    Check -->|No| Execute["execute_workflow"]
+    Check -->|"Missing nodes"| Repair["repair_workflow<br/>auto_install=true"]
+    Check -->|"Missing inputs"| SetInput["set_input<br/>fill required fields"]
+    Check -->|"Wrong model name"| Discover["discover<br/>find correct model"]
+    Repair --> Revalidate["re-validate"]
+    SetInput --> Revalidate
+    Discover --> SetInput
+    Revalidate --> Check2{"Still errors?"}
+    Check2 -->|No| Execute
+    Check2 -->|Yes| Report["Report unfixable<br/>issue + ask"]
+    Execute --> Done(["Done — image ready"])
+
+    style Run fill:#0066FF,color:#fff
+    style Validate fill:#3b82f6,color:#fff
+    style Repair fill:#8b5cf6,color:#fff
+    style SetInput fill:#8b5cf6,color:#fff
+    style Discover fill:#d97706,color:#fff
+    style Execute fill:#10b981,color:#fff
+    style Done fill:#10b981,color:#fff
+    style Report fill:#ef4444,color:#fff
+```
+
+Every change is undoable. Every generation teaches the agent something. The agent is a doer, not a describer -- say "wire the model" and it wires the model. Say "repair this" and it finds the missing nodes, installs them, and validates. Say "run it" and it validates, fixes anything broken, then executes. No confirmation dialogs, no "would you like me to..." -- it acts, then tells you what it did.
 
 ---
 
@@ -722,7 +748,12 @@ Every generation is an experiment. The agent tracks what worked:
 ```mermaid
 flowchart LR
     Load[Load] --> Validate[Validate]
-    Validate --> Analyze[DAG<br/>Analysis]
+    Validate --> Errors{"Errors?"}
+    Errors -->|"Missing nodes"| Repair[Auto-Repair<br/>install packs]
+    Errors -->|"Missing inputs"| Fix[Auto-Fix<br/>set_input]
+    Errors -->|None| Analyze[DAG<br/>Analysis]
+    Repair --> Validate
+    Fix --> Validate
     Analyze --> Gate[Safety<br/>Gate]
     Gate --> Patch[Patch via<br/>Delta Layer]
     Patch --> Run[Run on<br/>ComfyUI]
@@ -733,6 +764,8 @@ flowchart LR
     Check -->|Iterate| Patch
 
     style Load fill:#3b82f6,color:#fff
+    style Repair fill:#8b5cf6,color:#fff
+    style Fix fill:#8b5cf6,color:#fff
     style Analyze fill:#d97706,color:#fff
     style Gate fill:#ef4444,color:#fff
     style Run fill:#ef4444,color:#fff
