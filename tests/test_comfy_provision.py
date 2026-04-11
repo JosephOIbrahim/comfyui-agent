@@ -355,3 +355,111 @@ class TestRepairWorkflowErrorPropagationCycle68:
             result = _json.loads(comfy_provision._handle_repair_workflow({}))
 
         assert result.get("status") == "clean"
+
+
+# ---------------------------------------------------------------------------
+# download_model symlink bypass — defense-in-depth path validation
+# ---------------------------------------------------------------------------
+
+class TestDownloadModelSymlinkBypass:
+    """download_model must reject targets that escape MODELS_DIR via a
+    symlink anywhere in the path chain.
+
+    The previous validation only resolved `MODELS_DIR / model_type`,
+    leaving subfolder + filename components unresolved. A symlink at
+    `checkpoints/X` pointing to `/etc` would let the download write to
+    `/etc/<filename>` even though `MODELS_DIR / checkpoints` itself
+    resolves cleanly.
+    """
+
+    def test_symlink_in_subfolder_rejected(self, tmp_path):
+        """A subfolder symlink pointing outside MODELS_DIR must be rejected."""
+        import json as _json
+        import os
+        import sys
+        from unittest.mock import patch
+        from agent.tools import comfy_provision
+
+        # Set up: fake MODELS_DIR with a normal `checkpoints/` subdir,
+        # plus a sibling "escape" target outside MODELS_DIR.
+        fake_models = tmp_path / "models"
+        fake_models.mkdir()
+        (fake_models / "checkpoints").mkdir()
+
+        escape_target = tmp_path / "escape_zone"
+        escape_target.mkdir()
+
+        # Plant the malicious symlink: models/checkpoints/evil → escape_zone
+        symlink_path = fake_models / "checkpoints" / "evil"
+        try:
+            os.symlink(escape_target, symlink_path, target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            import pytest
+            pytest.skip(
+                f"Symlink creation not supported on this platform "
+                f"(Windows requires admin/dev mode): {e}"
+            )
+
+        # Sanity: the symlink really does resolve outside MODELS_DIR
+        assert symlink_path.resolve() == escape_target.resolve()
+        if sys.platform == "win32":
+            # Windows path compare is case-insensitive — use lower()
+            assert not str(symlink_path.resolve()).lower().startswith(
+                str(fake_models.resolve()).lower()
+            )
+
+        # Attempt the download into the malicious subfolder
+        with patch.object(comfy_provision, "MODELS_DIR", fake_models):
+            result = comfy_provision._handle_download_model({
+                "url": "https://huggingface.co/test-model.safetensors",
+                "model_type": "checkpoints",
+                "subfolder": "evil",
+                "filename": "leaked.safetensors",
+            })
+
+        result_data = _json.loads(result)
+        assert "error" in result_data, f"Expected error, got: {result_data}"
+        assert "Access denied" in result_data["error"], (
+            f"Expected 'Access denied' in error, got: {result_data['error']}"
+        )
+
+        # Confirm nothing was written to the escape target
+        assert not (escape_target / "leaked.safetensors").exists()
+        assert not (escape_target / "leaked.safetensors.download").exists()
+
+    def test_legitimate_subfolder_still_works(self, tmp_path):
+        """A normal (non-symlink) subfolder must NOT trigger the validation reject.
+
+        Verifies the fix doesn't break legitimate subfolder downloads. We
+        mock httpx.stream so the test doesn't actually hit the network —
+        we only need to confirm validation passes and reaches the download
+        attempt.
+        """
+        import json as _json
+        from unittest.mock import patch, MagicMock
+        from agent.tools import comfy_provision
+
+        fake_models = tmp_path / "models"
+        fake_models.mkdir()
+        (fake_models / "checkpoints" / "subdir").mkdir(parents=True)
+
+        # Mock httpx.stream to fail fast — we only need to confirm the
+        # validation block does NOT reject this legitimate path.
+        mock_stream = MagicMock()
+        mock_stream.return_value.__enter__.side_effect = RuntimeError("network mocked")
+
+        with patch.object(comfy_provision, "MODELS_DIR", fake_models):
+            with patch("agent.tools.comfy_provision.httpx.stream", mock_stream):
+                result = comfy_provision._handle_download_model({
+                    "url": "https://huggingface.co/test-model.safetensors",
+                    "model_type": "checkpoints",
+                    "subfolder": "subdir",
+                    "filename": "legit.safetensors",
+                })
+
+        result_data = _json.loads(result)
+        # Whatever error we get, it must NOT be the symlink-bypass rejection
+        if "error" in result_data:
+            assert "Access denied" not in result_data["error"], (
+                f"Validation incorrectly rejected legitimate path: {result_data['error']}"
+            )

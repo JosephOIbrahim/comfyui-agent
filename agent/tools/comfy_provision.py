@@ -533,11 +533,27 @@ def _handle_download_model(tool_input: dict) -> str:
 
     target = type_dir / filename
 
-    # Resolve and confirm path is within MODELS_DIR (defense-in-depth)
+    # Resolve and confirm the FULL target path stays within MODELS_DIR
+    # (defense-in-depth).  The previous check resolved only `MODELS_DIR /
+    # model_type`, missing any subfolder + filename — a symlink later in
+    # the chain (e.g., `checkpoints/X` symlinked to `/etc`) would let the
+    # download escape MODELS_DIR.  Now we resolve the actual parent
+    # (existing portions are dereferenced through symlinks, non-existent
+    # tail components stay literal under strict=False) and verify the
+    # final target file is still under the resolved MODELS_DIR root.
     try:
-        resolved_target = (MODELS_DIR / model_type).resolve()
-        if not str(resolved_target).startswith(str(MODELS_DIR.resolve())):
-            return to_json({"error": "Access denied: path resolves outside models directory."})
+        models_root = MODELS_DIR.resolve()
+        resolved_parent = type_dir.resolve()
+        resolved_target = resolved_parent / filename
+        if not resolved_parent.is_relative_to(models_root):
+            return to_json({
+                "error": "Access denied: target directory resolves outside MODELS_DIR.",
+                "hint": "A symlink in the path chain may be redirecting writes.",
+            })
+        if not resolved_target.is_relative_to(models_root):
+            return to_json({
+                "error": "Access denied: target file resolves outside MODELS_DIR.",
+            })
     except (OSError, ValueError):
         return to_json({"error": "Invalid model path."})
 
