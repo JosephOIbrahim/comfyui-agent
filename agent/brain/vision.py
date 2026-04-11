@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-from ..llm import get_provider, ImageBlock, TextBlock, LLMError
+from ..llm import get_provider, ImageBlock, TextBlock, ThinkingBlock, LLMError
 
 from ._protocol import brain_message, dispatch_brain_message
 from ._sdk import BrainAgent
@@ -204,7 +204,16 @@ class VisionAgent(BrainAgent):
                 messages=[{"role": "user", "content": user_content}],
                 timeout=_VISION_TIMEOUT,
             )
+            # Cycle 18: walk all blocks; skip ThinkingBlock (reasoning that
+            # the vision pipeline doesn't surface to the user) and return the
+            # first user-visible TextBlock. Without the explicit skip, a
+            # response that LEADS with a thinking block would still find the
+            # first TextBlock further down — but now it's documented intent.
             for block in response.content:
+                if isinstance(block, ThinkingBlock):
+                    log.debug("Vision response included thinking block (%d chars)",
+                              len(block.thinking))
+                    continue
                 if isinstance(block, TextBlock):
                     return block.text
             return ""

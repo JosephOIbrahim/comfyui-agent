@@ -45,6 +45,25 @@ class ImageBlock:
     type: str = "image"
 
 
+@dataclass
+class ThinkingBlock:
+    """A reasoning / chain-of-thought block from extended-thinking models.
+
+    Cycle 18: Anthropic Claude 3.7+ extended-thinking and Claude 4 reasoning
+    return content blocks with type=\"thinking\" in message.content. Without
+    this type, _to_response in agent/llm/_anthropic.py silently dropped them
+    from LLMResponse.content — losing the model's reasoning for any caller
+    using provider.create() (vision pipeline, programmatic API).
+
+    Streaming callers see thinking content via the on_thinking callback during
+    the stream loop, but the FINAL response object also needs to include it
+    so downstream consumers that walk response.content can reconstruct the
+    full conversation.
+    """
+    thinking: str
+    type: str = "thinking"
+
+
 # ---------------------------------------------------------------------------
 # LLM response
 # ---------------------------------------------------------------------------

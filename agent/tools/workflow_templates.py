@@ -11,10 +11,13 @@ Sources (in priority order):
 
 import copy
 import json
+import logging
 from pathlib import Path
 
 from ._util import to_json
 from ..config import WORKFLOWS_DIR, COMFYUI_BLUEPRINTS_DIR
+
+log = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -87,7 +90,14 @@ def _scan_external_workflows(directory: Path, source: str) -> list[dict]:
                 )
             else:
                 node_count = len(data["nodes"])
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            # Cycle 19: log skipped templates so users can debug why a
+            # workflow file isn't appearing in the template list. Was
+            # silently swallowed before.
+            log.warning(
+                "workflow_templates: skipping malformed workflow %s: %s",
+                path, exc,
+            )
             continue
 
         results.append({

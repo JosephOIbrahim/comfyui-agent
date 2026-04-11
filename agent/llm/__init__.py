@@ -24,6 +24,7 @@ from ._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "LLMProvider",
     "LLMResponse",
     "TextBlock",
+    "ThinkingBlock",
     "ToolUseBlock",
     "ToolResultBlock",
     "ImageBlock",

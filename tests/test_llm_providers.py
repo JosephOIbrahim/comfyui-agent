@@ -21,6 +21,7 @@ from agent.llm._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -403,6 +404,179 @@ class TestAnthropicProvider:
             msg = {"role": "user", "content": "hello"}
             result = provider.convert_messages([msg])
             assert result == [msg]
+
+
+class TestAnthropicCycle18ThinkingAndDeltaFilter:
+    """Cycle 18 hardening for the Anthropic provider:
+
+    1. _to_response must preserve thinking blocks (Claude 3.7+ extended
+       thinking, Claude 4 reasoning) — they were silently dropped before.
+    2. The streaming on_text/on_thinking callbacks must filter empty
+       deltas — Anthropic emits zero-width content_block_delta events at
+       block boundaries, and (after cycle 7) those would set
+       content_emitted=True and suppress legitimate retries.
+    """
+
+    def test_thinking_block_preserved_in_response(self):
+        """A response with [ThinkingBlock, TextBlock, ToolUseBlock] must
+        preserve all 3 in LLMResponse.content."""
+        with patch("agent.llm._anthropic.anthropic") as mock_sdk:
+            provider = _make_anthropic_provider(mock_sdk)
+
+            thinking_block = MagicMock()
+            thinking_block.type = "thinking"
+            thinking_block.thinking = "Let me reason about this problem..."
+
+            text_block = MagicMock()
+            text_block.type = "text"
+            text_block.text = "Here is my answer."
+
+            tool_block = MagicMock()
+            tool_block.type = "tool_use"
+            tool_block.id = "toolu_xyz"
+            tool_block.name = "calculator"
+            tool_block.input = {"x": 1}
+
+            _make_anthropic_stream_ctx(
+                provider._client,
+                [thinking_block, text_block, tool_block],
+                stop_reason="tool_use",
+            )
+
+            resp = provider.stream(
+                model="claude-test",
+                max_tokens=100,
+                system="test",
+                tools=[],
+                messages=[{"role": "user", "content": "go"}],
+            )
+            assert len(resp.content) == 3, (
+                f"Expected 3 blocks (thinking + text + tool_use), got "
+                f"{len(resp.content)}: {[type(b).__name__ for b in resp.content]}"
+            )
+            assert isinstance(resp.content[0], ThinkingBlock)
+            assert resp.content[0].thinking == "Let me reason about this problem..."
+            assert isinstance(resp.content[1], TextBlock)
+            assert resp.content[1].text == "Here is my answer."
+            assert isinstance(resp.content[2], ToolUseBlock)
+
+    def test_thinking_block_in_create_path(self):
+        """The non-streaming create() path also preserves thinking blocks."""
+        with patch("agent.llm._anthropic.anthropic") as mock_sdk:
+            provider = _make_anthropic_provider(mock_sdk)
+
+            thinking_block = MagicMock()
+            thinking_block.type = "thinking"
+            thinking_block.thinking = "Reasoning step..."
+
+            text_block = MagicMock()
+            text_block.type = "text"
+            text_block.text = "Final answer."
+
+            mock_msg = MagicMock()
+            mock_msg.content = [thinking_block, text_block]
+            mock_msg.stop_reason = "end_turn"
+            mock_msg.model = "claude-test"
+            mock_msg.usage = MagicMock(input_tokens=10, output_tokens=5)
+            provider._client.messages.create.return_value = mock_msg
+
+            resp = provider.create(
+                model="claude-test",
+                max_tokens=100,
+                system="test",
+                messages=[{"role": "user", "content": "go"}],
+            )
+            assert len(resp.content) == 2
+            assert isinstance(resp.content[0], ThinkingBlock)
+            assert resp.content[0].thinking == "Reasoning step..."
+            assert isinstance(resp.content[1], TextBlock)
+
+    def test_empty_text_delta_does_not_fire_on_text(self):
+        """Cycle 18: a content_block_delta with empty delta.text must NOT
+        fire the on_text callback (would otherwise set cycle 7's
+        content_emitted=True and suppress retries)."""
+        with patch("agent.llm._anthropic.anthropic") as mock_sdk:
+            provider = _make_anthropic_provider(mock_sdk)
+
+            empty_delta = MagicMock()
+            empty_delta.text = ""  # zero-width delta at block boundary
+            empty_event = MagicMock()
+            empty_event.type = "content_block_delta"
+            empty_event.delta = empty_delta
+
+            real_delta = MagicMock()
+            real_delta.text = "real content"
+            real_event = MagicMock()
+            real_event.type = "content_block_delta"
+            real_event.delta = real_delta
+
+            text_block = MagicMock()
+            text_block.type = "text"
+            text_block.text = "real content"
+
+            mock_stream = MagicMock()
+            mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+            mock_stream.__exit__ = MagicMock(return_value=False)
+            mock_stream.__iter__ = MagicMock(return_value=iter([empty_event, real_event]))
+
+            mock_msg = MagicMock()
+            mock_msg.content = [text_block]
+            mock_msg.stop_reason = "end_turn"
+            mock_msg.model = "claude-test"
+            mock_msg.usage = MagicMock(input_tokens=1, output_tokens=2)
+            mock_stream.get_final_message.return_value = mock_msg
+            provider._client.messages.stream.return_value = mock_stream
+
+            on_text = MagicMock()
+            provider.stream(
+                model="claude-test",
+                max_tokens=100,
+                system="test",
+                tools=[],
+                messages=[{"role": "user", "content": "hi"}],
+                on_text=on_text,
+            )
+            # Empty delta MUST be filtered out — only the real content fires
+            on_text.assert_called_once_with("real content")
+
+    def test_empty_thinking_delta_does_not_fire_on_thinking(self):
+        """Cycle 18: empty delta.thinking must also be filtered."""
+        with patch("agent.llm._anthropic.anthropic") as mock_sdk:
+            provider = _make_anthropic_provider(mock_sdk)
+
+            empty_delta = MagicMock(spec=["thinking"])
+            empty_delta.thinking = ""
+            empty_event = MagicMock()
+            empty_event.type = "content_block_delta"
+            empty_event.delta = empty_delta
+
+            text_block = MagicMock()
+            text_block.type = "text"
+            text_block.text = "answer"
+
+            mock_stream = MagicMock()
+            mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+            mock_stream.__exit__ = MagicMock(return_value=False)
+            mock_stream.__iter__ = MagicMock(return_value=iter([empty_event]))
+
+            mock_msg = MagicMock()
+            mock_msg.content = [text_block]
+            mock_msg.stop_reason = "end_turn"
+            mock_msg.model = "claude-test"
+            mock_msg.usage = MagicMock(input_tokens=1, output_tokens=1)
+            mock_stream.get_final_message.return_value = mock_msg
+            provider._client.messages.stream.return_value = mock_stream
+
+            on_thinking = MagicMock()
+            provider.stream(
+                model="claude-test",
+                max_tokens=100,
+                system="test",
+                tools=[],
+                messages=[{"role": "user", "content": "hi"}],
+                on_thinking=on_thinking,
+            )
+            on_thinking.assert_not_called()
 
 
 # ======================================================================

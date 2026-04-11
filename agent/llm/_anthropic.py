@@ -21,6 +21,7 @@ from ._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -64,9 +65,19 @@ class AnthropicProvider(LLMProvider):
                 for event in stream:
                     if event.type == "content_block_delta":
                         delta = event.delta
-                        if hasattr(delta, "text") and on_text:
+                        # Cycle 18: filter empty deltas. Anthropic emits
+                        # zero-width content_block_delta events at content
+                        # block boundaries; without the truthy check, those
+                        # would fire on_text("") / on_thinking("") and (since
+                        # cycle 7) set content_emitted=True, suppressing
+                        # legitimate retries on transient errors.
+                        if hasattr(delta, "text") and delta.text and on_text:
                             on_text(delta.text)
-                        elif hasattr(delta, "thinking") and on_thinking:
+                        elif (
+                            hasattr(delta, "thinking")
+                            and delta.thinking
+                            and on_thinking
+                        ):
                             on_thinking(delta.thinking)
                 final = stream.get_final_message()
 
@@ -214,13 +225,28 @@ def _cached_system(system: str) -> list[dict]:
 
 
 def _to_response(msg) -> LLMResponse:
-    """Convert Anthropic Message to LLMResponse."""
+    """Convert Anthropic Message to LLMResponse.
+
+    Cycle 18: handle thinking blocks. Claude 3.7+ extended-thinking and
+    Claude 4 reasoning return content blocks with type=\"thinking\" alongside
+    text/tool_use blocks. Without the elif branch below, those blocks were
+    silently dropped — causing the model's reasoning to disappear from the
+    final response object for any caller using provider.create() (vision
+    pipeline, programmatic API).
+    """
     content = []
     for block in msg.content:
         if block.type == "text":
             content.append(TextBlock(text=block.text))
         elif block.type == "tool_use":
             content.append(ToolUseBlock(id=block.id, name=block.name, input=block.input))
+        elif block.type == "thinking":
+            # `block.thinking` holds the reasoning text for Anthropic
+            # extended-thinking. Defensive getattr in case the SDK ever
+            # renames the field.
+            content.append(ThinkingBlock(
+                thinking=getattr(block, "thinking", "") or "",
+            ))
     return LLMResponse(
         content=content,
         stop_reason=msg.stop_reason,
