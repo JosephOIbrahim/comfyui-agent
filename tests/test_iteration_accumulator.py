@@ -275,12 +275,16 @@ class TestPreStartGuards:
         assert "error" not in fin
         assert fin["total_steps"] == 1
 
-    def test_compositor_scene_lock_exists(self):
-        """compositor_tools must have a _scene_lock threading.Lock."""
+    def test_compositor_scenes_lock_exists(self):
+        """compositor_tools must have a _scenes_lock threading.Lock.
+
+        Iter 13 cycle 12 renamed _scene_lock → _scenes_lock when refactoring
+        the module-global _current_scene into a per-session _scenes dict.
+        """
         import threading
         from agent.stage import compositor_tools
-        assert hasattr(compositor_tools, "_scene_lock")
-        assert isinstance(compositor_tools._scene_lock, type(threading.Lock()))
+        assert hasattr(compositor_tools, "_scenes_lock")
+        assert isinstance(compositor_tools._scenes_lock, type(threading.Lock()))
 
 
 # ---------------------------------------------------------------------------

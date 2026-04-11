@@ -139,23 +139,44 @@ TOOLS: list[dict] = [
 # Accessors
 # ---------------------------------------------------------------------------
 
-def _get_stage(session_id: str = "default"):
-    """Return the CognitiveWorkflowStage for this session, or None."""
+def _get_stage(session_id: str | None = None):
+    """Return the CognitiveWorkflowStage for this session, or None.
+
+    If session_id is not provided, reads the _conn_session ContextVar so
+    each MCP connection / sidebar conversation operates on its own stage.
+    """
     from ..session_context import get_session_context
+    if session_id is None:
+        from .._conn_ctx import current_conn_session
+        session_id = current_conn_session()
     ctx = get_session_context(session_id)
     return ctx.ensure_stage()
 
 
-def _get_ratchet(session_id: str = "default"):
-    """Return the Ratchet for this session, or None."""
+def _get_ratchet(session_id: str | None = None):
+    """Return the Ratchet for this session, or None.
+
+    If session_id is not provided, reads the _conn_session ContextVar so
+    each MCP connection / sidebar conversation operates on its own ratchet.
+    """
     from ..session_context import get_session_context
+    if session_id is None:
+        from .._conn_ctx import current_conn_session
+        session_id = current_conn_session()
     ctx = get_session_context(session_id)
     return ctx.ensure_ratchet()
 
 
-def _get_ctx(session_id: str = "default"):
-    """Return the SessionContext."""
+def _get_ctx(session_id: str | None = None):
+    """Return the SessionContext.
+
+    If session_id is not provided, reads the _conn_session ContextVar so
+    each MCP connection / sidebar conversation operates on its own context.
+    """
     from ..session_context import get_session_context
+    if session_id is None:
+        from .._conn_ctx import current_conn_session
+        session_id = current_conn_session()
     return get_session_context(session_id)
 
 

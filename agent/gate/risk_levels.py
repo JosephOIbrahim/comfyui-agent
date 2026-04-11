@@ -92,8 +92,8 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "stage_list_deltas": RiskLevel.READ_ONLY,
     "stage_reconstruct_clean": RiskLevel.READ_ONLY,
     # Provision reads
-    "provision_pipeline_status": RiskLevel.READ_ONLY,  # Cycle 64: fix stale name (was provision_status)
-    "provision_pipeline_verify": RiskLevel.READ_ONLY,  # Cycle 64: fix stale name (was provision_verify)
+    "provision_status": RiskLevel.READ_ONLY,  # Iter 13: reverted Cycle 64 backwards rename
+    "provision_verify": RiskLevel.READ_ONLY,  # Iter 13: reverted Cycle 64 backwards rename
     "suggest_wiring": RiskLevel.READ_ONLY,  # Cycle 64: was missing
     # Metadata reads
     "read_image_metadata": RiskLevel.READ_ONLY,

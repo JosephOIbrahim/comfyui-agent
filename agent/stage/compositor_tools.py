@@ -121,21 +121,32 @@ TOOLS: list[dict] = [
 # Session-scoped scene storage
 # ---------------------------------------------------------------------------
 
-_current_scene = None  # Module-level for now; will be session-scoped later
-_scene_lock = threading.Lock()  # Guards _current_scene mutations (Cycle 41)
+_scenes: dict[str, object] = {}  # Per-session scene storage, keyed by session_id
+_scenes_lock = threading.Lock()  # Guards _scenes mutations (Cycle 41; session-scoped)
 
 
 def _get_scene():
-    """Return the current composed scene, or None."""
-    with _scene_lock:
-        return _current_scene
+    """Return the composed scene for the current connection's session, or None."""
+    from .._conn_ctx import current_conn_session
+    sid = current_conn_session()
+    with _scenes_lock:
+        return _scenes.get(sid)
 
 
 def _set_scene(scene):
-    """Set the current composed scene."""
-    global _current_scene
-    with _scene_lock:
-        _current_scene = scene
+    """Store the composed scene for the current connection's session."""
+    from .._conn_ctx import current_conn_session
+    sid = current_conn_session()
+    with _scenes_lock:
+        _scenes[sid] = scene
+
+
+def _clear_scene():
+    """Remove the composed scene for the current connection's session, if any."""
+    from .._conn_ctx import current_conn_session
+    sid = current_conn_session()
+    with _scenes_lock:
+        _scenes.pop(sid, None)
 
 
 _NO_USD = to_json({

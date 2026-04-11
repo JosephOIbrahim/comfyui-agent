@@ -26,12 +26,19 @@ _provisioners: dict[str, Provisioner] = {}
 _prov_lock = threading.Lock()
 
 
-def _get_provisioner(session_id: str = "default") -> Provisioner | None:
+def _get_provisioner(session_id: str | None = None) -> Provisioner | None:
     """Get or create a Provisioner for this session.
 
     Returns None if usd-core is unavailable or stage cannot be initialised.
     Caches the Provisioner per session_id once successfully created.
+
+    If session_id is not provided, reads the _conn_session ContextVar so
+    each MCP connection / sidebar conversation gets its own Provisioner
+    cache instead of sharing the "default" slot.
     """
+    if session_id is None:
+        from .._conn_ctx import current_conn_session
+        session_id = current_conn_session()
     with _prov_lock:
         if session_id in _provisioners:
             return _provisioners[session_id]
@@ -196,8 +203,9 @@ def _handle_provision_status(tool_input: dict) -> str:
     prov = _get_provisioner()
     if prov is None:
         # Degraded: return registry-only status without handle data.
+        from .._conn_ctx import current_conn_session
         from ..session_context import get_session_context
-        ctx = get_session_context("default")
+        ctx = get_session_context(current_conn_session())
         stage = ctx.stage
         if stage is None:
             return to_json({

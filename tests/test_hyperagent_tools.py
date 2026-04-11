@@ -19,11 +19,18 @@ def _parse(result: str) -> dict:
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
-    """Reset the module-level MetaAgent singleton between tests."""
+    """Reset the per-session MetaAgent dict between tests.
+
+    Iter 13 cycle 12 refactored _meta_agent (process-wide singleton) into
+    _meta_agents: dict[str, MetaAgent] keyed by session_id. The fixture
+    now clears the entire dict so each test starts with no cached agents.
+    """
     import agent.stage.hyperagent_tools as mod
-    mod._meta_agent = None
+    with mod._meta_agents_lock:
+        mod._meta_agents.clear()
     yield
-    mod._meta_agent = None
+    with mod._meta_agents_lock:
+        mod._meta_agents.clear()
 
 
 # ---------------------------------------------------------------------------

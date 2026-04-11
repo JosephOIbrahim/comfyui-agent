@@ -25,17 +25,33 @@ def _to_json(obj: object) -> str:
 # Module-level singleton (lazy, thread-safe)
 # ---------------------------------------------------------------------------
 
-_meta_agent: MetaAgent | None = None
-_meta_agent_lock = threading.Lock()
+_meta_agents: dict[str, MetaAgent] = {}
+_meta_agents_lock = threading.Lock()
 
 
 def _get_meta_agent() -> MetaAgent:
-    global _meta_agent
-    if _meta_agent is None:
-        with _meta_agent_lock:
-            if _meta_agent is None:  # Double-check after acquiring lock
-                _meta_agent = MetaAgent()
-    return _meta_agent
+    """Return the MetaAgent for the current connection's session.
+
+    Each MCP connection / sidebar conversation gets its own MetaAgent
+    instance with its own proposal history. Without this, all sessions
+    share one process-wide MetaAgent and see each other's proposals.
+    """
+    from .._conn_ctx import current_conn_session
+    sid = current_conn_session()
+    with _meta_agents_lock:
+        agent = _meta_agents.get(sid)
+        if agent is not None:
+            return agent
+        # Create outside the lock to avoid blocking concurrent sessions
+    new_agent = MetaAgent()
+    with _meta_agents_lock:
+        # Double-check pattern: another thread for the same session may have
+        # created one while we were building ours.
+        existing = _meta_agents.get(sid)
+        if existing is not None:
+            return existing
+        _meta_agents[sid] = new_agent
+        return new_agent
 
 
 # ---------------------------------------------------------------------------

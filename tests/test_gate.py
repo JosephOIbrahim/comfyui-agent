@@ -316,17 +316,25 @@ class TestGateEdgeCases:
 # Cycle 64: previously missing and stale risk level entries
 # ---------------------------------------------------------------------------
 
-class TestCycle64RiskLevelFixes:
-    """Cycle 64: 6 tools were missing from TOOL_RISK_LEVELS; 2 had stale names."""
+class TestProvisionRiskLevels:
+    """Provision tool risk levels (iter 13: reverted Cycle 64's backwards rename).
+
+    Cycle 64 mistakenly renamed the entries to provision_pipeline_status/_verify
+    but the actual TOOLS in agent/stage/provision_tools.py are named
+    provision_status/provision_verify. Iter 13 reverted the rename so the
+    risk_levels.py keys match the real tool names.
+    """
 
     def test_provision_model_is_provision(self):
         assert get_risk_level("provision_model") == RiskLevel.PROVISION
 
-    def test_provision_pipeline_status_is_read_only(self):
-        assert get_risk_level("provision_pipeline_status") == RiskLevel.READ_ONLY
+    def test_provision_status_is_read_only(self):
+        """Canonical name matches the actual TOOLS entry in provision_tools.py."""
+        assert get_risk_level("provision_status") == RiskLevel.READ_ONLY
 
-    def test_provision_pipeline_verify_is_read_only(self):
-        assert get_risk_level("provision_pipeline_verify") == RiskLevel.READ_ONLY
+    def test_provision_verify_is_read_only(self):
+        """Canonical name matches the actual TOOLS entry in provision_tools.py."""
+        assert get_risk_level("provision_verify") == RiskLevel.READ_ONLY
 
     def test_wire_model_is_reversible(self):
         assert get_risk_level("wire_model") == RiskLevel.REVERSIBLE
@@ -337,12 +345,12 @@ class TestCycle64RiskLevelFixes:
     def test_verify_execution_is_execution(self):
         assert get_risk_level("verify_execution") == RiskLevel.EXECUTION
 
-    def test_stale_provision_status_no_longer_silently_defaults(self):
-        """Old stale name 'provision_status' must not exist as a key — it was a typo."""
+    def test_provision_status_in_registry(self):
+        """The canonical name MUST be in TOOL_RISK_LEVELS so the gate classifies it correctly."""
         from agent.gate.risk_levels import TOOL_RISK_LEVELS
-        assert "provision_status" not in TOOL_RISK_LEVELS
+        assert "provision_status" in TOOL_RISK_LEVELS
 
-    def test_stale_provision_verify_no_longer_silently_defaults(self):
-        """Old stale name 'provision_verify' must not exist as a key — it was a typo."""
+    def test_provision_verify_in_registry(self):
+        """The canonical name MUST be in TOOL_RISK_LEVELS so the gate classifies it correctly."""
         from agent.gate.risk_levels import TOOL_RISK_LEVELS
-        assert "provision_verify" not in TOOL_RISK_LEVELS
+        assert "provision_verify" in TOOL_RISK_LEVELS
