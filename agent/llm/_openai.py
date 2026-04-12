@@ -16,7 +16,7 @@ try:
 except ImportError:
     openai = None  # type: ignore
 
-from ._base import LLMProvider
+from ._base import LLMProvider, _record_llm_metric
 from ._types import (
     ImageBlock,
     LLMAuthError,
@@ -62,6 +62,8 @@ class OpenAIProvider(LLMProvider):
         on_text: Callable[[str], None] | None = None,
         on_thinking: Callable[[str], None] | None = None,
     ) -> LLMResponse:
+        import time
+
         native_tools = self.convert_tools(tools)
         native_messages = self.convert_messages(messages)
 
@@ -79,6 +81,7 @@ class OpenAIProvider(LLMProvider):
         }
         if native_tools:
             kwargs["tools"] = native_tools
+        start = time.monotonic()
 
         try:
             stream = self._client.chat.completions.create(**kwargs)
@@ -137,18 +140,24 @@ class OpenAIProvider(LLMProvider):
                                 acc["arguments_parts"].append(tc_delta.function.arguments)
 
         except openai.AuthenticationError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except openai.RateLimitError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except openai.APIConnectionError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except openai.APIStatusError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except openai.APIError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
+        _record_llm_metric("openai", "ok", time.monotonic() - start)
         return _build_response(
             text_parts=text_parts,
             tool_calls_acc=tool_calls_acc,
@@ -166,6 +175,8 @@ class OpenAIProvider(LLMProvider):
         messages: list[dict],
         timeout: float | None = None,
     ) -> LLMResponse:
+        import time
+
         native_messages = self._convert_vision_messages(messages)
         all_messages = [{"role": "system", "content": system}] + native_messages
 
@@ -174,6 +185,7 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": max_tokens,
             "messages": all_messages,
         }
+        start = time.monotonic()
 
         try:
             if timeout:
@@ -182,18 +194,24 @@ class OpenAIProvider(LLMProvider):
                 client = self._client
             response = client.chat.completions.create(**kwargs)
         except openai.AuthenticationError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except openai.RateLimitError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except openai.APIConnectionError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except openai.APIStatusError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except openai.APIError as e:
+            _record_llm_metric("openai", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
+        _record_llm_metric("openai", "ok", time.monotonic() - start)
         return _to_response(response)
 
     def convert_tools(self, tools: list[dict]) -> list[dict]:

@@ -13,7 +13,7 @@ import logging
 import uuid
 from typing import Any, Callable
 
-from ._base import LLMProvider
+from ._base import LLMProvider, _record_llm_metric
 from ._types import (
     ImageBlock,
     LLMAuthError,
@@ -76,6 +76,8 @@ class OllamaProvider(LLMProvider):
         on_text: Callable[[str], None] | None = None,
         on_thinking: Callable[[str], None] | None = None,
     ) -> LLMResponse:
+        import time
+
         native_tools = self.convert_tools(tools)
         native_messages = self.convert_messages(messages)
 
@@ -97,21 +99,29 @@ class OllamaProvider(LLMProvider):
         }
         if native_tools:
             kwargs["tools"] = native_tools
+        start = time.monotonic()
 
         try:
             stream = self._client.chat.completions.create(**kwargs)
-            return self._consume_stream(stream, on_text=on_text)
+            result = self._consume_stream(stream, on_text=on_text)
+            _record_llm_metric("ollama", "ok", time.monotonic() - start)
+            return result
         except openai.AuthenticationError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except openai.RateLimitError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except openai.APIConnectionError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except openai.APIStatusError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except openai.APIError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
     def create(
@@ -123,6 +133,8 @@ class OllamaProvider(LLMProvider):
         messages: list[dict],
         timeout: float | None = None,
     ) -> LLMResponse:
+        import time
+
         native_messages = self._convert_vision_messages(messages)
 
         if system:
@@ -135,22 +147,29 @@ class OllamaProvider(LLMProvider):
         }
         if timeout:
             kwargs["timeout"] = timeout
+        start = time.monotonic()
 
         try:
             response = self._client.chat.completions.create(**kwargs)
         except openai.AuthenticationError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except openai.RateLimitError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except openai.APIConnectionError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except openai.APIStatusError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except openai.APIError as e:
+            _record_llm_metric("ollama", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
+        _record_llm_metric("ollama", "ok", time.monotonic() - start)
         return _to_response(response)
 
     def convert_tools(self, tools: list[dict]) -> list[dict]:

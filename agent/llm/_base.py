@@ -10,10 +10,25 @@ The caller works exclusively with common types from _types.py.
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
 from ._types import LLMResponse
+
+
+def _record_llm_metric(provider: str, status: str, elapsed: float) -> None:
+    """Record LLM call metrics (counter + histogram).
+
+    Uses lazy import so a metrics failure never breaks LLM calls.
+    """
+    try:
+        from ..metrics import llm_call_total, llm_call_duration_seconds
+
+        llm_call_total.inc(provider=provider, status=status)
+        llm_call_duration_seconds.observe(elapsed, provider=provider)
+    except Exception:
+        pass
 
 
 class LLMProvider(ABC):

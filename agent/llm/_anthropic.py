@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from ._base import LLMProvider
+from ._base import LLMProvider, _record_llm_metric
 from ._types import (
     ImageBlock,
     LLMAuthError,
@@ -50,9 +50,12 @@ class AnthropicProvider(LLMProvider):
         on_text: Callable[[str], None] | None = None,
         on_thinking: Callable[[str], None] | None = None,
     ) -> LLMResponse:
+        import time
+
         native_tools = self.convert_tools(tools)
         native_messages = self.convert_messages(messages)
         cached_system = _cached_system(system)
+        start = time.monotonic()
 
         try:
             with self._client.messages.stream(
@@ -82,18 +85,24 @@ class AnthropicProvider(LLMProvider):
                 final = stream.get_final_message()
 
         except anthropic.AuthenticationError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except anthropic.RateLimitError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except anthropic.APIConnectionError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except anthropic.APIStatusError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except anthropic.APIError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
+        _record_llm_metric("anthropic", "ok", time.monotonic() - start)
         return _to_response(final)
 
     def create(
@@ -105,6 +114,8 @@ class AnthropicProvider(LLMProvider):
         messages: list[dict],
         timeout: float | None = None,
     ) -> LLMResponse:
+        import time
+
         native_messages = self._convert_vision_messages(messages)
 
         kwargs: dict[str, Any] = {
@@ -113,6 +124,7 @@ class AnthropicProvider(LLMProvider):
             "system": system,
             "messages": native_messages,
         }
+        start = time.monotonic()
 
         try:
             if timeout:
@@ -121,18 +133,24 @@ class AnthropicProvider(LLMProvider):
                 client = self._client
             response = client.messages.create(**kwargs)
         except anthropic.AuthenticationError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMAuthError(str(e)) from e
         except anthropic.RateLimitError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMRateLimitError(str(e)) from e
         except anthropic.APIConnectionError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMConnectionError(str(e)) from e
         except anthropic.APIStatusError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             if e.status_code >= 500:
                 raise LLMServerError(str(e), status_code=e.status_code) from e
             raise LLMError(str(e)) from e
         except anthropic.APIError as e:
+            _record_llm_metric("anthropic", "error", time.monotonic() - start)
             raise LLMError(str(e)) from e
 
+        _record_llm_metric("anthropic", "ok", time.monotonic() - start)
         return _to_response(response)
 
     def convert_tools(self, tools: list[dict]) -> list[dict]:

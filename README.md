@@ -75,7 +75,7 @@ Done. That's the only install command you need.
 <summary>Optional installs (click to expand)</summary>
 
 ```bash
-pip install -e ".[dev]"           # + test suite (3879 passing tests)
+pip install -e ".[dev]"           # + test suite (3902 passing tests)
 pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, most users skip this)
 ```
 
@@ -254,7 +254,7 @@ graph LR
     style D fill:#ef4444,color:#fff
 ```
 
-Common types (`TextBlock`, `ToolUseBlock`, `LLMResponse`), unified error hierarchy, provider-specific format conversion handled internally. Switch providers with one env var -- no code changes. All 4 providers have dedicated test suites (132 tests) plus a parameterized conformance suite that verifies protocol compliance across providers.
+Common types (`TextBlock`, `ToolUseBlock`, `LLMResponse`), unified error hierarchy, provider-specific format conversion handled internally. Switch providers with one env var -- no code changes. All 4 providers have dedicated test suites (132 tests) plus a parameterized conformance suite that verifies protocol compliance across providers. Every `stream()` and `create()` call is instrumented with `llm_call_total` and `llm_call_duration_seconds` metrics (per-provider labels).
 
 ---
 
@@ -944,7 +944,7 @@ panel/
   __init__.py         WEB_DIRECTORY + route registration + sys.path injection
   server/routes.py    49 REST routes -- full tool surface
   web/js/             Headless canvas↔agent bridge (no visible UI -- sidebar is primary)
-tests/                3879 passing tests, all mocked, ~60s
+tests/                3902 passing tests, all mocked, ~60s
   integration/        Skips cleanly when ComfyUI not running
 ```
 
@@ -1019,7 +1019,7 @@ All settings live in your `.env` file:
 No ComfyUI needed -- everything is mocked:
 
 ```bash
-python -m pytest tests/ -v        # 3879 passing tests, ~70s
+python -m pytest tests/ -v        # 3902 passing tests, ~70s
 
 # Skip tests that require a real ComfyUI server or API keys
 python -m pytest tests/ -v -m "not integration"

@@ -14,7 +14,7 @@ import os
 import uuid
 from typing import Any, Callable
 
-from ._base import LLMProvider
+from ._base import LLMProvider, _record_llm_metric
 from ._types import (
     ImageBlock,
     LLMAuthError,
@@ -80,6 +80,8 @@ class GeminiProvider(LLMProvider):
         on_text: Callable[[str], None] | None = None,
         on_thinking: Callable[[str], None] | None = None,
     ) -> LLMResponse:
+        import time as _time
+
         native_tools = self.convert_tools(tools)
         native_messages = self.convert_messages(messages)
 
@@ -88,6 +90,7 @@ class GeminiProvider(LLMProvider):
             max_output_tokens=max_tokens,
             tools=native_tools or None,
         )
+        start = _time.monotonic()
 
         try:
             stream = self._client.models.generate_content_stream(
@@ -141,6 +144,7 @@ class GeminiProvider(LLMProvider):
                             )
 
         except Exception as e:
+            _record_llm_metric("gemini", "error", _time.monotonic() - start)
             _translate_error(e)
 
         # Build response
@@ -151,6 +155,7 @@ class GeminiProvider(LLMProvider):
 
         stop_reason = "tool_use" if tool_calls else "end_turn"
 
+        _record_llm_metric("gemini", "ok", _time.monotonic() - start)
         return LLMResponse(
             content=content,
             stop_reason=stop_reason,
@@ -167,6 +172,8 @@ class GeminiProvider(LLMProvider):
         messages: list[dict],
         timeout: float | None = None,
     ) -> LLMResponse:
+        import time as _time
+
         native_messages = self.convert_messages(messages)
 
         config = genai_types.GenerateContentConfig(
@@ -177,6 +184,7 @@ class GeminiProvider(LLMProvider):
         http_options = None
         if timeout:
             http_options = genai_types.HttpOptions(timeout=int(timeout * 1000))
+        start = _time.monotonic()
 
         try:
             if timeout:
@@ -193,8 +201,10 @@ class GeminiProvider(LLMProvider):
                 config=config,
             )
         except Exception as e:
+            _record_llm_metric("gemini", "error", _time.monotonic() - start)
             _translate_error(e)
 
+        _record_llm_metric("gemini", "ok", _time.monotonic() - start)
         return _to_response(response, model)
 
     def convert_tools(self, tools: list[dict]) -> list[Any]:
