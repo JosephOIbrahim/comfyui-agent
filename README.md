@@ -46,77 +46,107 @@ graph LR
 
 ## Get Running
 
-**You need three things. That's it.**
+```mermaid
+flowchart LR
+    A["Clone"] -->|30 sec| B["Install"]
+    B -->|10 sec| C["Paste key"]
+    C -->|done| D(["agent run"])
 
-| # | What | Where to get it |
-|---|------|-----------------|
-| 1 | **Python 3.11+** | [python.org/downloads](https://python.org/downloads) |
-| 2 | **ComfyUI running** | [github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI) |
-| 3 | **One LLM backend** | API key (Anthropic / OpenAI / Google) OR [Ollama](https://ollama.com) (free, local) |
+    style A fill:#3b82f6,color:#fff
+    style B fill:#8b5cf6,color:#fff
+    style C fill:#d97706,color:#fff
+    style D fill:#10b981,color:#fff
+```
 
-Got all three? Four steps:
+**Three prerequisites, four copy-paste steps. Under 2 minutes start to finish.**
 
-### Step 1 of 4 -- Clone
+| | What you need | Where to get it | Time |
+|---|------|-----------------|------|
+| 1 | **Python 3.11+** | [python.org/downloads](https://python.org/downloads) | already have it? skip |
+| 2 | **ComfyUI running** | [github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI) | already have it? skip |
+| 3 | **One LLM backend** | API key (Anthropic / OpenAI / Google) OR [Ollama](https://ollama.com) (free, local, no key) | 1 min to grab a key |
+
+**Already have all three? Copy-paste these four blocks. That's it.**
+
+### 1. Clone
 
 ```bash
 git clone https://github.com/JosephOIbrahim/Comfy-Cozy.git
 cd Comfy-Cozy
 ```
 
-### Step 2 of 4 -- Install
+### 2. Install
 
 ```bash
 pip install -e .
 ```
 
-Done. That's the only install command you need.
+One command. No build step. No Docker. No conda. Just pip.
 
 <details>
-<summary>Optional installs (click to expand)</summary>
+<summary>Want the test suite too? (optional, click to expand)</summary>
 
 ```bash
-pip install -e ".[dev]"           # + test suite (3902 passing tests)
-pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, most users skip this)
+pip install -e ".[dev]"           # + 3902 passing tests
+pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, most users skip)
 ```
 
 </details>
 
-### Step 3 of 4 -- API key
+### 3. API key
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env`, paste your key:
+Open `.env` in any text editor, paste your key on the first line:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
 <details>
-<summary>Using a different LLM? (click to expand)</summary>
+<summary>Using OpenAI, Gemini, or Ollama instead? (click to expand)</summary>
+
+Pick one block, paste into `.env`:
 
 ```bash
-# OpenAI (requires: pip install openai)
+# --- OpenAI ---
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-your-key-here
+# first time only: pip install openai
 
-# Gemini (requires: pip install google-genai)
+# --- Gemini ---
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your-key-here
+# first time only: pip install google-genai
 
-# Ollama (no API key needed)
+# --- Ollama (fully local, free, no key) ---
 LLM_PROVIDER=ollama
 AGENT_MODEL=llama3.1
+# first time only: ollama pull llama3.1
 ```
 
 </details>
 
-**Non-default ComfyUI location?** Add this line too:
+<details>
+<summary>ComfyUI installed somewhere non-default? (click to expand)</summary>
+
+Add one more line to `.env`:
 
 ```
 COMFYUI_DATABASE=C:/path/to/your/ComfyUI
 ```
+
+</details>
+
+### 4. Go
+
+```bash
+agent run
+```
+
+Type what you want. The agent does the rest.
 
 ### Step 4 of 4 -- Go
 
@@ -470,21 +500,30 @@ Write a creative intent. Hit go. No workflow file needed, no parameters to tune 
 flowchart TD
     You(["Creative Intent<br/>'cinematic portrait, golden hour'"]) --> INTENT["INTENT<br/>Parse + validate"]
     INTENT --> COMPOSE["COMPOSE<br/>Load template<br/>Blend with experience"]
-    COMPOSE --> PREDICT["PREDICT<br/>CognitiveWorldModel<br/>estimates quality"]
+    COMPOSE --> PROVISION{"PROVISION CHECK<br/>Models on disk?"}
+    PROVISION -->|"missing"| WARN["Warning logged<br/>(continues)"]
+    PROVISION -->|"all present"| PREDICT
+    WARN --> PREDICT["PREDICT<br/>CWM estimates quality<br/>(SNR-adaptive alpha)"]
     PREDICT --> GATE{"GATE<br/>Arbiter:<br/>proceed?"}
-    GATE -->|Yes| EXECUTE["EXECUTE<br/>Post to ComfyUI<br/>Monitor WebSocket"]
+    GATE -->|Yes| CB{"CIRCUIT BREAKER<br/>ComfyUI healthy?"}
     GATE -->|Interrupt| STOP(["Interrupted<br/>+ reason"])
-    EXECUTE --> EVALUATE["EVALUATE<br/>Score the output"]
-    EVALUATE --> LEARN["LEARN<br/>Record to accumulator<br/>Calibrate CWM"]
+    CB -->|Open| FAIL(["Failed: infra down"])
+    CB -->|Closed| EXECUTE["EXECUTE<br/>Post to ComfyUI<br/>Monitor WebSocket"]
+    EXECUTE --> EVALUATE["EVALUATE<br/>Vision AI or rule-based<br/>(auto-wired)"]
+    EVALUATE --> LEARN["LEARN<br/>Record to accumulator<br/>Recalibrate CWM"]
     LEARN --> DONE(["Complete<br/>Experience recorded"])
-    EVALUATE -->|"score < threshold"| COMPOSE
+    EVALUATE -->|"score < threshold<br/>retries remaining"| CB
 
     style You fill:#0066FF,color:#fff
     style GATE fill:#d97706,color:#fff
+    style CB fill:#ef4444,color:#fff
     style EXECUTE fill:#ef4444,color:#fff
+    style EVALUATE fill:#8b5cf6,color:#fff
     style LEARN fill:#8b5cf6,color:#fff
     style DONE fill:#10b981,color:#fff
     style STOP fill:#6b7280,color:#fff
+    style FAIL fill:#6b7280,color:#fff
+    style PROVISION fill:#3b82f6,color:#fff
 ```
 
 **Use from Python:**
@@ -503,10 +542,13 @@ if result.warnings:
 ```
 
 - **No executor required.** The pipeline calls ComfyUI directly via the real `execute_workflow` implementation.
-- **Vision evaluator available.** Inject a `vision_analyzer` callback into `PipelineConfig` for multi-axis quality scoring (technical, aesthetic, prompt adherence). Falls back to rule-based scoring (0.7/0.1) when vision is unavailable.
-- **Template library.** Workflows loaded from `agent/templates/` (SD 1.5 / SDXL / img2img / LoRA). Hardcoded 7-node SD 1.5 fallback if no template matches.
+- **Vision evaluator auto-wires.** Set `brain_available=True` and the pipeline auto-imports VisionAgent for multi-axis quality scoring (technical, aesthetic, prompt adherence). Falls back to rule-based scoring when vision is unavailable.
+- **Auto-retry on low quality.** If score < threshold, adjusts parameters (steps +10, CFG nudged toward 7), and re-executes. Up to 3 attempts. Circuit breaker prevents retrying against a dead ComfyUI.
+- **Provision check.** Before execution, scans for referenced models (`ckpt_name`, `lora_name`, `vae_name`). Missing models generate warnings without halting.
+- **Template library.** 8 workflows: txt2img (SD 1.5 / SDXL), img2img, LoRA, multi-pass compositing (depth + normals + beauty), ControlNet depth, LTX-2 video, WAN 2.x video. Hardcoded SD 1.5 fallback if no template matches.
+- **Adaptive learning.** CWM alpha blending responds to signal quality -- low variance in experience = more trust, high variance = more prior. Recalibrator adjusts confidence thresholds after every 10 predictions.
 - **Experience persists across sessions -- crash-safe.** Every run saved atomically (write-to-tmp then `os.replace()`). After 30+ runs, the agent starts using your personal history to bias parameter selection.
-- **Pipeline failures are graceful.** CWM exceptions return `PipelineStage.FAILED` cleanly. Template mismatches populate `result.warnings`.
+- **Pipeline failures are graceful.** Circuit breaker, CWM exceptions, and template mismatches all produce clean `PipelineStage.FAILED` with `result.warnings`.
 
 ```mermaid
 graph LR
@@ -857,7 +899,7 @@ Every generation is an experiment. The agent tracks what worked:
 
 ### Semantic Knowledge Retrieval
 
-The agent ships with 11 knowledge files (ControlNet patterns, Flux specifics, video workflows, etc.). Retrieval is hybrid: keyword triggers fire first (fast path), then TF-IDF semantic search fills gaps when keywords miss. Pure Python, zero external dependencies -- no vector DB required.
+The agent ships with 12 knowledge files (1,300+ lines) covering ControlNet preprocessor selection and strength scheduling (174 lines), Flux guidance and T5 encoder tuning (172 lines), multi-pass compositing for Nuke/AE/Fusion (119 lines), video workflows, 3D pipelines, and more. Retrieval is hybrid: keyword triggers fire first (fast path), then TF-IDF semantic search fills gaps when keywords miss. Pure Python, zero external dependencies -- no vector DB required.
 
 ```mermaid
 flowchart LR
