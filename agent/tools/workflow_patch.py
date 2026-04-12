@@ -17,6 +17,7 @@ _get_state()["current_workflow"] is always kept in sync.
 import copy
 import json
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -598,6 +599,8 @@ def _handle_save(tool_input: dict) -> str:
         )
         try:
             fd.write(content)
+            fd.flush()
+            os.fsync(fd.fileno())
             fd.close()
             shutil.move(fd.name, str(dest))
         except Exception:

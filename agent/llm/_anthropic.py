@@ -172,6 +172,12 @@ class AnthropicProvider(LLMProvider):
                             "tool_use_id": block.tool_use_id,
                             "content": block.content,
                         })
+                    elif isinstance(block, ThinkingBlock):
+                        # Cycle 20: skip thinking blocks in multi-turn messages.
+                        # The Anthropic API requires a signature field we don't
+                        # capture, so sending it back would cause a 400 error.
+                        # Thinking content is already streamed via on_thinking.
+                        continue
                     elif isinstance(block, dict):
                         native_content.append(block)
                     else:

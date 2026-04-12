@@ -26,6 +26,7 @@ from ._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -272,6 +273,9 @@ class OpenAIProvider(LLMProvider):
                             "content": block.content,
                         }
                     )
+                elif isinstance(block, ThinkingBlock):
+                    # Cycle 20: skip — OpenAI has no thinking block concept
+                    continue
                 elif isinstance(block, dict):
                     # Pass through raw dicts (already native format)
                     if block.get("type") == "tool_result":

@@ -66,7 +66,7 @@ API_MAX_RETRIES = 3
 API_RETRY_DELAY = 1.0  # seconds — base delay, doubles each retry
 
 # ComfyUI connection
-COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1")
+COMFYUI_HOST = os.getenv("COMFYUI_HOST", "127.0.0.1").strip().rstrip("/")
 _port_raw = os.getenv("COMFYUI_PORT", "8188")
 try:
     COMFYUI_PORT = int(_port_raw)

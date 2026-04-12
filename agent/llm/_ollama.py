@@ -23,6 +23,7 @@ from ._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -181,6 +182,10 @@ class OllamaProvider(LLMProvider):
                 continue
 
             if isinstance(content, list):
+                # Cycle 20: filter out ThinkingBlocks — Ollama has no
+                # thinking concept; raw objects would corrupt the request.
+                content = [b for b in content if not isinstance(b, ThinkingBlock)]
+
                 # Check if this is a tool-result message
                 tool_results = [b for b in content if isinstance(b, ToolResultBlock)]
                 if tool_results:

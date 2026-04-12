@@ -24,6 +24,7 @@ from ._types import (
     LLMResponse,
     LLMServerError,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -271,6 +272,10 @@ class GeminiProvider(LLMProvider):
                             )
                         )
 
+                    elif isinstance(block, ThinkingBlock):
+                        # Cycle 20: skip — Gemini has no thinking block concept.
+                        # Without this, str(block) sent the Python repr as text.
+                        continue
                     elif isinstance(block, dict):
                         # Pass-through for already-native dicts
                         if "text" in block:
