@@ -30,10 +30,11 @@ function createMessageEl(role, text) {
   const msg = document.createElement("div");
   msg.className = `sd-message sd-message--${role}`;
 
-  if (role !== "system") {
+  // Only the agent gets a label — user alignment+tint already says "you"
+  if (role === "agent") {
     const label = document.createElement("span");
     label.className = "sd-message__label";
-    label.textContent = role === "user" ? "You" : "Agent";
+    label.textContent = "Agent";
     msg.appendChild(label);
   }
 
@@ -262,8 +263,10 @@ function buildSidebar(el) {
 
   el.innerHTML = `
     <div class="sd-header">
-      <span class="sd-header__title">Comfy Cozy</span>
-      <span class="sd-header__dot" id="sd-status-dot"></span>
+      <span class="sd-header__title">
+        <span class="sd-header__title-mark">Comfy</span><span class="sd-header__title-faint">Cozy</span>
+      </span>
+      <span class="sd-header__dot" id="sd-status-dot" title="Agent connection"></span>
     </div>
     <div class="sd-stage-bar" id="sd-stage" style="display:none">
       <span class="sd-stage__label" id="sd-stage-label"></span>
