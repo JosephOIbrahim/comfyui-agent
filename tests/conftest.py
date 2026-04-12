@@ -32,6 +32,23 @@ def _reset_conn_session():
 
 
 @pytest.fixture(autouse=True)
+def _reset_circuit_breakers():
+    """Reset circuit breakers between tests.
+
+    The COMFYUI_BREAKER is a module-level singleton. Tests that call
+    record_failure() can leave it OPEN, poisoning subsequent pipeline tests.
+    """
+    yield
+    try:
+        from agent.circuit_breaker import COMFYUI_BREAKER
+        breaker = COMFYUI_BREAKER()
+        breaker._state = "closed"
+        breaker._failure_count = 0
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def reset_workflow_state():
     """Deep-snapshot and restore ``workflow_patch`` state between tests.
 

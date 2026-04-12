@@ -6,7 +6,10 @@ create a vision analyzer, and falls back gracefully on failure.
 
 from __future__ import annotations
 
+import copy
+
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from cognitive.pipeline.autonomous import (
@@ -20,6 +23,35 @@ from cognitive.experience.chunk import QualityScore
 from cognitive.prediction.cwm import CognitiveWorldModel
 from cognitive.prediction.arbiter import SimulationArbiter
 from cognitive.prediction.counterfactual import CounterfactualGenerator
+
+
+# ---------------------------------------------------------------------------
+# Mock compose to isolate from template changes
+# ---------------------------------------------------------------------------
+
+_KNOWN_WORKFLOW = {
+    "1": {"class_type": "CheckpointLoaderSimple",
+          "inputs": {"ckpt_name": "test.safetensors"}},
+    "2": {"class_type": "KSampler",
+          "inputs": {"model": ["1", 0], "seed": 42, "steps": 20, "cfg": 7.0,
+                     "sampler_name": "euler", "scheduler": "normal",
+                     "denoise": 1.0}},
+}
+
+
+def _mock_compose(*args, **kwargs):
+    return SimpleNamespace(
+        success=True,
+        workflow_data=copy.deepcopy(_KNOWN_WORKFLOW),
+        plan=SimpleNamespace(model_family="SD1.5", parameters={"cfg": 7.0, "steps": 20}),
+        error=None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _patch_compose(monkeypatch):
+    import cognitive.pipeline.autonomous as _mod
+    monkeypatch.setattr(_mod, "compose_workflow", _mock_compose)
 
 
 # ---------------------------------------------------------------------------

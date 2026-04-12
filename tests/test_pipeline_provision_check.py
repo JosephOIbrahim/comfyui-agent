@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 from cognitive.pipeline.autonomous import (
     AutonomousPipeline,
@@ -19,6 +20,34 @@ from cognitive.experience.accumulator import ExperienceAccumulator
 from cognitive.prediction.cwm import CognitiveWorldModel
 from cognitive.prediction.arbiter import SimulationArbiter
 from cognitive.prediction.counterfactual import CounterfactualGenerator
+
+
+# ---------------------------------------------------------------------------
+# Known-good compose result (immune to template changes)
+# ---------------------------------------------------------------------------
+
+_KNOWN_WORKFLOW = {
+    "1": {
+        "class_type": "CheckpointLoaderSimple",
+        "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+    },
+    "2": {
+        "class_type": "KSampler",
+        "inputs": {"model": ["1", 0], "seed": 42, "steps": 20, "cfg": 7.0,
+                   "sampler_name": "euler", "scheduler": "normal",
+                   "denoise": 1.0},
+    },
+}
+
+
+def _mock_compose(*args, **kwargs):
+    """Return a known-good compose result regardless of templates."""
+    return SimpleNamespace(
+        success=True,
+        workflow_data=dict(_KNOWN_WORKFLOW),
+        plan=SimpleNamespace(model_family="SD1.5", parameters={"cfg": 7.0, "steps": 20}),
+        error=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +123,11 @@ class TestExtractModelNames:
 
 class TestProvisionCheck:
 
+    @pytest.fixture(autouse=True)
+    def _patch_compose(self, monkeypatch):
+        import cognitive.pipeline.autonomous as _mod
+        monkeypatch.setattr(_mod, "compose_workflow", _mock_compose)
+
     def test_missing_model_warning(self, pipeline, tmp_path):
         """Workflow references a model that doesn't exist on disk →
         warning in result.warnings."""
@@ -106,7 +140,6 @@ class TestProvisionCheck:
             models_dir=models_dir,
         ))
 
-        # The default SD1.5 fallback workflow has ckpt_name
         assert result.stage == PipelineStage.COMPLETE
         missing = [w for w in result.warnings if w.startswith("Missing model:")]
         assert len(missing) >= 1
@@ -116,12 +149,7 @@ class TestProvisionCheck:
         models_dir = tmp_path / "models"
         ckpt_dir = models_dir / "checkpoints"
         ckpt_dir.mkdir(parents=True)
-        # Create all model files the compose step might reference
-        for name in [
-            "v1-5-pruned-emaonly.safetensors",
-            "sd_xl_base_1.0.safetensors",
-        ]:
-            (ckpt_dir / name).write_text("fake")
+        (ckpt_dir / "sd_xl_base_1.0.safetensors").write_text("fake")
 
         result = pipeline.run(PipelineConfig(
             intent="test existing model",
