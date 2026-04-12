@@ -75,7 +75,7 @@ Done. That's the only install command you need.
 <summary>Optional installs (click to expand)</summary>
 
 ```bash
-pip install -e ".[dev]"           # + test suite (3579 passing tests)
+pip install -e ".[dev]"           # + test suite (3608 passing tests)
 pip install -e ".[dev,stage]"     # + USD stage subsystem (~200MB, most users skip this)
 ```
 
@@ -761,7 +761,7 @@ Each delta layer carries its `creation_hash` (SHA-256 of `opinion + sorted-JSON 
 
 ### LLM Provider Hardening
 
-The agent supports four LLM providers (Anthropic, OpenAI, Gemini, Ollama). Cycle 7+18 closed five real bugs in the streaming + retry path that affected every conversation. After this work, every provider correctly: extracts streaming token usage, doesn't duplicate text on retry, doesn't drop thinking blocks, doesn't fire callbacks with empty content, and doesn't leak reasoning into the user-visible text.
+The agent supports four LLM providers (Anthropic, OpenAI, Gemini, Ollama). Cycles 7+18+20 closed six real bugs in the streaming, retry, and multi-turn paths. After this work, every provider correctly: extracts streaming token usage, doesn't duplicate text on retry, doesn't drop thinking blocks, doesn't fire callbacks with empty content, doesn't leak reasoning into the user-visible text, and correctly strips ThinkingBlock on multi-turn round-trips.
 
 ```mermaid
 graph TB
@@ -769,10 +769,10 @@ graph TB
     Track --> Wrap["_wrap_safe + tracking<br/>on_text / on_thinking"]
     Wrap --> Provider{Which provider?}
 
-    Provider -->|Anthropic| A["✓ thinking blocks preserved<br/>in _to_response<br/>✓ empty deltas filtered<br/>(cycle 18)"]
-    Provider -->|OpenAI| O["✓ stream_options=<br/>{include_usage: true}<br/>✓ usage from final chunk<br/>(cycle 7)"]
-    Provider -->|Gemini| G["✓ thinking / text branches<br/>mutually exclusive (if/elif)<br/>(cycle 7)"]
-    Provider -->|Ollama| OL["✓ stream_options=<br/>{include_usage: true}<br/>✓ usage from final chunk<br/>(cycle 7)"]
+    Provider -->|Anthropic| A["✓ thinking blocks preserved<br/>in _to_response<br/>✓ empty deltas filtered<br/>✓ ThinkingBlock skipped in<br/>convert_messages (cycle 20)"]
+    Provider -->|OpenAI| O["✓ stream_options=<br/>{include_usage: true}<br/>✓ ThinkingBlock skipped<br/>in convert_messages (cycle 20)"]
+    Provider -->|Gemini| G["✓ thinking / text branches<br/>mutually exclusive (if/elif)<br/>✓ ThinkingBlock skipped<br/>(was sending repr as text)"]
+    Provider -->|Ollama| OL["✓ stream_options=<br/>{include_usage: true}<br/>✓ ThinkingBlock pre-filtered<br/>from content list (cycle 20)"]
 
     Track -->|content emitted + transient error| NoRetry["RAISE — don't retry<br/>(would duplicate text in UI)"]
     Track -->|no content + transient error| Retry["Retry with backoff<br/>RateLimit / Connection / 5xx"]
@@ -785,6 +785,24 @@ graph TB
     style OL fill:#10b981,color:#fff
     style NoRetry fill:#ef4444,color:#fff
     style Retry fill:#10b981,color:#fff
+```
+
+**Cycle 20 — ThinkingBlock multi-turn bug.** When Claude 3.7+ or Claude 4 returns a `ThinkingBlock` in its response, the agent stores it in message history. On the next turn, `convert_messages` must translate that block back to the provider's native format. Before cycle 20, all 4 providers mishandled it: Anthropic sent the raw Python dataclass to the API (400 error), OpenAI silently dropped it, Gemini converted `str(ThinkingBlock(...))` to user-visible text, and Ollama sent raw objects. Fix: all providers now skip ThinkingBlock in convert_messages (the API requires a signature field we don't capture; thinking content is already delivered via the streaming `on_thinking` callback).
+
+```mermaid
+graph LR
+    LLM["LLM Response<br/>[TextBlock, ThinkingBlock]"] --> Store["main.py:293<br/>messages.append(content)"]
+    Store --> NextTurn["Next turn<br/>convert_messages()"]
+    NextTurn --> Skip["ThinkingBlock?<br/>→ skip (continue)"]
+    NextTurn --> Keep["TextBlock / ToolUseBlock<br/>→ convert to native format"]
+    Skip --> Safe["API receives only<br/>valid native blocks"]
+    Keep --> Safe
+
+    style LLM fill:#3b82f6,color:#fff
+    style Store fill:#8b5cf6,color:#fff
+    style Skip fill:#ef4444,color:#fff
+    style Keep fill:#10b981,color:#fff
+    style Safe fill:#10b981,color:#fff
 ```
 
 The retry tracker pattern is the key insight: an `on_text("Hello ")` followed by a transient `LLMRateLimitError` USED TO retry from scratch, calling `on_text("Hello ")` again, then `on_text("world!")` — the user saw `"Hello Hello world!"` in the UI. After cycle 7, any error fired AFTER content was emitted raises immediately instead of retrying. Tested across all 4 providers via `tests/test_main.py::TestStreamRetryDuplication` + provider-specific regression tests.
@@ -870,13 +888,13 @@ cognitive/            LIVRPS state engine -- installed as top-level package (Pha
 ui/
   __init__.py         WEB_DIRECTORY + route registration
   web/js/sidebar.js   Native left sidebar -- chat, quick actions, progress
-  web/css/            Design system v3 -- ComfyUI-native CSS variables
+  web/css/            Design system v3 -- ComfyUI-native CSS variables, theme-reactive
   server/routes.py    WebSocket + REST endpoints for sidebar chat
 panel/
   __init__.py         WEB_DIRECTORY + route registration + sys.path injection
   server/routes.py    49 REST routes -- full tool surface
-  web/js/             Canvas sync bridge (headless -- no visible UI)
-tests/                3579 passing tests, all mocked, ~60s
+  web/js/             Headless canvas↔agent bridge (no visible UI -- sidebar is primary)
+tests/                3608 passing tests, all mocked, ~60s
 ```
 
 ### Production Hardening
@@ -887,7 +905,7 @@ tests/                3579 passing tests, all mocked, ~60s
 | **Fault Isolation** | Each subsystem fails independently. Circuit breakers prevent cascading failures. `brain` (threshold=3, timeout=30s) and `comfyui_http` (threshold=5, timeout=60s) registered; `BRAIN_ENABLED=0` kill switch fully enforced in tool registry. Session isolation: each `agent mcp` process gets a unique `conn_XXXXXXXX` namespace; ContextVar set in executor thread before dispatch. Parallel tool dispatch routes through `agent.tools.handle` live module reference -- monkey-patch visible to all ThreadPoolExecutor workers. |
 | **Determinism** | Pure computation DAG. Deterministic JSON. Ordinal state enums. Same input = same output. |
 | **Audit Trail** | Every mutation logged: who changed what, when, and what got overridden. |
-| **Security** | Bearer token auth on all routes including WebSocket — **constant-time `hmac.compare_digest`** comparison (no timing-attack leakage). **WebSocket Origin allowlist** on sidebar + panel (rejects cross-origin connects from `evil.com`; same-origin LAN browsers pass). Path traversal blocked. **`download_model` symlink-bypass guard**: resolves the full target path (parent + filename) and re-checks against `MODELS_DIR` so a planted symlink in a `Custom_Nodes` subdirectory can't escape. SSRF prevented on initial URL and every redirect hop (RFC 1918 + loopback + link-local + CGNAT rejected via DNS resolution). MCP tool errors return `isError=True` per protocol. Gate exceptions deny by default (no silent allow). 10 MB + chunked-transfer size guards. Max 20 concurrent WebSocket connections. Atomic file writes (write-to-tmp-then-`os.replace()`). Thread-safe token bucket rate limiter. **Handler exception guard**: stream callbacks wrapped with `_wrap_safe` so a misbehaving custom renderer can't crash the agent loop. |
+| **Security** | Bearer token auth on all routes including WebSocket — **constant-time `hmac.compare_digest`** comparison (no timing-attack leakage). **WebSocket Origin allowlist** on sidebar + panel (rejects cross-origin connects from `evil.com`; same-origin LAN browsers pass). Path traversal blocked. **`download_model` symlink-bypass guard**: resolves the full target path (parent + filename) and re-checks against `MODELS_DIR` so a planted symlink in a `Custom_Nodes` subdirectory can't escape. SSRF prevented on initial URL and every redirect hop (RFC 1918 + loopback + link-local + CGNAT rejected via DNS resolution). MCP tool errors return `isError=True` per protocol. Gate exceptions deny by default (no silent allow). 10 MB + chunked-transfer size guards. Max 20 concurrent WebSocket connections. Atomic file writes with `flush()`+`os.fsync()` before rename (session.py + workflow_patch.py). Thread-safe token bucket rate limiter. **Handler exception guard**: stream callbacks wrapped with `_wrap_safe` so a misbehaving custom renderer can't crash the agent loop. **Config sanitization**: `COMFYUI_HOST` stripped of whitespace and trailing slashes to prevent malformed URLs. |
 | **Bounded Resources** | Intent history (100), iteration steps (200), demo checkpoints (100). No unbounded growth. |
 
 ```mermaid
