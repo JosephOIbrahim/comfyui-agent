@@ -12,6 +12,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Ollama provider uses the openai SDK (OpenAI-compatible API)
+openai = pytest.importorskip("openai", reason="openai SDK not installed")
+
 from agent.llm._types import (
     ImageBlock,
     LLMAuthError,
