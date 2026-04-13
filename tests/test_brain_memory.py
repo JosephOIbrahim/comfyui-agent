@@ -865,7 +865,7 @@ class TestOutcomeRotationLogsError:
 
     def test_rotation_oserror_is_logged(self, tmp_path):
         """When _rotate_outcomes raises OSError, a warning must be logged."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from agent.brain.memory import MemoryAgent
 
         agent = MemoryAgent()
