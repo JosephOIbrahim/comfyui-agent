@@ -389,7 +389,6 @@ class TestEmptyRequiredInputValidation:
 
     def _setup_workflow_and_mock(self, text_value, tmp_path):
         """Write a workflow with CLIPTextEncode.text set to text_value."""
-        import copy
         data = {
             "1": {
                 "class_type": "CLIPTextEncode",

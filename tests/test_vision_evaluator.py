@@ -10,7 +10,6 @@ import json
 
 import pytest
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from cognitive.pipeline.autonomous import (
     AutonomousPipeline,

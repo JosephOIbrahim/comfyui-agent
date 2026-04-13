@@ -225,7 +225,6 @@ class TestListModelsModelsDirectoryGuard:
 
     def test_silent_exception_logs_debug_not_crashes(self, fake_custom_nodes):
         """Cycle 56: unreadable __init__.py must log.debug and continue, not crash."""
-        import logging
         with patch.object(comfy_inspect, "CUSTOM_NODES_DIR", fake_custom_nodes):
             with patch.object(comfy_inspect.log, "debug") as mock_debug:
                 # Patch open to raise on the impact-pack __init__.py

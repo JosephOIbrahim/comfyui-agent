@@ -422,7 +422,8 @@ class TestAccumulatorLoadErrorHandling:
 
     def test_partial_chunk_data_is_skipped_with_warning(self, tmp_path, caplog):
         """A JSON line with a bad quality score triggers the warning path."""
-        import logging, json as _json
+        import logging
+        import json as _json
         jsonl = tmp_path / "chunks.jsonl"
         # "overall": "not_a_float" causes QualityScore.__post_init__ to call
         # float("not_a_float"), which raises ValueError — caught by the

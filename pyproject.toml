@@ -80,3 +80,9 @@ skip_empty = true
 
 [tool.ruff]
 line-length = 99
+
+[tool.ruff.lint]
+ignore = ["E402"]  # Module-level imports after logging setup (intentional pattern)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841"]  # Unused variables in tests (side-effect assertions)

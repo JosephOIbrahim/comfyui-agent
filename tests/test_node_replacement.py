@@ -567,7 +567,6 @@ class TestMigrateJsonDecodeGuard:
                     wraps=nr_mod._handle_migrate,
                 ):
                     # Directly test the JSON decode guard path
-                    import json as _json
                     from agent.tools.workflow_patch import handle as real_patch_handle
 
                     orig = real_patch_handle
@@ -590,7 +589,6 @@ class TestMigrateJsonDecodeGuard:
 
             orig_patch_handle = None
             # Patch the local name used inside _handle_migrate
-            import importlib
             import agent.tools.workflow_patch as wp_mod
             orig_wp_handle = wp_mod.handle
 

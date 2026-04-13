@@ -328,7 +328,7 @@ class TestCWMFailureErrorField:
 
     def test_cwm_failure_sets_error_field(self):
         """When CWM.predict() raises, result.error must be non-empty."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
         from cognitive.experience.accumulator import ExperienceAccumulator
         from cognitive.prediction.arbiter import SimulationArbiter
         from cognitive.prediction.counterfactual import CounterfactualGenerator

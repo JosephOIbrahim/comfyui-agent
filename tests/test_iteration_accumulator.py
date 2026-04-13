@@ -379,7 +379,6 @@ class TestIterationAccumulatorSessionIsolation:
 
     def test_separate_sessions_isolated(self):
         """Starting session A must not clear session B's state."""
-        import json
         agent = self._agent()
         # Start session A
         agent.start(intent_summary="Portrait pipeline", session="conn-A")
@@ -391,7 +390,6 @@ class TestIterationAccumulatorSessionIsolation:
 
     def test_finalize_session_a_does_not_affect_b(self):
         """Finalizing session A must not touch session B."""
-        import json
         agent = self._agent()
         agent.start(intent_summary="A goal", session="sess-A")
         agent.record_step(1, "initial", "trigger A", session="sess-A")

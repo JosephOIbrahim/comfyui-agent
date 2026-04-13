@@ -534,7 +534,6 @@ class TestSelectProfileExceptionWrapping:
         """Selecting a non-existent variant must raise StageError, not bare pxr exception."""
         s = CognitiveWorkflowStage()
         # Create a prim with a known variant set
-        from pxr import Usd
         prim = s._stage.DefinePrim("/test_prim", "Scope")
         vsets = prim.GetVariantSets()
         vset = vsets.AddVariantSet("style")

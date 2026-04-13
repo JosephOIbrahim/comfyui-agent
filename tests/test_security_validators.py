@@ -138,7 +138,6 @@ class TestResolveAndCheckPrivate:
 
     def test_safe_public_ip_returns_none(self, monkeypatch):
         """1.1.1.1 (Cloudflare public DNS) must be allowed."""
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("1.1.1.1", 0))],
@@ -147,7 +146,6 @@ class TestResolveAndCheckPrivate:
 
     def test_redirect_to_rfc1918_192_168_blocked(self, monkeypatch):
         """302 from allowlisted CDN → 192.168.1.1 must be blocked."""
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("192.168.1.1", 0))],
@@ -157,7 +155,6 @@ class TestResolveAndCheckPrivate:
         assert "192.168.1.1" in result
 
     def test_redirect_to_loopback_blocked(self, monkeypatch):
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("127.0.0.1", 0))],
@@ -166,7 +163,6 @@ class TestResolveAndCheckPrivate:
         assert result is not None
 
     def test_redirect_to_rfc1918_10_x_blocked(self, monkeypatch):
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("10.0.0.1", 0))],
@@ -176,7 +172,6 @@ class TestResolveAndCheckPrivate:
 
     def test_redirect_to_cgnat_blocked(self, monkeypatch):
         """100.64.0.0/10 CGNAT range must be blocked on DNS resolution too."""
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("100.64.0.1", 0))],
@@ -195,7 +190,6 @@ class TestResolveAndCheckPrivate:
 
     def test_link_local_blocked(self, monkeypatch):
         """169.254.x.x link-local addresses (e.g. AWS metadata) must be blocked."""
-        import socket
         monkeypatch.setattr(
             "socket.getaddrinfo",
             lambda host, port, **kw: [(None, None, None, None, ("169.254.169.254", 0))],
@@ -215,7 +209,6 @@ class TestDownloadModelSsrfRedirectBlocked:
         self, tmp_path, monkeypatch
     ):
         import json
-        import socket
         from unittest.mock import MagicMock, patch
 
         from agent.tools.comfy_provision import handle

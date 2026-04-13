@@ -1,7 +1,6 @@
 """Tests for session_tools — add_note empty validation and session operations."""
 
 import json
-import pytest
 from unittest.mock import patch
 
 from agent.tools import session_tools

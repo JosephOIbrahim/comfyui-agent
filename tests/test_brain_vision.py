@@ -343,7 +343,7 @@ class TestTOCTOUFileDisappears:
         from agent.brain.vision import VisionAgent
         from agent.brain._sdk import BrainConfig
         from pathlib import Path
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         img = tmp_path / "victim.png"
         img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)

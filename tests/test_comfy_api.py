@@ -556,7 +556,6 @@ class TestGetHistoryMaxItemsGuardCycle72:
         import json as _json
         from unittest.mock import patch
         from agent.tools import comfy_api
-        import httpx
         with patch("agent.tools.comfy_api._get", return_value={}):
             result = _json.loads(comfy_api.handle("get_history", {"max_items": 10}))
         assert "error" not in result or "max_items" not in result.get("error", "")

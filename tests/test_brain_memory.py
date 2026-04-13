@@ -620,7 +620,7 @@ class TestWindowValidation:
                 "session": "test_window",
                 "key_params": {"model": "sd1.5", "steps": 20, "cfg": 7.0},
                 "workflow_hash": f"hash{i}",
-                "workflow_summary": f"sd1.5 at 512x512, 20 steps",
+                "workflow_summary": "sd1.5 at 512x512, 20 steps",
                 "model_combo": ["sd1.5.safetensors"],
             })
         return agent
@@ -729,7 +729,7 @@ class TestLoadAllOutcomesLocking:
 
     def test_load_all_outcomes_handles_osError_on_removed_file(self, tmp_path):
         """If a file disappears between glob and read, OSError is caught and skipped."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from agent.brain.memory import MemoryAgent
         from agent.brain._sdk import BrainConfig
 
@@ -865,7 +865,6 @@ class TestOutcomeRotationLogsError:
 
     def test_rotation_oserror_is_logged(self):
         """When _rotate_outcomes raises OSError, a warning must be logged."""
-        import logging
         from unittest.mock import patch, MagicMock
         from agent.brain.memory import MemoryAgent
 

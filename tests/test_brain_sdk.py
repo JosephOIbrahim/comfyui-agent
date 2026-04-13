@@ -137,7 +137,6 @@ class TestAutoRegistration:
         then reload brain.__init__ to verify the importlib loop degrades gracefully
         and the remaining submodules still register.
         """
-        import importlib
         import sys
 
         # Inject a sentinel that simulates a broken submodule import

@@ -372,7 +372,7 @@ class TestAtomicWriteFsync:
     def test_flush_happens_before_fsync(self, tmp_path):
         """fd.flush() must precede os.fsync — otherwise fsync may miss buffered data."""
         import os as _os
-        from unittest.mock import patch, call
+        from unittest.mock import patch
         from agent.memory.session import _atomic_write
 
         target = tmp_path / "order_test.json"
@@ -492,7 +492,6 @@ class TestAtomicWriteCleanupLogging:
     def test_cleanup_failure_is_logged_not_swallowed(self, caplog, tmp_path):
         """If temp file unlink fails, the exception is logged at WARNING level."""
         import logging
-        from pathlib import Path
         from unittest.mock import patch
         from agent.memory import session as sess_module
 

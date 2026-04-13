@@ -8,7 +8,6 @@ import pytest
 
 from cognitive.transport.events import EventType, ExecutionEvent
 from cognitive.transport.triggers import (
-    EventTrigger,
     TriggerRegistry,
     _default_registry,
     clear,

@@ -759,7 +759,6 @@ class TestRatchetHistoryCap:
 
     def test_history_capped_at_max(self):
         """After max+N decide() calls, history length equals max."""
-        from agent.stage.ratchet import _MAX_RATCHET_HISTORY
         r = Ratchet()
         r._max_history = 5  # Override for fast test
         for i in range(10):

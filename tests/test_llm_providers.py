@@ -1431,7 +1431,6 @@ class TestLazyImportLogging:
     def test_gemini_logs_debug_when_sdk_missing(self, caplog):
         """GeminiProvider must log.debug when google-genai is not installed."""
         import logging
-        import importlib
         import sys
         from unittest.mock import patch
 
@@ -1538,7 +1537,7 @@ class TestToolArgNaNSafety:
 
     def test_openai_convert_messages_blocks_nan_input(self):
         """OpenAIProvider._convert_messages must raise ValueError on NaN tool inputs."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
         try:
             import openai as _oai  # noqa: F401
         except ImportError:

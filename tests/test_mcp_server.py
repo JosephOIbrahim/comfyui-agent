@@ -6,7 +6,7 @@ the actual mcp SDK (mocked where needed).
 
 import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -130,7 +130,6 @@ class TestToolErrorProtocol:
 
     def test_tool_exception_returns_is_error_true(self):
         """Tool exceptions must return CallToolResult(isError=True) per MCP spec."""
-        import mcp.types as types
         from agent.mcp_server import create_mcp_server
 
         # Retrieve the registered call_tool handler via the server's handler map
@@ -139,7 +138,6 @@ class TestToolErrorProtocol:
         # Simulate a tool that raises an exception
         async def _run():
             with patch("agent.tools.handle", side_effect=RuntimeError("boom")):
-                from agent.mcp_server import create_mcp_server as _cs
                 # Directly test the error path by invoking the handler internals
                 # We patch handle_tool at the import site inside call_tool closure
                 pass
@@ -147,8 +145,6 @@ class TestToolErrorProtocol:
         # Direct approach: test the exception branch directly
         async def _direct():
             from agent import mcp_server as ms
-            from unittest.mock import AsyncMock
-            import functools
 
             # Re-create server so the patch is in scope for handle_tool
             with patch("agent.tools.handle", side_effect=RuntimeError("test-error")) as mock_h:

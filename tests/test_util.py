@@ -1,9 +1,8 @@
 """Tests for agent/tools/_util.py — to_json, validate_path."""
 
-import math
 import pytest
 
-from agent.tools._util import to_json, validate_path
+from agent.tools._util import to_json
 
 
 class TestToJsonNanInfinity:

@@ -324,7 +324,6 @@ class TestPatchHandleNonJsonGuard:
     def test_non_json_from_set_input_returns_error(self):
         """If set_input returns a non-JSON string, wire_model must return error JSON."""
         from unittest.mock import patch
-        from agent.tools.workflow_patch import handle as patch_handle_orig
 
         _load_mock_workflow(_SIMPLE_CHECKPOINT_WORKFLOW)
 

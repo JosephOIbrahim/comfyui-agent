@@ -192,7 +192,6 @@ class TestSessionIsolation:
         assert instance is not None
 
         # Simulate two concurrent connections using the ContextVar
-        import contextvars
 
         token_a = _conn_session.set("conn_session_a")
         instance.capture("Session A request", "Lower CFG", session_context="a")

@@ -835,7 +835,6 @@ class TestSilentExceptionLogging:
 
     def test_workflow_hash_rejects_nan(self):
         """_workflow_hash must raise ValueError on NaN-containing workflow."""
-        import math
         from agent.tools.verify_execution import _workflow_hash
 
         wf_with_nan = {"1": {"class_type": "KSampler", "inputs": {"cfg": float("nan")}}}

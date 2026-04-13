@@ -7,7 +7,6 @@ and that walrus operators for parameter_mutations don't double-evaluate.
 
 from __future__ import annotations
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +200,7 @@ class TestNodeCacheMissLogging:
 
     def test_node_info_failure_returns_empty_list(self):
         """_validate_intent_mutations must return [] on any uncaught error, not crash."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
         from agent.brain.iterative_refine import _validate_intent_mutations
 
         intent_spec = MagicMock()

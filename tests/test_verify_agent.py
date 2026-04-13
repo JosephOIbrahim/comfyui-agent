@@ -888,5 +888,5 @@ class TestNaNScoringGuard:
                 original_intent="make it dreamier",
                 model_id="flux1-dev",
             )
-        assert math.isfinite(result.overall_score), f"overall_score is NaN"
-        assert math.isfinite(result.technical_quality), f"technical_quality is NaN"
+        assert math.isfinite(result.overall_score), "overall_score is NaN"
+        assert math.isfinite(result.technical_quality), "technical_quality is NaN"

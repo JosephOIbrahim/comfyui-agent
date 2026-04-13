@@ -447,7 +447,6 @@ class TestPlanGoalLockConsistency:
 
     def test_plan_goal_holds_lock_during_save(self):
         """_save_plan inside plan_goal is called within the session lock."""
-        import threading
         from agent.brain.planner import PlannerAgent, _get_plan_lock
 
         agent = PlannerAgent()
@@ -490,8 +489,10 @@ class TestPlanGoalLockConsistency:
 
         t1 = threading.Thread(target=make_plan, args=("Goal Alpha",))
         t2 = threading.Thread(target=make_plan, args=("Goal Beta",))
-        t1.start(); t2.start()
-        t1.join(timeout=5); t2.join(timeout=5)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
 
         assert not errors, f"Concurrent plan_goal raised: {errors}"
         assert len(results) == 2, "Both calls must complete"
@@ -517,8 +518,10 @@ class TestPlanGoalLockConsistency:
                 errors.append(str(e))
 
         threads = [threading.Thread(target=read_plan) for _ in range(5)]
-        for t in threads: t.start()
-        for t in threads: t.join(timeout=5)
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
 
         assert not errors, f"Concurrent get_plan raised: {errors}"
         assert len(get_results) == 5
@@ -572,7 +575,7 @@ class TestPlanLocksFifoCap:
 
     def test_dict_shrinks_after_gc(self):
         """WeakValueDictionary must self-shrink once all refs are dropped."""
-        import gc, threading
+        import gc
         from agent.brain import planner as planner_mod
 
         prefix = "shrink_test_63_"

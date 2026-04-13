@@ -378,7 +378,7 @@ class TestAtomicWrite:
     def test_write_preserves_original_on_success(self, tmp_path):
         """Original file path must still exist and be readable after atomic write."""
         from PIL import Image
-        from agent.tools.image_metadata import handle, _read_png_metadata
+        from agent.tools.image_metadata import handle
 
         img_path = tmp_path / "original.png"
         img = Image.new("RGB", (8, 8), color=(0, 255, 0))

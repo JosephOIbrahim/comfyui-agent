@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.brain.intent_collector import IntentCollectorAgent, handle, TOOLS
+from agent.brain.intent_collector import IntentCollectorAgent, TOOLS
 
 
 # ---------------------------------------------------------------------------

@@ -509,7 +509,7 @@ class TestCivitaiCircuitBreaker:
     @patch("agent.tools.civitai_api.httpx.Client")
     def test_success_records_success(self, mock_client_cls):
         """Successful HTTP call must call breaker.record_success()."""
-        from agent.circuit_breaker import CIVITAI_BREAKER, OPEN, CLOSED
+        from agent.circuit_breaker import CIVITAI_BREAKER, CLOSED
         # Pre-open the breaker to half-open state
         cb = CIVITAI_BREAKER()
         for _ in range(cb.failure_threshold):

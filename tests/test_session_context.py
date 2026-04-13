@@ -265,7 +265,7 @@ class TestAtomicGetOrCreateWithIsNew:
     def test_get_session_context_no_duplicate_auto_init(self):
         """get_session_context must not call run_auto_init more than once per session."""
         import threading
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from agent.session_context import get_session_context, get_registry
 
         # Use a fresh non-default session_id to avoid polluting the global default

@@ -369,8 +369,10 @@ class TestRollbackLockScope:
 
         t1 = threading.Thread(target=rollback, args=("alpha",))
         t2 = threading.Thread(target=rollback, args=("beta",))
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         assert errors == [], f"Exceptions: {errors}"
         assert bridge._history == []
