@@ -333,13 +333,46 @@ MONETA_POLL_SECONDS=2.0                    # inbox poll interval
 ## Cozy Autonomous Harness
 
 ```bash
-agent autonomous --hours 24 --max-experiments 1000 --session cozy_run
+# Smoke test the harness loop without ComfyUI (synthetic scores)
+agent autonomous --execute-mode dry-run --hours 0.001 --max-experiments 5
+
+# Real run against ComfyUI (mutates a workflow's steps/cfg/seed each iter)
+agent autonomous --execute-mode real --workflow path/to/wf.json \
+                 --hours 24 --max-experiments 1000 --session cozy_run
+
+# Default mode (mock) — harness errors at first iteration unless callbacks
+# are injected programmatically. Used by Python tests, not for live runs.
+agent autonomous --hours 24
 ```
+
+Execute modes:
+- `mock` (default) — no callbacks; harness raises at first iteration.
+- `dry-run` — real proposal cycle (steps/cfg/seed); synthetic axis scores;
+  no ComfyUI contact.
+- `real` — requires `--workflow PATH`; loads the workflow once, applies
+  RFC6902 patches per iteration, executes via `execute_with_progress`,
+  derives axis scores from `{status, total_time_s, outputs}`. Failures
+  return zero scores so the ratchet rejects the experiment without
+  halting; the circuit breaker's TRANSIENT classification keeps the
+  harness retrying.
 
 Per-iteration checkpoint to `STAGE_DEFAULT_PATH`. Halts only on TERMINAL
 (constitution-violation / disk-full / repeated-RECOVERABLE>3) or budget
 exhaustion. Writes `BLOCKER.md` on TERMINAL halt. See
 `.claude/COZY_CONSTITUTION.md` Article III for the bounded-failure ladder.
+
+## Integration tests (opt-in)
+
+```bash
+# 1k-iteration soak validating no thread/FD leaks under sustained load
+python -m pytest tests/integration/test_cozy_soak.py -v
+# Bidirectional Moneta round-trip via subprocess fake consumer
+python -m pytest tests/integration/test_moneta_e2e.py -v
+```
+
+Both are marked `@pytest.mark.integration`, deselected by default. Run
+manually before shipping changes that touch persistence, dispatchers,
+or the Moneta adapter.
 
 ## Non-Goals
 

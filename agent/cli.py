@@ -778,6 +778,24 @@ def autonomous(
         None, "--program",
         help="Path to a program.md file for the autoresearch driver.",
     ),
+    workflow: str = typer.Option(
+        None, "--workflow", "-w",
+        help=(
+            "Path to a workflow JSON. Required for --execute-mode real; "
+            "ignored otherwise."
+        ),
+    ),
+    execute_mode: str = typer.Option(
+        "mock", "--execute-mode",
+        help=(
+            "Execution dispatch: 'mock' (no callbacks; harness errors at "
+            "first iteration unless callbacks injected programmatically), "
+            "'dry-run' (real proposals + synthetic scores; no ComfyUI), "
+            "'real' (requires --workflow; mutates and executes against "
+            "ComfyUI; failures degrade to zero scores so the ratchet "
+            "rejects the experiment without halting)."
+        ),
+    ),
     checkpoint_path: str = typer.Option(
         None, "--checkpoint",
         help="Override STAGE_DEFAULT_PATH for this run's checkpoint target.",
@@ -804,7 +822,22 @@ def autonomous(
     from rich.console import Console
     console = Console()
 
-    from .harness import CozyLoop, CozyLoopConfig
+    if execute_mode not in ("mock", "dry-run", "real"):
+        console.print(
+            f"[red]Invalid --execute-mode: {execute_mode!r}. "
+            f"Choose one of: mock, dry-run, real.[/red]"
+        )
+        raise typer.Exit(code=2)
+    if execute_mode == "real" and not workflow:
+        console.print(
+            "[red]--execute-mode real requires --workflow PATH.[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    from .harness import (
+        CozyLoop, CozyLoopConfig,
+        make_execute_fn, make_propose_fn,
+    )
     from .session_context import get_session_context
 
     ctx = get_session_context(session_name)
@@ -826,19 +859,39 @@ def autonomous(
         resume=resume,
     )
 
+    # Build callbacks for non-mock modes. Mock keeps callbacks=None so the
+    # harness fails loudly at first iteration if not injected — this is the
+    # explicit-default-for-safety path.
+    propose_fn = None
+    execute_fn = None
+    if execute_mode in ("dry-run", "real"):
+        try:
+            propose_fn = make_propose_fn()
+            execute_fn = make_execute_fn(execute_mode, workflow)
+        except (ValueError, OSError) as exc:
+            console.print(f"[red]Failed to build execute callable: {exc}[/red]")
+            raise typer.Exit(code=2) from exc
+
     console.print(
         f"[bold]Cozy autonomous harness[/bold] starting "
         f"(budget={hours}h, max_experiments={max_experiments}, "
+        f"mode={execute_mode}, "
         f"checkpoint={config.checkpoint_path or 'in-memory only'})"
     )
-    loop = CozyLoop(config, cws=cws)
+    loop = CozyLoop(
+        config,
+        cws=cws,
+        propose_fn=propose_fn,
+        execute_fn=execute_fn,
+    )
     result = loop.run()
 
     console.print(
         f"\n[bold]Halt[/bold]: {result.halt_reason}\n"
-        f"  iterations:   {result.run_result.experiments.__len__() if result.run_result else 0}\n"
+        f"  iterations:    "
+        f"{len(result.run_result.experiments) if result.run_result else 0}\n"
         f"  total_seconds: {result.total_seconds:.1f}\n"
-        f"  blocker_path: {result.blocker_path or '(none)'}"
+        f"  blocker_path:  {result.blocker_path or '(none)'}"
     )
 
 

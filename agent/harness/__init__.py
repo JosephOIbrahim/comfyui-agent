@@ -13,6 +13,10 @@ Entry points:
 See .claude/COZY_CONSTITUTION.md for the governing doctrine.
 """
 
+from .cli_callables import (
+    make_execute_fn,
+    make_propose_fn,
+)
 from .cozy_loop import (
     CozyLoop,
     CozyLoopConfig,
@@ -25,4 +29,6 @@ __all__ = [
     "CozyLoopConfig",
     "CozyLoopResult",
     "HealthSnapshot",
+    "make_execute_fn",
+    "make_propose_fn",
 ]

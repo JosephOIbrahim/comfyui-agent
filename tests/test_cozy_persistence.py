@@ -7,6 +7,7 @@ CozyLoop harness with self-healing.
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 
@@ -918,3 +919,188 @@ while True:
         assert stage.read("/agents/forge", "active") is True
         assert stage.read("/experience/exp_001", "score") is not None
         stage.close_subscribers()
+
+
+# ---------------------------------------------------------------------------
+# W2 — CLI closure factories (make_propose_fn / make_execute_fn)
+# ---------------------------------------------------------------------------
+
+class TestMakeProposeFn:
+    def test_proposals_cycle_through_full_set(self):
+        from agent.harness import make_propose_fn
+        propose = make_propose_fn()
+        # The cycle has 5 entries — collect 6 proposals to verify wrap-around.
+        proposals = [propose() for _ in range(6)]
+        # All proposals are dicts with the expected schema
+        for p in proposals:
+            assert set(p.keys()) >= {"param"} | {"delta"}
+            assert p["param"] in ("steps", "cfg", "seed")
+            assert isinstance(p["delta"], (int, float))
+        # Wrap-around: 6th proposal == 1st proposal
+        assert proposals[0] == proposals[5]
+
+    def test_proposals_are_independent_copies(self):
+        """Mutating a returned proposal must not corrupt the cycle."""
+        from agent.harness import make_propose_fn
+        propose = make_propose_fn()
+        first = propose()
+        first["delta"] = 999
+        # Skip ahead 5 proposals to wrap back to the same cycle slot
+        for _ in range(4):
+            propose()
+        sixth = propose()
+        assert sixth["delta"] != 999
+
+
+class TestMakeExecuteFnDryRun:
+    def test_dry_run_returns_synthetic_scores_without_calling_executor(self):
+        from agent.harness import make_execute_fn
+        # workflow_loader and workflow_executor must NOT be called in dry-run
+        loader_called = {"n": 0}
+        executor_called = {"n": 0}
+
+        def loader(_path):
+            loader_called["n"] += 1
+            return {}
+
+        def executor(_wf):
+            executor_called["n"] += 1
+            return {}
+
+        execute = make_execute_fn(
+            "dry-run", workflow_path=None,
+            workflow_loader=loader, workflow_executor=executor,
+        )
+        scores = execute({"param": "steps", "delta": +5})
+        assert scores["success"] == 1.0
+        assert 0.0 <= scores["speed"] <= 1.0
+        assert loader_called["n"] == 0
+        assert executor_called["n"] == 0
+
+
+class TestMakeExecuteFnReal:
+    @pytest.fixture
+    def base_workflow(self):
+        # Minimal workflow with a sampler-like node. The closure looks for
+        # "steps" / "cfg" / "seed" inputs and patches them.
+        return {
+            "3": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "steps": 20,
+                    "cfg": 7.0,
+                    "seed": 12345,
+                    "model": ["1", 0],
+                },
+            },
+            "4": {"class_type": "CheckpointLoader", "inputs": {}},
+        }
+
+    def test_real_mode_loads_workflow_once(self, base_workflow):
+        from agent.harness import make_execute_fn
+        load_calls = {"n": 0}
+
+        def loader(_path):
+            load_calls["n"] += 1
+            return base_workflow
+
+        def executor(wf):
+            # Verify the executor sees the patched workflow on each call
+            return {"status": "complete", "outputs": ["img1"], "total_time_s": 5.0}
+
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=loader, workflow_executor=executor,
+        )
+        # Loader fires exactly once at factory-time, NOT per call
+        assert load_calls["n"] == 1
+        # Three calls — loader still 1
+        execute({"param": "steps", "delta": +5})
+        execute({"param": "cfg", "delta": +1.0})
+        execute({"param": "seed", "delta": +1})
+        assert load_calls["n"] == 1
+
+    def test_real_mode_applies_proposal_to_workflow(self, base_workflow):
+        from agent.harness import make_execute_fn
+        captured = []
+
+        def executor(wf):
+            captured.append(copy.deepcopy(wf))
+            return {"status": "complete", "outputs": ["a"], "total_time_s": 3.0}
+
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda p: base_workflow,
+            workflow_executor=executor,
+        )
+        execute({"param": "steps", "delta": +10})
+        # The workflow seen by the executor has steps == 30 (20 + 10)
+        assert captured[0]["3"]["inputs"]["steps"] == 30
+        # The base workflow is untouched (deep copy at factory time)
+        assert base_workflow["3"]["inputs"]["steps"] == 20
+
+    def test_real_mode_returns_failure_scores_on_executor_error(
+        self, base_workflow,
+    ):
+        from agent.harness import make_execute_fn
+
+        def executor(wf):
+            return {"status": "error", "error": "ComfyUI not running"}
+
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda p: base_workflow,
+            workflow_executor=executor,
+        )
+        scores = execute({"param": "steps", "delta": +5})
+        assert scores["success"] == 0.0
+        assert scores["speed"] == 0.0
+
+    def test_real_mode_returns_failure_scores_on_executor_exception(
+        self, base_workflow,
+    ):
+        from agent.harness import make_execute_fn
+
+        def executor(wf):
+            raise RuntimeError("boom")
+
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda p: base_workflow,
+            workflow_executor=executor,
+        )
+        scores = execute({"param": "steps", "delta": +5})
+        assert scores["success"] == 0.0
+
+    def test_real_mode_without_workflow_path_raises(self):
+        from agent.harness import make_execute_fn
+        with pytest.raises(ValueError, match="--workflow"):
+            make_execute_fn("real", workflow_path=None)
+
+    def test_unknown_mode_raises(self):
+        from agent.harness import make_execute_fn
+        with pytest.raises(ValueError, match="unsupported execute mode"):
+            make_execute_fn("nonsense", workflow_path=None)
+
+    def test_speed_score_decreases_with_total_time(self, base_workflow):
+        from agent.harness import make_execute_fn
+
+        def fast_executor(wf):
+            return {"status": "complete", "outputs": ["a"], "total_time_s": 1.0}
+
+        def slow_executor(wf):
+            return {"status": "complete", "outputs": ["a"], "total_time_s": 30.0}
+
+        fast = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda p: base_workflow,
+            workflow_executor=fast_executor,
+        )
+        slow = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda p: base_workflow,
+            workflow_executor=slow_executor,
+        )
+        s_fast = fast({"param": "steps", "delta": +1})
+        s_slow = slow({"param": "steps", "delta": +1})
+        assert s_fast["speed"] > s_slow["speed"]
