@@ -19,21 +19,40 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
-# Validate ANTHROPIC_API_KEY — warn if missing when provider is anthropic. (Cycle 35 fix)
-if LLM_PROVIDER == "anthropic" and not ANTHROPIC_API_KEY:
-    print(
-        "WARNING: ANTHROPIC_API_KEY is not set. "
-        "Set it in your .env file or environment. "
-        "Get your key at https://console.anthropic.com/",
-        file=sys.stderr,
-    )
-# Validate Anthropic key format (warn, don't block — key may be valid in other formats)
-elif ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
-    print(
-        "WARNING: ANTHROPIC_API_KEY doesn't match expected format (sk-ant-...). "
-        "Verify your key at https://console.anthropic.com/",
-        file=sys.stderr,
-    )
+# API-key validation is deferred to a callable (T5 from the 5x review).
+# Pre-fix this printed at import time, leaking the warning into every
+# `agent --help`, `agent inspect`, etc. — confusing because those
+# commands don't need an API key. Callers who DO need the LLM call
+# `warn_on_missing_api_key()` explicitly at their entry point.
+_api_key_warn_emitted = False
+
+
+def warn_on_missing_api_key() -> None:
+    """Emit the API-key-missing warning once per process, IF needed.
+
+    Idempotent: only emits on first call. Safe to call from any command
+    that requires the LLM. Commands that DON'T need the LLM (--help,
+    inspect, parse, autonomous --execute-mode {mock,dry-run}) should
+    NOT call this.
+    """
+    global _api_key_warn_emitted
+    if _api_key_warn_emitted:
+        return
+    _api_key_warn_emitted = True
+    if LLM_PROVIDER == "anthropic" and not ANTHROPIC_API_KEY:
+        print(
+            "WARNING: ANTHROPIC_API_KEY is not set. "
+            "Set it in your .env file or environment. "
+            "Get your key at https://console.anthropic.com/",
+            file=sys.stderr,
+        )
+    # Validate format (warn, don't block — key may be valid in other formats)
+    elif ANTHROPIC_API_KEY and not re.match(r"^sk-ant-", ANTHROPIC_API_KEY):
+        print(
+            "WARNING: ANTHROPIC_API_KEY doesn't match expected format (sk-ant-...). "
+            "Verify your key at https://console.anthropic.com/",
+            file=sys.stderr,
+        )
 
 # MCP auth token (optional — for future HTTP/SSE transport auth)
 MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")

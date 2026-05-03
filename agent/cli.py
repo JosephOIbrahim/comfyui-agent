@@ -840,14 +840,15 @@ def autonomous(
         ),
     ),
     execute_mode: str = typer.Option(
-        "mock", "--execute-mode",
+        "dry-run", "--execute-mode",
         help=(
-            "Execution dispatch: 'mock' (no callbacks; harness errors at "
-            "first iteration unless callbacks injected programmatically), "
-            "'dry-run' (real proposals + synthetic scores; no ComfyUI), "
-            "'real' (requires --workflow; mutates and executes against "
-            "ComfyUI; failures degrade to zero scores so the ratchet "
-            "rejects the experiment without halting)."
+            "Execution dispatch: 'dry-run' (real proposals + synthetic "
+            "scores; no ComfyUI; the default — useful for smoke-testing "
+            "the harness loop offline), 'real' (requires --workflow; "
+            "mutates and executes against ComfyUI; failures degrade to "
+            "zero scores so the ratchet rejects without halting), 'mock' "
+            "(no callbacks; AutoresearchRunner falls back to neutral "
+            "scores every iteration — for harness-internals testing only)."
         ),
     ),
     checkpoint_path: str = typer.Option(
@@ -888,6 +889,22 @@ def autonomous(
         )
         raise typer.Exit(code=2)
 
+    # T6 from the 5x review: path-validate user-supplied paths before they
+    # flow into the harness. validate_path() blocks traversal outside the
+    # configured sandbox dirs (COMFYUI_DATABASE etc., plus tempdir for
+    # pytest). Returns an error string if rejected, None if accepted.
+    from .tools._util import validate_path
+    if workflow:
+        err = validate_path(workflow)
+        if err:
+            console.print(f"[red]--workflow path rejected: {err}[/red]")
+            raise typer.Exit(code=2)
+    if checkpoint_path:
+        err = validate_path(checkpoint_path)
+        if err:
+            console.print(f"[red]--checkpoint path rejected: {err}[/red]")
+            raise typer.Exit(code=2)
+
     from .harness import (
         CozyLoop, CozyLoopConfig,
         make_execute_fn, make_propose_fn,
@@ -913,21 +930,23 @@ def autonomous(
         resume=resume,
     )
 
-    # Build callbacks for non-mock modes. Mock keeps both callbacks=None,
-    # which causes the underlying AutoresearchRunner to fall back to its
-    # built-in defaults: a cyclic proposer and a neutral-score executor
-    # (returns {aesthetic: 0.5, lighting: 0.5} every iteration). That's
-    # useful for smoke-testing the harness loop itself but produces no
-    # ratchet signal — every experiment scores identically.
+    # Build callbacks. With --execute-mode dry-run (the default after T3
+    # of the 5x review), make_propose_fn cycles real proposals and
+    # make_execute_fn returns synthetic axis scores. With --execute-mode
+    # mock, both callbacks stay None and AutoresearchRunner falls back to
+    # its built-in cyclic proposer + a neutral-score executor (returns
+    # {aesthetic: 0.5, lighting: 0.5} every iteration — useful for
+    # harness-internals testing only; produces zero ratchet signal).
     propose_fn = None
     execute_fn = None
     if execute_mode == "mock":
         console.print(
             "[yellow]WARNING: --execute-mode=mock uses AutoresearchRunner "
             "defaults — neutral scores every iteration, no ratchet signal. "
-            "Use --execute-mode=dry-run for offline smoke tests with real "
-            "proposal cycles, or --execute-mode=real --workflow PATH for "
-            "live ComfyUI runs.[/yellow]"
+            "This mode is for harness-internals testing only. Use "
+            "--execute-mode=dry-run (the default) for offline smoke tests "
+            "with real proposal cycles, or --execute-mode=real --workflow "
+            "PATH for live ComfyUI runs.[/yellow]"
         )
     elif execute_mode in ("dry-run", "real"):
         try:
