@@ -1338,3 +1338,55 @@ class TestRealModeNoBaseWorkflowMutation:
         after = self._hash(base_wf)
         assert before == after
         assert scores["success"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# T5 (5x review) — API-key warning is deferred, not import-time
+# ---------------------------------------------------------------------------
+
+class TestApiKeyWarningGating:
+    def test_warn_function_is_idempotent(self, capsys, monkeypatch):
+        """warn_on_missing_api_key() must emit exactly once per process,
+        even if called repeatedly. Prevents log spam if multiple subsystems
+        call it defensively."""
+        from agent import config
+        # Reset the latch so the test is reproducible regardless of order
+        monkeypatch.setattr(config, "_api_key_warn_emitted", False)
+        monkeypatch.setattr(config, "ANTHROPIC_API_KEY", None)
+        monkeypatch.setattr(config, "LLM_PROVIDER", "anthropic")
+
+        config.warn_on_missing_api_key()
+        config.warn_on_missing_api_key()
+        config.warn_on_missing_api_key()
+
+        captured = capsys.readouterr()
+        # Should appear exactly once — count "WARNING:" occurrences
+        warning_count = captured.err.count("WARNING:")
+        assert warning_count == 1, (
+            f"expected 1 warning emission, got {warning_count}: "
+            f"{captured.err!r}"
+        )
+
+    def test_no_warning_when_key_present(self, capsys, monkeypatch):
+        from agent import config
+        monkeypatch.setattr(config, "_api_key_warn_emitted", False)
+        monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "sk-ant-validlooking")
+        monkeypatch.setattr(config, "LLM_PROVIDER", "anthropic")
+
+        config.warn_on_missing_api_key()
+
+        captured = capsys.readouterr()
+        assert "WARNING:" not in captured.err
+
+    def test_no_warning_for_non_anthropic_provider(self, capsys, monkeypatch):
+        """A user on Ollama/Gemini shouldn't see anthropic warnings even
+        if ANTHROPIC_API_KEY happens to be unset."""
+        from agent import config
+        monkeypatch.setattr(config, "_api_key_warn_emitted", False)
+        monkeypatch.setattr(config, "ANTHROPIC_API_KEY", None)
+        monkeypatch.setattr(config, "LLM_PROVIDER", "ollama")
+
+        config.warn_on_missing_api_key()
+
+        captured = capsys.readouterr()
+        assert "WARNING:" not in captured.err
