@@ -1390,3 +1390,43 @@ class TestApiKeyWarningGating:
 
         captured = capsys.readouterr()
         assert "WARNING:" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# T7 (5x review) — Moneta env-supplied path validation
+# ---------------------------------------------------------------------------
+
+class TestMonetaPathValidation:
+    def test_outbox_dir_in_protected_system_dir_rejected(self, monkeypatch):
+        """MONETA_OUTBOX_DIR=/etc must raise MonetaConfigError, not
+        silently create JSONL appends in /etc."""
+        from agent.integrations import from_env, MonetaConfigError
+        monkeypatch.setenv("MONETA_OUTBOX_DIR", "/etc")
+        monkeypatch.delenv("MONETA_INBOX_DIR", raising=False)
+        with pytest.raises(MonetaConfigError, match="OUTBOX_DIR"):
+            from_env(stage=None)
+
+    def test_inbox_dir_traversal_rejected(self, monkeypatch, tmp_path):
+        """MONETA_INBOX_DIR pointing outside the sandbox is rejected."""
+        from agent.integrations import from_env, MonetaConfigError
+        monkeypatch.setenv("MONETA_OUTBOX_DIR", str(tmp_path))
+        # /proc is in _BLOCKED_PREFIXES
+        monkeypatch.setenv("MONETA_INBOX_DIR", "/proc/sys")
+        with pytest.raises(MonetaConfigError, match="INBOX_DIR"):
+            from_env(stage=None)
+
+    def test_unset_outbox_returns_none(self, monkeypatch):
+        """No env var → no adapter (the existing opt-in semantics)."""
+        from agent.integrations import from_env
+        monkeypatch.delenv("MONETA_OUTBOX_DIR", raising=False)
+        assert from_env(stage=None) is None
+
+    def test_valid_tmp_dirs_accepted(self, monkeypatch, tmp_path):
+        """Tempdir paths are explicitly allowed by validate_path; they
+        must round-trip cleanly through from_env."""
+        from agent.integrations import from_env
+        monkeypatch.setenv("MONETA_OUTBOX_DIR", str(tmp_path / "outbox"))
+        monkeypatch.setenv("MONETA_INBOX_DIR", str(tmp_path / "inbox"))
+        # Stage isn't actually started here; from_env just constructs.
+        adapter = from_env(stage=None)
+        assert adapter is not None

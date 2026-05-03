@@ -262,6 +262,15 @@ def from_env(stage: Any) -> MonetaAdapter | None:
       MONETA_OUTBOX_DIR  — required to enable; absolute path
       MONETA_INBOX_DIR   — optional; enables bidirectional ingest
       MONETA_POLL_SECONDS — optional; default 2.0
+
+    Raises:
+      MonetaConfigError if either env-supplied directory fails the
+      sandbox check from `agent/tools/_util.py:validate_path`. Pre-fix
+      (T7 from the 5x review), an env var like MONETA_OUTBOX_DIR=/etc
+      would have created/written JSONL into /etc unchallenged. The
+      validate_path gate restricts directories to the configured
+      sandbox (project dir, COMFYUI_DATABASE, sessions, workflows,
+      tempdir).
     """
     import os
     outbox = os.getenv("MONETA_OUTBOX_DIR", "").strip()
@@ -269,9 +278,29 @@ def from_env(stage: Any) -> MonetaAdapter | None:
         return None
     inbox = os.getenv("MONETA_INBOX_DIR", "").strip()
     poll = float(os.getenv("MONETA_POLL_SECONDS", "2.0"))
+
+    # T7: validate the env-supplied directories. validate_path returns an
+    # error string if rejected, None if accepted.
+    from ..tools._util import validate_path
+    err = validate_path(outbox)
+    if err:
+        raise MonetaConfigError(
+            f"MONETA_OUTBOX_DIR rejected: {err}"
+        )
+    if inbox:
+        err = validate_path(inbox)
+        if err:
+            raise MonetaConfigError(
+                f"MONETA_INBOX_DIR rejected: {err}"
+            )
+
     config = MonetaAdapterConfig(
         outbox_dir=Path(outbox),
         inbox_dir=Path(inbox) if inbox else None,
         poll_interval_seconds=poll,
     )
     return MonetaAdapter(config, stage)
+
+
+class MonetaConfigError(ValueError):
+    """Raised when MONETA_* env vars fail validation."""
