@@ -399,9 +399,20 @@ class SessionRegistry:
             return ctx
 
     def destroy(self, session_id: str) -> bool:
-        """Remove a session. Returns True if it existed."""
+        """Remove a session. Returns True if it existed.
+
+        Stops the session's autosave timer before removal so the daemon
+        thread doesn't leak across recycled session IDs.
+        """
         with self._lock:
-            return self._sessions.pop(session_id, None) is not None
+            ctx = self._sessions.pop(session_id, None)
+        if ctx is not None:
+            try:
+                ctx.stop_autosave()
+            except Exception:
+                pass
+            return True
+        return False
 
     def list_sessions(self) -> list[str]:
         """List all active session IDs."""
@@ -409,9 +420,14 @@ class SessionRegistry:
             return list(self._sessions.keys())
 
     def gc_stale(self, max_age_seconds: float = 3600.0) -> int:
-        """Remove sessions idle longer than max_age_seconds. Returns count removed."""
+        """Remove sessions idle longer than max_age_seconds. Returns count removed.
+
+        Stops each evicted session's autosave timer so daemon threads do not
+        accumulate across long-running processes.
+        """
         now = time.time()
         to_remove = []
+        evicted: list[SessionContext] = []
         with self._lock:
             for sid, ctx in self._sessions.items():
                 if sid == "default":
@@ -419,7 +435,14 @@ class SessionRegistry:
                 if now - ctx.last_activity > max_age_seconds:
                     to_remove.append(sid)
             for sid in to_remove:
-                del self._sessions[sid]
+                evicted.append(self._sessions.pop(sid))
+        # Stop timers OUTSIDE the lock so a slow Timer.cancel() doesn't
+        # block other registry operations.
+        for ctx in evicted:
+            try:
+                ctx.stop_autosave()
+            except Exception:
+                pass
         return len(to_remove)
 
     @property
@@ -429,9 +452,19 @@ class SessionRegistry:
             return len(self._sessions)
 
     def clear(self) -> None:
-        """Remove all sessions. For testing only."""
+        """Remove all sessions. For testing only.
+
+        Stops every session's autosave timer; required so test isolation
+        doesn't leave dangling daemons across pytest's per-test fixtures.
+        """
         with self._lock:
+            ctxs = list(self._sessions.values())
             self._sessions.clear()
+        for ctx in ctxs:
+            try:
+                ctx.stop_autosave()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------

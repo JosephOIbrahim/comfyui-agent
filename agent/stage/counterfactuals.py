@@ -69,7 +69,13 @@ class Counterfactual:
 
 
 def _generate_cf_id(source_chunk_id: str, hypothesis: dict, timestamp: float) -> str:
-    """Generate a deterministic counterfactual ID."""
+    """Generate a deterministic counterfactual ID.
+
+    Returns a 16-char hex hash. Storage sites (`/counterfactuals/pending/`,
+    `/counterfactuals/validated/`) prepend `cf_` so the resulting USD prim
+    names start with a letter — see uses below at lines 132 and 179. Do not
+    prepend here or you'll double-prefix.
+    """
     raw = f"{source_chunk_id}:{json.dumps(hypothesis, sort_keys=True, allow_nan=False)}:{timestamp}"  # Cycle 61: NaN-safe
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
