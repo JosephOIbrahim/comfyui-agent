@@ -399,8 +399,10 @@ class TestValidateCfHypothesisJsonGuard:
             usd_stage, source_chunk, hypothesis, {"aesthetic": 0.8},
             confidence=0.9, timestamp=1000.0,
         )
-        # Overwrite the hypothesis attribute with corrupted JSON
-        prim_path = f"/counterfactuals/pending/{cf.cf_id}"
+        # Overwrite the hypothesis attribute with corrupted JSON.
+        # Storage sites prepend `cf_` (counterfactuals.py:132,179) so prim
+        # names begin with a letter; mirror that here.
+        prim_path = f"/counterfactuals/pending/cf_{cf.cf_id}"
         usd_stage._stage.GetPrimAtPath(prim_path).CreateAttribute(
             "hypothesis", __import__("pxr").Sdf.ValueTypeNames.String
         ).Set("{{broken json")
