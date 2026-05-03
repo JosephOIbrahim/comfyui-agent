@@ -175,6 +175,16 @@ def create_mcp_server() -> "Server":
     # resources so external consumers (e.g., Moneta) can read and subscribe
     # to stage state without polling tools. URIs use the stage:// scheme
     # with the prim path as the path component.
+    #
+    # SESSION SCOPE: resources reflect the SERVER session
+    # (`_SERVER_SESSION_ID`) — the same session that tool calls default to
+    # when no explicit `session_id` argument is passed. MCP clients that
+    # invoke tools with a custom `session_id` will see those mutations on
+    # a separate SessionContext that is NOT visible through resources.
+    # This is a deliberate constraint of the MCP resource protocol (no
+    # per-call ContextVar surface for resource reads). For per-session
+    # resources, future work would add a `stage://session/<id>/<prim>`
+    # URI scheme.
     _STAGE_RESOURCE_PRIMS = ("/workflows", "/experience", "/agents", "/scenes")
 
     try:
@@ -454,6 +464,23 @@ def main():
         log_file=LOG_DIR / "mcp.log",
         json_format=True,
     )
+
+    # A4 — visible cold-start warning when usd-core is absent. Without this,
+    # autosave/event-registry/Moneta-adapter all silently no-op and users
+    # think the persistence layer is wired when it isn't.
+    try:
+        from .stage import HAS_USD
+        if not HAS_USD:
+            log.warning(
+                "usd-core is NOT installed — Cozy persistence (stage flush, "
+                "autosave, event subscribe registry, Moneta adapter) is "
+                "DISABLED. Install with: pip install usd-core"
+            )
+    except ImportError:
+        log.warning(
+            "agent.stage module failed to import — persistence layer "
+            "disabled."
+        )
 
     # Register shutdown hooks for stage flush. These fire on:
     #   - normal interpreter exit (atexit)
