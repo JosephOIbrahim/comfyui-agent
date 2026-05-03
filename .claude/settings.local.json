@@ -105,7 +105,13 @@
       "Bash(fsutil reparsepoint:*)",
       "Bash(1:*)",
       "Read(//c/Users/User/Downloads/**)",
-      "Bash(pip uninstall:*)"
+      "Bash(pip uninstall:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Skill(schedule)"
     ]
   }
 }
