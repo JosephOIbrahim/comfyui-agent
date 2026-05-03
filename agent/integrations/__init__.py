@@ -8,9 +8,13 @@ and the external system's wire format.
 from .moneta import (
     MonetaAdapter,
     MonetaAdapterConfig,
+    MonetaConfigError,
+    from_env,
 )
 
 __all__ = [
     "MonetaAdapter",
     "MonetaAdapterConfig",
+    "MonetaConfigError",
+    "from_env",
 ]
