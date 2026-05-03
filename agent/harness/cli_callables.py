@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from typing import Any, Callable
 
 log = logging.getLogger(__name__)
@@ -211,22 +212,47 @@ def make_execute_fn(
                 return {"status": "error", "error": str(exc)}
         workflow_executor = _default_executor
 
-    # Load the base workflow once. Mutate a deep-copy per iteration so we
-    # don't accumulate stale parameter changes.
+    # Load the base workflow once. Mutate IN PLACE per iteration with a
+    # snapshot/revert context manager — pre-fix, this was a per-iteration
+    # `copy.deepcopy(base_workflow)` (T1 from the 5x review). For a
+    # workflow with N nodes that's O(N) bytes copied + freed every
+    # iteration; over a 1000-iter run with a 100-node SDXL graph that's
+    # ~megabytes of needless allocation per minute. The new path snapshots
+    # only the leaves we touch (steps/cfg/seed) and reverts after execute.
+    #
+    # Contract: workflow_executor MUST NOT mutate the workflow it receives
+    # outside of the patched leaves. The default _execute_with_websocket
+    # path obeys this (it serializes the dict to JSON for ComfyUI without
+    # mutating). User-supplied executors that violate this will leak state
+    # across iterations.
     base_workflow = workflow_loader(workflow_path)
 
-    import copy
+    @contextmanager
+    def _temporary_patches(workflow: dict, patches: list[dict]):
+        """Apply patches in-place, yield, then revert in reverse order.
+
+        Reverse order matters if the same leaf is patched twice in one
+        proposal (rare but possible) — last-applied is first-reverted so
+        the original stack-orderly value survives.
+        """
+        snapshots: list[tuple[str, str, Any]] = []
+        try:
+            for patch in patches:
+                _, node_id, _, param = patch["path"].split("/")
+                snapshots.append(
+                    (node_id, param, workflow[node_id]["inputs"][param])
+                )
+                workflow[node_id]["inputs"][param] = patch["value"]
+            yield workflow
+        finally:
+            for node_id, param, original in reversed(snapshots):
+                workflow[node_id]["inputs"][param] = original
 
     def _execute_real(change_context: dict[str, Any]) -> dict[str, float]:
         try:
-            mutated = copy.deepcopy(base_workflow)
-            patches = _proposal_to_patches(change_context, mutated)
-            for patch in patches:
-                # Apply inline (cheap; no need to round-trip through
-                # workflow_patch's session machinery for the autonomous loop).
-                _, node_id, _, param = patch["path"].split("/")
-                mutated[node_id]["inputs"][param] = patch["value"]
-            exec_result = workflow_executor(mutated)
+            patches = _proposal_to_patches(change_context, base_workflow)
+            with _temporary_patches(base_workflow, patches) as patched:
+                exec_result = workflow_executor(patched)
             return _derive_axis_scores(exec_result)
         except Exception as exc:
             log.warning("real execute_fn failed: %s — returning failure scores", exc)

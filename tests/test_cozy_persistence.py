@@ -1227,3 +1227,114 @@ class TestProposalToPatches:
         patches = _proposal_to_patches({"param": "steps", "delta": +1}, wf)
         assert len(patches) == 1
         assert patches[0]["path"] == "/3/inputs/steps"
+
+
+# ---------------------------------------------------------------------------
+# T1 (5x review) — base_workflow must NOT mutate across iterations
+# ---------------------------------------------------------------------------
+
+class TestRealModeNoBaseWorkflowMutation:
+    """The cli_callables.make_execute_fn closure used to do
+    `mutated = copy.deepcopy(base_workflow)` PER iteration. T1 of the 5x
+    review eliminated that copy by snapshotting only touched leaves and
+    reverting after execute. These tests pin the new contract:
+
+      1. base_workflow is byte-for-byte identical before and after each
+         execute call (verified by hash).
+      2. The executor SEES the patched values during its call.
+      3. Across many iterations with diverse proposals, base_workflow
+         remains the load-time snapshot.
+    """
+
+    @pytest.fixture
+    def base_wf(self):
+        return {
+            "3": {
+                "class_type": "KSampler",
+                "inputs": {"steps": 20, "cfg": 7.0, "seed": 42},
+            },
+            "5": {
+                "class_type": "KSamplerAdvanced",
+                "inputs": {"steps": 30, "cfg": 8.0, "seed": 100},
+            },
+        }
+
+    def _hash(self, wf):
+        import hashlib
+        import json as _json
+        return hashlib.sha256(
+            _json.dumps(wf, sort_keys=True).encode()
+        ).hexdigest()
+
+    def test_base_workflow_hash_unchanged_after_single_execute(self, base_wf):
+        from agent.harness import make_execute_fn
+        executor_saw = []
+
+        def executor(wf):
+            # Capture snapshot AT execute-time (should see patched values)
+            executor_saw.append(copy.deepcopy(wf))
+            return {"status": "complete", "outputs": ["a"], "total_time_s": 1.0}
+
+        before = self._hash(base_wf)
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda _p: base_wf,
+            workflow_executor=executor,
+        )
+        execute({"param": "steps", "delta": +5})
+        after = self._hash(base_wf)
+        # Mutation+revert is invisible to the caller
+        assert before == after, (
+            "base_workflow leaked mutation across the execute call"
+        )
+        # But the executor saw the patched value
+        assert executor_saw[0]["3"]["inputs"]["steps"] == 25
+
+    def test_base_workflow_hash_unchanged_across_many_iterations(self, base_wf):
+        """Drive 50 iterations with the cycling proposal generator and
+        assert base_workflow hash never drifts. This is the regression
+        guard that would catch a future re-introduction of the deepcopy
+        elision bug or any other source of cross-iteration leak."""
+        from agent.harness import make_execute_fn, make_propose_fn
+
+        def executor(wf):
+            return {"status": "complete", "outputs": ["a"], "total_time_s": 1.0}
+
+        propose = make_propose_fn()
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda _p: base_wf,
+            workflow_executor=executor,
+        )
+        baseline_hash = self._hash(base_wf)
+        for i in range(50):
+            execute(propose())
+            current_hash = self._hash(base_wf)
+            assert current_hash == baseline_hash, (
+                f"base_workflow drifted at iteration {i}: "
+                f"{baseline_hash} -> {current_hash}"
+            )
+
+    def test_revert_fires_even_when_executor_raises(self, base_wf):
+        """If the executor raises mid-call, the context manager's finally
+        block must still revert. Otherwise a partial mutation persists
+        and corrupts subsequent iterations."""
+        from agent.harness import make_execute_fn
+
+        def angry_executor(wf):
+            # Verify we see the patched value before raising
+            assert wf["3"]["inputs"]["steps"] == 25
+            raise ConnectionError("simulated crash mid-execute")
+
+        before = self._hash(base_wf)
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda _p: base_wf,
+            workflow_executor=angry_executor,
+        )
+        # The closure catches the exception and returns failure scores;
+        # the finally block must have fired.
+        scores = execute({"param": "steps", "delta": +5})
+        after = self._hash(base_wf)
+        assert before == after
+        assert scores["success"] == 0.0
