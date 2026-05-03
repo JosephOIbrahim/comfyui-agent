@@ -204,7 +204,9 @@ class TestHumanGates:
 
 class TestAggregateChecks:
     def test_all_commandments_count(self):
-        assert len(ALL_COMMANDMENTS) == 8
+        # 10 commandments: original 8 + persistence_durability + self_healing_ladder
+        # added in the Cozy Constitution revision (Article VIII).
+        assert len(ALL_COMMANDMENTS) == 10
 
     def test_run_pre_checks_all_pass(self):
         results = run_pre_checks(

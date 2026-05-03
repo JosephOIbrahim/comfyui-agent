@@ -59,17 +59,20 @@ class TestChainSelection:
         assert dispatcher.get_chain("recon") == ("scout",)
 
     def test_build_chain(self, dispatcher: MoEDispatcher):
+        # Mutating chains end with scribe per Cozy Constitution Article II.
         assert dispatcher.get_chain("build") == (
-            "scout", "architect", "forge", "crucible",
+            "scout", "architect", "forge", "crucible", "scribe",
         )
 
     def test_analyze_chain(self, dispatcher: MoEDispatcher):
-        assert dispatcher.get_chain("analyze") == ("crucible", "vision")
+        # Vision records experience prims, so analyze mutates state and
+        # must end with scribe.
+        assert dispatcher.get_chain("analyze") == ("crucible", "vision", "scribe")
 
     def test_full_chain(self, dispatcher: MoEDispatcher):
         assert dispatcher.get_full_chain() == (
             "scout", "architect", "provisioner",
-            "forge", "crucible", "vision",
+            "forge", "crucible", "vision", "scribe",
         )
 
     def test_all_task_types_have_chains(self):
@@ -90,7 +93,7 @@ class TestSelectProfiles:
     def test_build_profiles(self, dispatcher: MoEDispatcher):
         profiles = dispatcher.select_profiles("build")
         assert [p.name for p in profiles] == [
-            "scout", "architect", "forge", "crucible",
+            "scout", "architect", "forge", "crucible", "scribe",
         ]
 
 

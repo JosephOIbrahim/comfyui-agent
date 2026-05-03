@@ -52,14 +52,17 @@ class TestAgentProfile:
 
 
 # ---------------------------------------------------------------------------
-# All 6 profiles exist
+# All 7 profiles exist (6 originals + scribe added per Cozy Constitution Article II)
 # ---------------------------------------------------------------------------
 
 class TestAllProfiles:
-    EXPECTED_NAMES = {"scout", "architect", "provisioner", "forge", "crucible", "vision"}
+    EXPECTED_NAMES = {
+        "scout", "architect", "provisioner", "forge", "crucible", "vision",
+        "scribe",
+    }
 
-    def test_six_profiles(self):
-        assert len(ALL_PROFILES) == 6
+    def test_seven_profiles(self):
+        assert len(ALL_PROFILES) == 7
 
     def test_profile_names(self):
         assert set(ALL_PROFILES.keys()) == self.EXPECTED_NAMES
@@ -68,8 +71,11 @@ class TestAllProfiles:
         assert set(PROFILE_NAMES) == self.EXPECTED_NAMES
 
     def test_default_chain_order(self):
+        # Scribe terminates the default chain — Article II of the Cozy Constitution
+        # mandates that every state-mutating chain ends with a flush.
         assert DEFAULT_CHAIN == (
             "scout", "architect", "provisioner", "forge", "crucible", "vision",
+            "scribe",
         )
 
     def test_each_profile_has_allowed_tools(self):
@@ -89,6 +95,7 @@ class TestAllProfiles:
             "forge": "build_artifact",
             "crucible": "execution_result",
             "vision": "quality_report",
+            "scribe": "persistence_receipt",
         }
         for name, profile in ALL_PROFILES.items():
             assert profile.handoff_artifact_type == expected_types[name]

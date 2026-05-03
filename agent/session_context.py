@@ -47,7 +47,12 @@ class SessionContext:
         self._autosave_shutdown = threading.Event()  # signals timer to stop
         self._experience_accumulator = None  # cognitive ExperienceAccumulator (W1.4)
         self._pipeline = None  # cognitive AutonomousPipeline (W1.4)
-        self._init_lock = threading.Lock()  # Guards all lazy-init ensure_*() methods
+        # RLock (not Lock) so nested ensure_*() calls can re-enter — e.g.
+        # ensure_ratchet() holds the lock and calls ensure_stage() which
+        # also acquires it. With plain Lock this deadlocks; the deadlock
+        # was latent until usd-core was installed and the FORESIGHT tests
+        # actually exercised the chain.
+        self._init_lock = threading.RLock()  # Guards all lazy-init ensure_*() methods
         try:
             import logging as _logging
             from .circuit_breaker import CircuitBreaker
