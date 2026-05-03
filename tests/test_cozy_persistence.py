@@ -667,3 +667,254 @@ class TestMonetaAdapter:
             assert not bad.exists()
         finally:
             adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# A1 — atomic flush via .tmp + os.replace
+# ---------------------------------------------------------------------------
+
+class TestAtomicFlush:
+    def test_flush_writes_via_tmp_and_renames(self, tmp_path):
+        """flush() must write to <path>.tmp first, then os.replace into place."""
+        import os as _os
+        from unittest.mock import patch
+
+        path = tmp_path / "atomic.usda"
+        s = CognitiveWorkflowStage(root_path=path)
+        s.write("/workflows/a", "v", 1)
+
+        # Spy on os.replace so we can assert it ran exactly once.
+        original_replace = _os.replace
+        replace_calls: list[tuple[str, str]] = []
+
+        def spy(src, dst):
+            replace_calls.append((str(src), str(dst)))
+            return original_replace(src, dst)
+
+        with patch("agent.stage.cognitive_stage.os.replace", side_effect=spy):
+            s.flush()
+
+        assert path.exists()
+        # Exactly one replace call: <path>.tmp -> <path>
+        assert len(replace_calls) == 1
+        src, dst = replace_calls[0]
+        assert src == str(path) + ".tmp"
+        assert dst == str(path)
+        # The .tmp file is gone after the rename
+        assert not (tmp_path / "atomic.usda.tmp").exists()
+
+    def test_flush_failure_cleans_up_tmp(self, tmp_path):
+        """If Export raises, the orphaned .tmp file is removed."""
+        from unittest.mock import patch
+
+        path = tmp_path / "fail.usda"
+        s = CognitiveWorkflowStage(root_path=path)
+        s.write("/workflows/x", "v", 1)
+
+        # Force Flatten().Export to raise
+        class Boom(Exception):
+            pass
+
+        original_flatten = s._stage.Flatten
+
+        def evil_flatten():
+            flat = original_flatten()
+            original_export = flat.Export
+
+            def raising_export(target):
+                # Create the .tmp file then raise — simulates partial write
+                with open(target, "w", encoding="utf-8") as f:
+                    f.write("partial")
+                raise Boom("simulated crash mid-export")
+
+            flat.Export = raising_export
+            return flat
+
+        with patch.object(s._stage, "Flatten", evil_flatten):
+            with pytest.raises(Boom):
+                s.flush()
+
+        # The canonical path was never written
+        assert not path.exists()
+        # The orphaned .tmp was cleaned up
+        assert not (tmp_path / "fail.usda.tmp").exists()
+
+
+# ---------------------------------------------------------------------------
+# A2 — single-thread dispatcher
+# ---------------------------------------------------------------------------
+
+def _count_dispatcher_threads() -> int:
+    """Count live cozy-stage-dispatch threads in the current process."""
+    return sum(
+        1 for t in threading.enumerate()
+        if "cozy-stage-dispatch" in t.name and t.is_alive()
+    )
+
+
+class TestSingleThreadDispatcher:
+    def test_burst_of_writes_uses_single_dispatcher_thread(self):
+        """100 events must NOT spawn 100 threads — the cozy fix.
+
+        Uses delta-based counting so it's robust to other tests in the
+        suite that may have leaked dispatcher threads (those leaks are
+        bugs in those tests but not this one's concern).
+        """
+        s = CognitiveWorkflowStage()
+        events: list[StageEvent] = []
+        evt_done = threading.Event()
+        target = 100
+
+        def cb(e):
+            events.append(e)
+            if len(events) >= target:
+                evt_done.set()
+
+        before_subscribe = _count_dispatcher_threads()
+        s.subscribe(cb)
+        after_subscribe = _count_dispatcher_threads()
+        # subscribe() must have spawned exactly one new dispatcher
+        assert after_subscribe == before_subscribe + 1
+        assert s._dispatch_thread is not None
+        assert s._dispatch_thread.is_alive()
+
+        for i in range(target):
+            s.write(f"/workflows/burst_{i}", "v", i)
+
+        # Wait for the dispatcher to drain
+        assert evt_done.wait(timeout=5.0)
+
+        # Still the same dispatcher count — burst didn't spawn more
+        after_burst = _count_dispatcher_threads()
+        assert after_burst == after_subscribe
+        assert len(events) >= target
+
+        s.close_subscribers()
+
+    def test_close_subscribers_stops_dispatcher(self):
+        s = CognitiveWorkflowStage()
+        before = _count_dispatcher_threads()
+        s.subscribe(lambda e: None)
+        assert _count_dispatcher_threads() == before + 1
+        dispatcher = s._dispatch_thread
+        s.close_subscribers()
+        # Give it a moment to exit
+        if dispatcher is not None:
+            dispatcher.join(timeout=2.0)
+        # Net count is back to the baseline
+        assert _count_dispatcher_threads() == before
+        assert s._dispatch_thread is None
+
+    def test_full_queue_drops_with_warning(self, monkeypatch):
+        """When the dispatcher is slow and the queue fills, events are
+        DROPPED with a warning, not buffered indefinitely."""
+        s = CognitiveWorkflowStage()
+        # Tiny queue + slow consumer
+        monkeypatch.setattr(
+            CognitiveWorkflowStage, "_DISPATCH_QUEUE_MAXSIZE", 2,
+        )
+
+        # Slow subscriber blocks the dispatcher
+        block = threading.Event()
+
+        def slow(e):
+            block.wait(timeout=2.0)
+
+        s.subscribe(slow)
+        # Fire many events — most should drop because queue is size 2
+        for i in range(50):
+            s.write(f"/workflows/slow_{i}", "v", i)
+
+        # Some events must have been dropped
+        assert s.dispatch_drops > 0
+        # Unblock the consumer so close_subscribers can join
+        block.set()
+        s.close_subscribers()
+
+
+# ---------------------------------------------------------------------------
+# B1 — subprocess-based crash-resume integration test
+# ---------------------------------------------------------------------------
+
+class TestCrashResume:
+    """Spawns a child Python process, writes + flushes, SIGKILLs it,
+    then verifies the parent can cold-load the same .usda file. Proves
+    that:
+      - The atomic flush survives an abrupt kill (no .tmp orphan, no
+        corrupted canonical file)
+      - CognitiveWorkflowStage(root_path=...) reconstructs prims from
+        the flushed file with no other state
+    """
+
+    def test_kill_after_flush_resumes_cleanly(self, tmp_path):
+        import subprocess
+        import sys
+        import os as _os
+        import signal as _signal
+
+        usda_path = tmp_path / "crash_resume.usda"
+        marker = tmp_path / "child.ready"
+
+        child_script = f"""
+import sys, time
+from pathlib import Path
+from agent.stage.cognitive_stage import CognitiveWorkflowStage
+
+stage = CognitiveWorkflowStage(root_path=Path({str(usda_path)!r}))
+# Write multiple prims under different top-level scopes
+stage.write("/workflows/wf_a", "steps", 25)
+stage.write("/workflows/wf_a", "cfg", 7.5)
+stage.write("/agents/forge", "active", True)
+stage.write("/experience/exp_001", "score", 0.83)
+stage.flush()
+
+# Signal that flush has completed
+Path({str(marker)!r}).write_text("ready", encoding="utf-8")
+
+# Hang so the parent can SIGKILL us
+while True:
+    time.sleep(0.5)
+"""
+
+        proc = subprocess.Popen(
+            [sys.executable, "-c", child_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            # Wait up to 10s for the marker file
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
+                if marker.exists():
+                    break
+                if proc.poll() is not None:
+                    out, err = proc.communicate(timeout=1.0)
+                    pytest.fail(
+                        f"Child died early: rc={proc.returncode}\n"
+                        f"stdout: {out.decode()!r}\n"
+                        f"stderr: {err.decode()!r}"
+                    )
+                time.sleep(0.1)
+            assert marker.exists(), "Child never wrote ready marker"
+
+            # The canonical file exists and the .tmp does not
+            assert usda_path.exists()
+            assert not (tmp_path / "crash_resume.usda.tmp").exists()
+
+            # Brutally kill the child
+            _os.kill(proc.pid, _signal.SIGKILL)
+            proc.wait(timeout=5.0)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5.0)
+
+        # Parent: cold-load and verify prims
+        stage = CognitiveWorkflowStage(root_path=usda_path)
+        assert stage.read("/workflows/wf_a", "steps") == 25
+        # USD stores doubles; just check it round-tripped (small float).
+        cfg = stage.read("/workflows/wf_a", "cfg")
+        assert cfg is not None and abs(cfg - 7.5) < 1e-6
+        assert stage.read("/agents/forge", "active") is True
+        assert stage.read("/experience/exp_001", "score") is not None
+        stage.close_subscribers()
