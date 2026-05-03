@@ -5,19 +5,23 @@ workflow or call ComfyUI. Those concerns live here so the CLI can compose
 them based on `--execute-mode` and so they can be unit-tested without the
 CLI itself.
 
-Modes:
-  - "mock"     — no callbacks; harness errors at first iteration. Used by
-                 callers that inject their own callbacks programmatically
-                 (e.g., the existing test suite). Default for safety.
+Modes (handled by the CLI, not this module — this module ships dry-run +
+real factories; mock is "neither factory called, callbacks=None"):
+  - "mock"     — both callbacks None; AutoresearchRunner falls back to its
+                 built-in cyclic proposer and a neutral-score executor
+                 ({aesthetic: 0.5, lighting: 0.5} every iteration). Useful
+                 for smoke-testing the harness loop but produces no
+                 ratchet signal. The CLI emits a WARNING when mock is used.
   - "dry-run"  — produces real proposals (steps/cfg/seed mutations) but
                  returns synthetic axis_scores without contacting ComfyUI.
                  Lets a user smoke-test the CLI plumbing offline.
   - "real"     — requires --workflow. Loads the workflow once, applies
                  mutations as RFC6902 patches per iteration, executes
                  against ComfyUI, derives axis_scores from the result.
-                 Failures (timeout / error / circuit-open) return
-                 {"success": 0.0, "speed": 0.0} so the ratchet rejects
-                 the experiment without halting the harness.
+                 Failures (timeout / error / circuit-open / Python
+                 exception) return {"success": 0.0, "speed": 0.0,
+                 "fertility": 0.0} so the ratchet rejects the experiment
+                 without halting the harness.
 
 The closures keep state via Python closure cells, NOT module globals, so
 multiple harnesses in the same process don't collide.
@@ -191,16 +195,20 @@ def make_execute_fn(
 
     if workflow_executor is None:
         def _default_executor(workflow: dict) -> dict:
-            from ..tools import comfy_execute
-            raw = comfy_execute.handle(
-                "execute_with_progress",
-                {"workflow": workflow, "timeout": 300},
-            )
+            # The MCP-facing handler `comfy_execute.handle("execute_with_progress",
+            # ...)` expects either a `path` to a workflow file or a workflow
+            # already loaded into the workflow_patch session state — it does
+            # NOT accept a workflow dict. For in-process callers like the
+            # harness, reach into the lower-level `_execute_with_websocket`
+            # directly. Same precedent at agent/tools/pipeline.py:428.
+            from ..tools.comfy_execute import _execute_with_websocket
             try:
-                return json.loads(raw)
-            except (TypeError, json.JSONDecodeError):
-                # Tool returned a plain string or non-JSON — treat as failure.
-                return {"status": "error", "error": str(raw)}
+                return _execute_with_websocket(workflow, timeout=300)
+            except Exception as exc:
+                # The websocket path can raise on connection errors; handle
+                # that as a non-fatal failure here so the harness ratchet
+                # rejects the experiment without halting.
+                return {"status": "error", "error": str(exc)}
         workflow_executor = _default_executor
 
     # Load the base workflow once. Mutate a deep-copy per iteration so we

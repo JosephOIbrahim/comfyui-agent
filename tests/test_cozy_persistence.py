@@ -1104,3 +1104,126 @@ class TestMakeExecuteFnReal:
         s_fast = fast({"param": "steps", "delta": +1})
         s_slow = slow({"param": "steps", "delta": +1})
         assert s_fast["speed"] > s_slow["speed"]
+
+
+# ---------------------------------------------------------------------------
+# F1 regression — default executor must call _execute_with_websocket directly
+# ---------------------------------------------------------------------------
+
+class TestDefaultExecutorRoutesCorrectly:
+    """Pre-Ultrareview, the default `_default_executor` was passing
+    `{"workflow": ..., "timeout": ...}` to `comfy_execute.handle("execute_with_progress",
+    ...)`, which silently ignores `workflow` and reads `path` instead. In
+    real mode, every iteration would have returned 'No workflow loaded'
+    failure scores — every test passed because `workflow_executor=` was
+    always overridden.
+
+    This test exercises the DEFAULT path with a stub on the real
+    underlying function, so a future regression to the broken handler
+    arg shape would fail this test loudly.
+    """
+
+    def test_default_executor_calls_execute_with_websocket_with_dict(
+        self, monkeypatch,
+    ):
+        from agent.harness import make_execute_fn
+        from agent.tools import comfy_execute as ce_module
+
+        captured: dict = {}
+
+        def fake_ws(workflow, timeout=300, progress=None):
+            captured["workflow"] = workflow
+            captured["timeout"] = timeout
+            return {"status": "complete", "outputs": ["x"], "total_time_s": 2.0}
+
+        monkeypatch.setattr(ce_module, "_execute_with_websocket", fake_ws)
+
+        base_wf = {"3": {"class_type": "KSampler", "inputs": {"steps": 20}}}
+
+        # Use only workflow_loader override so the DEFAULT executor is
+        # actually exercised — this is the path that broke pre-fix.
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda _p: base_wf,
+        )
+        scores = execute({"param": "steps", "delta": +5})
+
+        # Underlying function was called with a dict, not a path
+        assert "workflow" in captured
+        assert isinstance(captured["workflow"], dict)
+        assert captured["workflow"]["3"]["inputs"]["steps"] == 25  # 20 + 5
+        assert captured["timeout"] == 300
+        # Scores derived from the success result
+        assert scores["success"] == 1.0
+        assert scores["speed"] > 0.0
+
+    def test_default_executor_returns_failure_on_exception(self, monkeypatch):
+        """A websocket exception (ComfyUI down) must surface as failure
+        scores, not a crash."""
+        from agent.harness import make_execute_fn
+        from agent.tools import comfy_execute as ce_module
+
+        def failing_ws(workflow, timeout=300, progress=None):
+            raise ConnectionError("ComfyUI not running")
+
+        monkeypatch.setattr(ce_module, "_execute_with_websocket", failing_ws)
+
+        execute = make_execute_fn(
+            "real", workflow_path="/fake/wf.json",
+            workflow_loader=lambda _p: {"3": {"inputs": {"steps": 20}}},
+        )
+        scores = execute({"param": "steps", "delta": +5})
+        assert scores["success"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# F6 — _proposal_to_patches edge cases
+# ---------------------------------------------------------------------------
+
+class TestProposalToPatches:
+    def test_missing_param_returns_empty_patches(self):
+        from agent.harness.cli_callables import _proposal_to_patches
+        wf = {"3": {"inputs": {"unrelated": 1}}}
+        assert _proposal_to_patches({"param": "steps", "delta": +5}, wf) == []
+
+    def test_wired_input_is_skipped(self):
+        """Inputs that are connections (lists like [src_id, output_idx])
+        MUST NOT be patched — patching a list with a number breaks the
+        DAG."""
+        from agent.harness.cli_callables import _proposal_to_patches
+        wf = {"3": {"inputs": {"steps": ["1", 0]}}}  # wired
+        assert _proposal_to_patches({"param": "steps", "delta": +5}, wf) == []
+
+    def test_multi_node_patches_all_matches(self):
+        """Multi-sampler workflow: all matching nodes get the same delta.
+        This is a known limitation (see the function docstring)."""
+        from agent.harness.cli_callables import _proposal_to_patches
+        wf = {
+            "3": {"inputs": {"steps": 20}},
+            "5": {"inputs": {"steps": 30}},
+            "7": {"inputs": {"cfg": 7.0}},  # different param, untouched
+        }
+        patches = _proposal_to_patches({"param": "steps", "delta": +5}, wf)
+        assert len(patches) == 2
+        paths = {p["path"] for p in patches}
+        assert "/3/inputs/steps" in paths
+        assert "/5/inputs/steps" in paths
+
+    def test_proposal_with_no_param_returns_empty(self):
+        from agent.harness.cli_callables import _proposal_to_patches
+        wf = {"3": {"inputs": {"steps": 20}}}
+        assert _proposal_to_patches({}, wf) == []
+        assert _proposal_to_patches({"delta": +5}, wf) == []
+
+    def test_non_dict_node_values_ignored(self):
+        """Workflows can contain non-node entries (metadata) — those must
+        not be touched."""
+        from agent.harness.cli_callables import _proposal_to_patches
+        wf = {
+            "3": {"inputs": {"steps": 20}},
+            "_meta": "not a node",
+            "_version": 42,
+        }
+        patches = _proposal_to_patches({"param": "steps", "delta": +1}, wf)
+        assert len(patches) == 1
+        assert patches[0]["path"] == "/3/inputs/steps"

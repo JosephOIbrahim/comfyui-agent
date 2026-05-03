@@ -913,12 +913,23 @@ def autonomous(
         resume=resume,
     )
 
-    # Build callbacks for non-mock modes. Mock keeps callbacks=None so the
-    # harness fails loudly at first iteration if not injected — this is the
-    # explicit-default-for-safety path.
+    # Build callbacks for non-mock modes. Mock keeps both callbacks=None,
+    # which causes the underlying AutoresearchRunner to fall back to its
+    # built-in defaults: a cyclic proposer and a neutral-score executor
+    # (returns {aesthetic: 0.5, lighting: 0.5} every iteration). That's
+    # useful for smoke-testing the harness loop itself but produces no
+    # ratchet signal — every experiment scores identically.
     propose_fn = None
     execute_fn = None
-    if execute_mode in ("dry-run", "real"):
+    if execute_mode == "mock":
+        console.print(
+            "[yellow]WARNING: --execute-mode=mock uses AutoresearchRunner "
+            "defaults — neutral scores every iteration, no ratchet signal. "
+            "Use --execute-mode=dry-run for offline smoke tests with real "
+            "proposal cycles, or --execute-mode=real --workflow PATH for "
+            "live ComfyUI runs.[/yellow]"
+        )
+    elif execute_mode in ("dry-run", "real"):
         try:
             propose_fn = make_propose_fn()
             execute_fn = make_execute_fn(execute_mode, workflow)
