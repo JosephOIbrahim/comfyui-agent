@@ -61,11 +61,15 @@ class TestLoadSchema:
         assert "overall_score" in schema["fields"]
         assert "decision" in schema["fields"]
 
-    def test_schema_is_deep_copy(self):
+    def test_schema_is_frozen_view(self):
+        """Post-MoE-R1: schemas are recursive frozen views; mutation
+        attempts raise TypeError. Cache integrity is structurally
+        guaranteed rather than achieved via per-hit deepcopy."""
         s1 = load_schema("intent")
         s2 = load_schema("intent")
         assert s1 == s2
-        s1["fields"]["model_id"]["type"] = "MUTATED"
+        with pytest.raises(TypeError):
+            s1["fields"]["model_id"]["type"] = "MUTATED"
         s3 = load_schema("intent")
         assert s3["fields"]["model_id"]["type"] == "string"
 
@@ -649,10 +653,12 @@ class TestYamlFiles:
 
     @pytest.mark.parametrize("agent", ["intent", "execution", "verify"])
     def test_default_schema_parses(self, agent):
+        from collections.abc import Mapping
         schema = load_schema(agent)
         assert "schema" in schema
         assert "fields" in schema
-        assert isinstance(schema["fields"], dict)
+        # Post-MoE-R1: schema['fields'] is a frozen Mapping, not a dict.
+        assert isinstance(schema["fields"], Mapping)
 
     @pytest.mark.parametrize("agent", ["intent", "execution", "verify"])
     def test_default_schema_has_metadata(self, agent):
@@ -675,10 +681,12 @@ class TestYamlFiles:
     @pytest.mark.parametrize("agent", ["intent", "execution", "verify"])
     def test_required_fields_are_present(self, agent):
         """Each schema has at least one required field."""
+        from collections.abc import Mapping
         schema = load_schema(agent)
         required = [
             name
             for name, fdef in schema["fields"].items()
-            if isinstance(fdef, dict) and fdef.get("required")
+            # fdef is a frozen Mapping (post-MoE-R1), not necessarily a dict
+            if isinstance(fdef, Mapping) and fdef.get("required")
         ]
         assert len(required) > 0
