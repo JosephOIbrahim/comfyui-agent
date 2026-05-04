@@ -49,11 +49,30 @@ _LAYER_TOOLS: list[dict] = []
 for _mod in _MODULES:
     _LAYER_TOOLS.extend(_mod.TOOLS)
 
-# Map tool name -> handler module (intelligence layers)
+# Map tool name -> handler module (intelligence layers).
+# MoE-R7: detect duplicate registrations at import time. Pre-fix, a tool
+# defined in two modules would silently have one handler overwrite the
+# other, with the order-of-import determining which won. With the
+# warning, registration drift is visible in cold-start logs.
 _HANDLERS = {}
 for _mod in _MODULES:
     for _tool in _mod.TOOLS:
-        _HANDLERS[_tool["name"]] = _mod
+        _name = _tool["name"]
+        if _name in _HANDLERS:
+            log.warning(
+                "tool registration collision: %r registered by %s, "
+                "overwriting prior registration from %s",
+                _name, _mod.__name__, _HANDLERS[_name].__name__,
+            )
+        _HANDLERS[_name] = _mod
+
+# MoE-R7: per-layer count diagnostic. Emits at INFO so ops dashboards can
+# alert on drift. Brain layer counts are added by `_ensure_brain()` when
+# it lazy-loads; the line below is the stage+intelligence subtotal.
+log.info(
+    "tool dispatch: %d intelligence/stage tools registered (brain lazy)",
+    len(_HANDLERS),
+)
 
 # Brain tools are loaded lazily to break the circular import
 _brain_loaded = False

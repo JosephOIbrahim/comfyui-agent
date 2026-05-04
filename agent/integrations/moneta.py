@@ -12,6 +12,16 @@ adapter uses a transport-agnostic shape:
              each file, applies it as a stage agent_delta, and atomically
              renames the file to `*.applied`.
 
+             PRODUCER CONVENTION (MoE-R8 TOCTOU mitigation): Moneta MUST
+             write delta files atomically — content to
+             `<name>.delta.json.tmp` FIRST, then rename to
+             `<name>.delta.json`. POSIX guarantees rename atomicity within
+             a filesystem. Without this, the consumer could observe a
+             half-written file between the producer's open() and close()
+             and ingest partial content. The consumer (`_inbox_loop`)
+             only globs fully-named `*.delta.json` files; `.tmp` and
+             `.partial` suffixes are explicitly skipped.
+
 When Moneta's actual API contract lands, replace the file-watch transport
 in `_emit()` and `_poll_inbox()` with HTTP/RPC; the StageEvent → record
 mapping in `_event_to_record()` stays the same.
@@ -202,7 +212,24 @@ class MonetaAdapter:
     # ------------------------------------------------------------------
 
     def _inbox_loop(self) -> None:
-        """Poll the inbox directory for `*.delta.json` files."""
+        """Poll the inbox directory for `*.delta.json` files.
+
+        MoE-R8: TOCTOU mitigation via convention. Moneta producers MUST
+        write delta files atomically: write content to `<name>.delta.json.tmp`
+        FIRST, then rename to `<name>.delta.json`. This consumer:
+
+          1. Globs only fully-named `*.delta.json` (the rename target).
+          2. Explicitly excludes `*.tmp` and `*.partial` suffixes.
+
+        Without this convention, a consumer that observes `inbox.glob`
+        between a producer's `open()` and `close()` could ingest a
+        partial-content file. With the convention, the consumer never
+        sees a file until the rename completes — POSIX guarantees rename
+        atomicity within a filesystem.
+
+        The producer-side spec is documented in `MonetaAdapterConfig`'s
+        docstring at the top of this module.
+        """
         assert self._config.inbox_dir is not None
         inbox = self._config.inbox_dir
         while not self._shutdown.is_set():
@@ -212,6 +239,15 @@ class MonetaAdapter:
                 for path in sorted(inbox.glob("*.delta.json")):
                     if self._shutdown.is_set():
                         break
+                    # MoE-R8: defensive secondary filter. The glob pattern
+                    # already excludes `.tmp` / `.partial` suffixes (since
+                    # those would have a different extension chain), but
+                    # if a producer creates a malformed name like
+                    # `foo.delta.json.tmp` and Path.glob normalizes it
+                    # weirdly, this catch-all keeps the consumer honest.
+                    name = path.name
+                    if name.endswith(".tmp") or name.endswith(".partial"):
+                        continue
                     self._ingest_one(path)
             except Exception as exc:
                 log.warning("Moneta inbox scan failed: %s", exc)
