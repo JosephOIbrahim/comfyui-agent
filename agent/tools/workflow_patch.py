@@ -501,10 +501,14 @@ def _handle_preview_patch(tool_input: dict) -> str:
     if not patches:
         return to_json({"error": "'patches' is required and must be a non-empty list."})
 
-    # Preview without modifying state
+    # Preview without modifying state. jsonpatch.JsonPatch.apply defaults to
+    # in_place=False so it returns a new document without mutating the input;
+    # the previous explicit deepcopy was double-copying. We discard the
+    # returned doc — the only thing we need from this call is the
+    # exception-raise behavior on invalid patches.
     try:
         jp = jsonpatch.JsonPatch(patches)
-        jp.apply(copy.deepcopy(_get_state()["current_workflow"]))
+        jp.apply(_get_state()["current_workflow"])
     except Exception as e:
         return to_json({"error": f"Patch would fail: {e}"})
 

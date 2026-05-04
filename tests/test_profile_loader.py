@@ -208,11 +208,21 @@ class TestLoadProfile:
         assert meta["base_arch"] == "unknown"
         assert meta["modality"] == "image"
 
-    def test_returns_deep_copy(self):
-        """Mutating the returned profile must not affect the cache."""
+    def test_returns_frozen_view(self):
+        """The returned profile is recursively read-only.
+
+        Pre-MoE-R1 contract: 'deep copy so callers can mutate freely' —
+        but the deepcopy fired on every cache hit (O(W)) negating the
+        cache. New contract: return a recursive MappingProxyType view;
+        mutation raises TypeError at the call site, surfacing the bug
+        instead of silently corrupting other consumers.
+        """
+        import pytest as _pytest
         from agent.profiles import load_profile
         p1 = load_profile("flux1-dev")
-        p1["meta"]["model_id"] = "MUTATED"
+        with _pytest.raises(TypeError):
+            p1["meta"]["model_id"] = "MUTATED"
+        # Cache integrity is structurally guaranteed (immutable views)
         p2 = load_profile("flux1-dev")
         assert p2["meta"]["model_id"] == "flux1-dev"
 
@@ -230,12 +240,17 @@ class TestCaching:
         p2 = load_profile("flux1-dev")
         assert p1 == p2
 
-    def test_cache_returns_different_objects(self):
-        """Deep copy means different object identity."""
+    def test_cache_returns_same_object(self):
+        """Post-MoE-R1: cache returns the SAME frozen view across calls.
+
+        That's the whole point of the cache — repeat lookups are O(1) by
+        sharing one immutable view. The previous test asserted the
+        opposite (`assert p1 is not p2`) because of the per-hit deepcopy;
+        deleting that deepcopy is the entire optimization."""
         from agent.profiles import load_profile
         p1 = load_profile("flux1-dev")
         p2 = load_profile("flux1-dev")
-        assert p1 is not p2
+        assert p1 is p2
 
     def test_clear_cache(self):
         from agent.profiles import load_profile
@@ -301,11 +316,12 @@ class TestAccessors:
         assert is_fallback("completely_unknown_model_qqq")
 
     def test_accessors_return_empty_for_unknown(self):
-        """Accessors on minimal-default profiles should return dicts, not crash."""
+        """Accessors on minimal-default profiles return mapping views, not crash."""
+        from collections.abc import Mapping
         from agent.profiles import get_intent_section, get_parameter_section, get_quality_section
-        assert isinstance(get_intent_section("unknown_xyz"), dict)
-        assert isinstance(get_parameter_section("unknown_xyz"), dict)
-        assert isinstance(get_quality_section("unknown_xyz"), dict)
+        assert isinstance(get_intent_section("unknown_xyz"), Mapping)
+        assert isinstance(get_parameter_section("unknown_xyz"), Mapping)
+        assert isinstance(get_quality_section("unknown_xyz"), Mapping)
 
 
 # ---------------------------------------------------------------------------
