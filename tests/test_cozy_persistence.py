@@ -1132,7 +1132,10 @@ class TestDefaultExecutorRoutesCorrectly:
         captured: dict = {}
 
         def fake_ws(workflow, timeout=300, progress=None):
-            captured["workflow"] = workflow
+            # Deep-copy AT execute-time. After T1 of the 5x review the
+            # closure mutates base_workflow in place and reverts post-call,
+            # so a reference snapshot would show the post-revert value.
+            captured["workflow"] = copy.deepcopy(workflow)
             captured["timeout"] = timeout
             return {"status": "complete", "outputs": ["x"], "total_time_s": 2.0}
 
@@ -1151,7 +1154,10 @@ class TestDefaultExecutorRoutesCorrectly:
         # Underlying function was called with a dict, not a path
         assert "workflow" in captured
         assert isinstance(captured["workflow"], dict)
-        assert captured["workflow"]["3"]["inputs"]["steps"] == 25  # 20 + 5
+        # The deep-copy snapshot taken DURING execute shows the patched
+        # value (20 + 5 = 25). The base_wf object is back to 20 post-revert.
+        assert captured["workflow"]["3"]["inputs"]["steps"] == 25
+        assert base_wf["3"]["inputs"]["steps"] == 20  # T1 contract: post-revert
         assert captured["timeout"] == 300
         # Scores derived from the success result
         assert scores["success"] == 1.0
