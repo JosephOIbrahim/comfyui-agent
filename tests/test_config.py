@@ -8,10 +8,15 @@ class TestApiKeyValidation:
     def test_valid_key_no_warning(self, capsys):
         """Valid sk-ant- key should not trigger a warning."""
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test123"}, clear=False):
-            # Re-import to trigger validation
+            # Re-import to refresh module-level ANTHROPIC_API_KEY constant
             import importlib
             import agent.config as config_mod
             importlib.reload(config_mod)
+            # Reset the once-per-process latch so the function is allowed
+            # to emit (T5 from the 5x review made the warning a deferred
+            # call rather than an import-time print).
+            config_mod._api_key_warn_emitted = False
+            config_mod.warn_on_missing_api_key()
             captured = capsys.readouterr()
             assert "WARNING" not in captured.err
 
@@ -21,6 +26,8 @@ class TestApiKeyValidation:
             import importlib
             import agent.config as config_mod
             importlib.reload(config_mod)
+            config_mod._api_key_warn_emitted = False
+            config_mod.warn_on_missing_api_key()
             captured = capsys.readouterr()
             assert "WARNING" in captured.err
             assert "sk-ant-" in captured.err
