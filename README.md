@@ -540,6 +540,7 @@ The pipeline above runs as one shot per intent. For long-running, self-healing a
 **MoE chain** -- Article II of the constitution mandates that every state-mutating chain ends in **Scribe**. Each specialist owns one concern and produces one typed handoff artifact. The chain dispatcher (`agent/stage/moe_dispatcher.py`) routes by `TASK_CHAINS`; the default chain shown below is the full build-execute-judge-persist sequence.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables': {'primaryColor':'#0066FF','primaryTextColor':'#ffffff','primaryBorderColor':'#003eaa','lineColor':'#374151','secondaryColor':'#374151','tertiaryColor':'#1f2937','fontFamily':'monospace'}}}%%
 flowchart LR
     Intent(["Intent<br/>'cinematic portrait'"]) --> Scout
     Scout["Scout<br/>recon: nodes,<br/>models, interfaces"] -->|recon_report| Architect
@@ -549,21 +550,12 @@ flowchart LR
     Crucible["Crucible<br/>execute + verify<br/>(comfy_execute)"] -->|execution_result| Vision
     Vision["Vision<br/>judge quality<br/>(analyze_image)"] -->|quality_report| Scribe
     Scribe["Scribe<br/>save_session +<br/>record_experience"] -->|persistence_receipt| Done(["Stage flushed"])
-
-    style Intent fill:#0066FF,color:#fff
-    style Scout fill:#3b82f6,color:#fff
-    style Architect fill:#8b5cf6,color:#fff
-    style Provisioner fill:#0891b2,color:#fff
-    style Forge fill:#ea580c,color:#fff
-    style Crucible fill:#dc2626,color:#fff
-    style Vision fill:#7c3aed,color:#fff
-    style Scribe fill:#059669,color:#fff
-    style Done fill:#10b981,color:#fff
 ```
 
 **Self-healing ladder** -- Article III mandates that every error gets classified once by `self_healing_ladder()` and routed to one of three policies. **TERMINAL is the only path that halts**; everything else burns iteration budget and continues. This is what makes a 24-hour autonomous run survivable: ComfyUI hiccups, missing assets, and rate-limit blips never stop the loop.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables': {'primaryColor':'#0066FF','primaryTextColor':'#ffffff','primaryBorderColor':'#003eaa','lineColor':'#374151','secondaryColor':'#374151','tertiaryColor':'#1f2937','fontFamily':'monospace'}}}%%
 flowchart TD
     Try["execute_fn(change_context)"] -->|success| Ratchet[Ratchet decides keep/reject]
     Try -->|exception| Class["self_healing_ladder<br/>classify(error)"]
@@ -573,14 +565,6 @@ flowchart TD
     Repair -->|yes, returns ctx| Try
     Repair -->|no / returns None| Counter["Signature counter +1<br/>(>3 same sig →<br/>promote to TERMINAL)"]
     Class -->|"TERMINAL<br/>AnchorViolation,<br/>disk-full,<br/>repeated-recoverable"| Halt["Final checkpoint<br/>+ BLOCKER.md<br/>+ Halt"]
-
-    style Try fill:#3b82f6,color:#fff
-    style Ratchet fill:#10b981,color:#fff
-    style Class fill:#8b5cf6,color:#fff
-    style Backoff fill:#d97706,color:#fff
-    style Repair fill:#8b5cf6,color:#fff
-    style Counter fill:#a855f7,color:#fff
-    style Halt fill:#dc2626,color:#fff
 ```
 
 Run it: `agent autonomous --execute-mode real --workflow path/to/wf.json --hours 24`. Per-iteration checkpoint to `STAGE_DEFAULT_PATH` (atomic via `.tmp` + `os.replace`). On TERMINAL halt, `BLOCKER.md` is written with the full classification trail. See `CLAUDE.md` "Cozy Autonomous Harness" for the full CLI surface.
