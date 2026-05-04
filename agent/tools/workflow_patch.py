@@ -20,6 +20,7 @@ import logging
 import os
 import shutil
 import tempfile
+from collections import deque
 from pathlib import Path
 
 import jsonpatch
@@ -131,7 +132,9 @@ def _load_workflow(path_str: str) -> str | None:
     _get_state()["loaded_path"] = path_str
     _get_state()["base_workflow"] = copy.deepcopy(api_nodes)
     _get_state()["current_workflow"] = copy.deepcopy(api_nodes)
-    _get_state()["history"] = []
+    # MoE-R2: deque(maxlen=N) auto-trims undo history; replaces a list +
+    # manual `if len > MAX: history = history[-MAX:]` at 4 sites.
+    _get_state()["history"] = deque(maxlen=_MAX_HISTORY)
 
     # Create engine from the loaded workflow (session-scoped)
     _set_engine(_create_engine(api_nodes))
@@ -438,8 +441,6 @@ def _handle_apply_patch(tool_input: dict) -> str:
 
     # Save current state for undo (history list kept for backward compat)
     _get_state()["history"].append(copy.deepcopy(_get_state()["current_workflow"]))
-    if len(_get_state()["history"]) > _MAX_HISTORY:
-        _get_state()["history"] = _get_state()["history"][-_MAX_HISTORY:]
 
     # Try engine-based mutation first
     engine = _get_engine()
@@ -631,7 +632,8 @@ def _handle_reset() -> str:
         return to_json({"error": err})
 
     _get_state()["current_workflow"] = copy.deepcopy(_get_state()["base_workflow"])
-    _get_state()["history"] = []
+    # MoE-R2: deque(maxlen=N) auto-trims undo history.
+    _get_state()["history"] = deque(maxlen=_MAX_HISTORY)
 
     # Reset engine from base workflow
     if _get_engine() is not None:
@@ -674,8 +676,6 @@ def _handle_add_node(tool_input: dict) -> str:
 
     # Save state for undo
     _get_state()["history"].append(copy.deepcopy(_get_state()["current_workflow"]))
-    if len(_get_state()["history"]) > _MAX_HISTORY:
-        _get_state()["history"] = _get_state()["history"][-_MAX_HISTORY:]
 
     node_id = _next_node_id()
 
@@ -751,8 +751,6 @@ def _handle_connect_nodes(tool_input: dict) -> str:
 
     # Save state for undo
     _get_state()["history"].append(copy.deepcopy(workflow))
-    if len(_get_state()["history"]) > _MAX_HISTORY:
-        _get_state()["history"] = _get_state()["history"][-_MAX_HISTORY:]
 
     # Connection value in ComfyUI format
     connection = [from_node, from_output]
@@ -831,8 +829,6 @@ def _handle_set_input(tool_input: dict) -> str:
 
     # Save state for undo
     _get_state()["history"].append(copy.deepcopy(workflow))
-    if len(_get_state()["history"]) > _MAX_HISTORY:
-        _get_state()["history"] = _get_state()["history"][-_MAX_HISTORY:]
 
     engine = _get_engine()
 
@@ -946,7 +942,8 @@ def load_workflow_from_data(data: dict, source: str = "<sidebar>") -> str | None
         _get_state()["format"] = fmt
         _get_state()["base_workflow"] = copy.deepcopy(nodes)
         _get_state()["current_workflow"] = copy.deepcopy(nodes)
-        _get_state()["history"] = []
+        # MoE-R2: deque(maxlen=N) auto-trims undo history.
+        _get_state()["history"] = deque(maxlen=_MAX_HISTORY)
 
         # Create engine from loaded workflow (session-scoped)
         _set_engine(_create_engine(nodes))

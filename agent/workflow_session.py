@@ -23,12 +23,17 @@ class WorkflowSession:
     """
 
     def __init__(self, session_id: str = "default"):
+        from collections import deque
         self.session_id = session_id
         self._data: dict = {
             "loaded_path": None,
             "base_workflow": None,
             "current_workflow": None,
-            "history": [],
+            # MoE-R2: bounded auto-trim deque (was list); workflow_patch.py
+            # uses _MAX_HISTORY=50 for the undo cap. Initialized with
+            # maxlen=None here because the session may exist before any
+            # workflow is loaded; load_workflow rebuilds with the proper cap.
+            "history": deque(),
             "format": None,
             "_engine": None,
         }

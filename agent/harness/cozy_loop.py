@@ -571,10 +571,21 @@ class CozyLoop:
         self._checkpoint(runner)
 
     def _write_blocker(self, reason: str, error: BaseException | None) -> str | None:
-        """Write a BLOCKER.md per the repo's Git Authority C3 convention."""
+        """Write a BLOCKER.md atomically per the repo's Git Authority C3 convention.
+
+        MoE-R6: write to <path>.tmp first, then os.replace into place.
+        Mirrors the atomic-flush pattern at agent/stage/cognitive_stage.py.
+        A SIGKILL between Export and replace leaves the .tmp orphaned but
+        the canonical BLOCKER.md is either intact (pre-write) or fully
+        rewritten (post-write) — never partially written. Important: this
+        file is the post-mortem; if it's corrupt, debugging the halt is
+        much harder.
+        """
+        import os
         try:
             from ..config import PROJECT_DIR
             path = PROJECT_DIR / "BLOCKER.md"
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
             content = (
                 f"# Cozy Harness BLOCKER\n\n"
                 f"Halted at iteration {self._iterations_completed} after "
@@ -583,7 +594,16 @@ class CozyLoop:
             )
             if error is not None:
                 content += f"## Error\n\n```\n{type(error).__name__}: {error}\n```\n"
-            path.write_text(content, encoding="utf-8")
+            try:
+                tmp_path.write_text(content, encoding="utf-8")
+                os.replace(tmp_path, path)
+            except Exception:
+                # Best-effort cleanup of the orphan .tmp.
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
             return str(path)
         except Exception as exc:
             log.warning("Failed to write BLOCKER.md: %s", exc)
