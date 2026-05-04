@@ -59,7 +59,7 @@ ruff format agent/ tests/                  # Format
 14. Never generate entire workflows from scratch. Make surgical, validated modifications.
 15. Every patch is validated before application. No exceptions.
 
-## Tool Overview (~103 tools: ~53 intelligence + ~27 brain + ~23 stage)
+## Tool Overview (~85 dispatched tools: ~64 intelligence + ~7 brain TOOLS-list + ~22 stage; brain also exposes 9 BrainAgent SDK specialists)
 
 | Category | Tools |
 |----------|-------|

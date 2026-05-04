@@ -43,7 +43,7 @@ graph LR
 
 ## Sponsor This Project
 
-Comfy Cozy is production software. 3,902 tests (all mocked, runnable in under a minute) cover the 113 MCP tools that drive the workflow lifecycle end-to-end. Four LLM providers — Anthropic, OpenAI, Gemini, Ollama — sit behind a single abstraction with parity across all four. The [CHANGELOG](CHANGELOG.md) tracks active hardening and new work.
+Comfy Cozy is production software. 4,180+ tests (all mocked, runnable in under a minute) cover the ~85 MCP tools that drive the workflow lifecycle end-to-end. Four LLM providers — Anthropic, OpenAI, Gemini, Ollama — sit behind a single abstraction with parity across all four. The [CHANGELOG](CHANGELOG.md) tracks active hardening and new work.
 
 If Comfy Cozy saves you time inside ComfyUI, sponsorship is the most direct way to keep it moving.
 
@@ -208,7 +208,7 @@ graph LR
 
 ## Pick Your LLM
 
-Comfy Cozy is **provider-agnostic**. Same 113 tools, same streaming, same vision analysis -- swap one env var.
+Comfy Cozy is **provider-agnostic**. Same ~85 tools, same streaming, same vision analysis -- swap one env var.
 
 ### Anthropic (default)
 
@@ -280,7 +280,7 @@ All four providers share the same abstraction layer (`agent/llm/`):
 ```mermaid
 %%{init: {'theme':'base','themeVariables': {'primaryColor':'#0066FF','primaryTextColor':'#ffffff','primaryBorderColor':'#003eaa','lineColor':'#374151','secondaryColor':'#374151','tertiaryColor':'#1f2937','fontFamily':'monospace'}}}%%
 graph LR
-    Agent[Agent Loop<br/>113 tools] --> LLM{LLM_PROVIDER}
+    Agent[Agent Loop<br/>~85 tools] --> LLM{LLM_PROVIDER}
     LLM -->|anthropic| A["Claude<br/>Streaming + Cache"]
     LLM -->|openai| B["GPT-4o<br/>Tool Calls"]
     LLM -->|gemini| C["Gemini<br/>Function Decl."]
@@ -295,7 +295,7 @@ Common types (`TextBlock`, `ToolUseBlock`, `LLMResponse`), unified error hierarc
 
 ### A. Inside Claude Code / Claude Desktop (recommended)
 
-The agent runs as an MCP server -- Claude can use all 113 tools directly.
+The agent runs as an MCP server -- Claude can use all ~85 tools directly.
 
 Add this to your Claude Code or Claude Desktop MCP config:
 
@@ -383,7 +383,7 @@ graph TB
     end
     subgraph Backend ["Agent Backend (Python)"]
         Routes["49 REST Routes<br/>+ WebSocket"]
-        Tools["113 Tools<br/>workflow -- models -- vision -- session -- provision"]
+        Tools["~85 Tools<br/>workflow -- models -- vision -- session -- provision"]
         Cog["Cognitive Engine<br/>LIVRPS delta stack -- CWM -- experience"]
     end
     subgraph ComfyUI ["ComfyUI"]
@@ -407,7 +407,7 @@ graph TB
 ```mermaid
 %%{init: {'theme':'base','themeVariables': {'primaryColor':'#0066FF','primaryTextColor':'#ffffff','primaryBorderColor':'#003eaa','lineColor':'#374151','secondaryColor':'#374151','tertiaryColor':'#1f2937','fontFamily':'monospace'}}}%%
 graph LR
-    You([You]) --> Agent[113 Tools]
+    You([You]) --> Agent[~85 Tools]
     Agent --> Understand[UNDERSTAND<br/>What do you have?]
     Understand --> Discover[DISCOVER<br/>What do you need?]
     Discover --> Pilot[PILOT<br/>Make the changes]
@@ -675,7 +675,7 @@ graph TB
     subgraph Foundation ["Foundation Layer"]
         DAG["Workflow Intelligence DAG<br/>6 pure computation nodes"]
         OBS["Time-Sampled State<br/>Monotonic step index"]
-        CAP["Capability Registry<br/>113 tools indexed"]
+        CAP["Capability Registry<br/>~85 tools indexed"]
     end
 
     subgraph Safety ["Safety Layer"]
@@ -872,13 +872,13 @@ flowchart LR
 
 ### Tool Inventory
 
-**113 tools across three layers:**
+**~85 tools across three layers** (exact count varies with optional layers — `BRAIN_ENABLED`, `usd-core` install — and is verified by `len(agent.tools._HANDLERS)` at startup):
 
 | Layer | Count | Highlights |
 |-------|-------|-----------|
-| **Intelligence** | 86 | Workflow parsing, model search (CivitAI + HF + 31k nodes), delta patching, auto-wire, provisioning pipeline, execution |
-| **Brain** | 27 | Vision analysis, goal planning, pattern memory, GPU optimization, artistic intent capture, iteration tracking |
-| **Stage** | 23 | USD cognitive state, LIVRPS composition, predictive experiments, scene composition |
+| **Intelligence** (`agent/tools/`) | ~64 | Workflow parsing, model search (CivitAI + HF + 31k nodes), delta patching, auto-wire, provisioning pipeline, execution |
+| **Brain** (`agent/brain/`) | ~7 + 9 specialists | Vision analysis, goal planning, pattern memory, GPU optimization, artistic intent capture, iteration tracking. The 7 are TOOLS-list exports; 9 BrainAgent SDK subclasses register additional capabilities |
+| **Stage** (`agent/stage/`) | ~22 | USD cognitive state, LIVRPS composition, predictive experiments, scene composition |
 
 ### Workflow Lifecycle
 
