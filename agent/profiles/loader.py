@@ -177,11 +177,16 @@ def load_profile(model_id: str) -> dict[str, Any]:
        ``default_video``)
     3. Hardcoded minimal defaults
 
-    The returned dict is a deep copy so callers can mutate freely.
+    The returned dict is a recursively read-only view (MappingProxyType
+    over MappingProxyType, lists frozen to tuples). Mutation attempts
+    raise TypeError. Callers that need a mutable copy can call
+    `copy.deepcopy` on the returned view explicitly — but most callers
+    don't, and the previous defensive deepcopy was per-cache-hit overhead
+    nobody used. See agent/_util_freeze.py for the freeze mechanism.
     """
     with _cache_lock:
         if model_id in _cache:
-            return copy.deepcopy(_cache[model_id])
+            return _cache[model_id]   # already frozen at insert time
 
     # --- Resolve outside the lock (I/O) --------------------------------
     exact_path = PROFILES_DIR / f"{model_id}.yaml"
@@ -196,10 +201,12 @@ def load_profile(model_id: str) -> dict[str, Any]:
             profile = _minimal_defaults(model_id)
 
     # --- Store and return ------------------------------------------------
+    from .._util_freeze import deep_freeze
+    frozen = deep_freeze(profile)
     with _cache_lock:
-        _cache[model_id] = profile
+        _cache[model_id] = frozen
 
-    return copy.deepcopy(profile)
+    return frozen
 
 
 def get_intent_section(model_id: str) -> dict[str, Any]:

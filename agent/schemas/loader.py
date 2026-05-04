@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +187,9 @@ def _validate_type(
             for i, item in enumerate(value):
                 if isinstance(item, dict):
                     for sub_name, sub_def in item_schema.items():
-                        if isinstance(sub_def, dict):
+                        # sub_def comes from the (frozen) cached schema —
+                        # accept dict OR MappingProxyType.
+                        if isinstance(sub_def, Mapping):
                             sub_required = sub_def.get("required", True)
                             if sub_name not in item:
                                 if sub_required:
@@ -263,13 +266,18 @@ def load_schema(
     If the schema declares ``extends: "other_name"``, the base schema is
     loaded and merged first.
 
-    The returned dict is a deep copy so callers can mutate freely.
+    The returned dict is a recursively read-only view (MappingProxyType
+    over MappingProxyType, lists frozen to tuples). Mutation attempts
+    raise TypeError. Callers that need a mutable copy can call
+    `copy.deepcopy` on the returned view explicitly — but most callers
+    don't, and the previous defensive deepcopy was per-cache-hit overhead
+    nobody used. See agent/_util_freeze.py for the freeze mechanism.
     """
     cache_key = f"{agent}:{schema_name}"
 
     with _cache_lock:
         if cache_key in _cache:
-            return copy.deepcopy(_cache[cache_key])
+            return _cache[cache_key]   # already frozen at insert time
 
     # --- Resolve outside the lock (I/O) --------------------------------
     schema = _resolve_schema(agent, schema_name)
@@ -281,10 +289,12 @@ def load_schema(
         schema = _merge_schemas(base, schema)
 
     # --- Store and return ------------------------------------------------
+    from .._util_freeze import deep_freeze
+    frozen = deep_freeze(schema)
     with _cache_lock:
-        _cache[cache_key] = schema
+        _cache[cache_key] = frozen
 
-    return copy.deepcopy(schema)
+    return frozen
 
 
 def validate_output(
@@ -302,7 +312,9 @@ def validate_output(
     errors: list[str] = []
 
     for field_name, field_def in fields.items():
-        if not isinstance(field_def, dict):
+        # Accept dict OR MappingProxyType (the freeze in load_schema returns
+        # the latter). collections.abc.Mapping covers both.
+        if not isinstance(field_def, Mapping):
             continue
 
         required = field_def.get("required", False)
