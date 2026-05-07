@@ -27,7 +27,7 @@ Before pasting the prompt:
 
 - [ ] **Branch created** — `git checkout -b architecture/inside-out-pass`
 - [ ] **Working tree clean** — `git status` shows nothing to commit
-- [ ] **Tests baseline confirmed** — `pytest` returns 2716 passing + 1 known pre-existing fail (`test_invalid_variant_name_raises_stage_error` per `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`). 0 other failures.
+- [ ] **Tests baseline confirmed** — `pytest` returns 2717 passing. 0 failures.
 - [ ] **`.venv312` activated** — Python 3.12.10
 - [ ] **ComfyUI process killed** — port 8188 free (scout is read-only on the repo, but ComfyUI running while you scout is just noise)
 - [ ] **Six docs in place** — `docs/inside-out-package/` contains:
@@ -143,13 +143,13 @@ Claude Code surfaces:
 Claude Code surfaces:
 
 - All commits made (hashes + plan section refs)
-- Test count vs 2716-passing + 1-known-fail baseline (per `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`)
+- Test count vs 2717-passing baseline
 - Scope flags raised
 - Blockers resolved/escalated
 - Recommendation: READY TO PUSH / NEEDS REVIEW / BLOCKED
 
 **Approve PUSH if:**
-- All tests passing (≥2716; only the known pre-existing fail allowed; no new failures)
+- All tests passing (≥2717; no new failures)
 - All blockers resolved (not deferred)
 - Scope flags reviewed and you're okay with what got deferred
 - The branch state matches the plan you approved at GATE B
