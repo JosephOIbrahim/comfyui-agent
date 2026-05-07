@@ -6,6 +6,12 @@
 **Branch:** architecture/inside-out-pass
 **Approved by:** Joe (Option 1: PROCEED-WITH-XFAIL — see "Status" below for landing state)
 
+## Resolved
+
+**Resolution date:** 2026-05-07
+**Fixing commit:** `bf5d0c3d47e3ba61f4a470fcbe61667af1d092a3`
+**Summary:** Added `vset.GetVariantNames()` pre-check in `agent/stage/cognitive_stage.py:select_profile` — `test_invalid_variant_name_raises_stage_error` now passes; baseline restored to 2717 passing.
+
 ## What this incident covers
 
 The pytest baseline check in `RUN_INSIDE_OUT_PASS.md` Section 10 surfaced a single failing test that pre-exists on `master`:

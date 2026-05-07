@@ -40,7 +40,7 @@ Reconnaissance always precedes mutation. Operational rules:
 The distance between a change and its verification is exactly one step. Operational rules:
 
 - **Immediate verification.** After every file create/modify, run the verification suite. Not "later." Not "after I finish this batch."
-- **Regression is sacred.** Phase 6A baseline is 2716 passing + 1 known pre-existing fail (`test_invalid_variant_name_raises_stage_error`, see `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`). Breaking any of the 2716 passing is higher priority than any new work.
+- **Regression is sacred.** Phase 6A baseline is 2717 passing. Breaking any of the 2717 passing is higher priority than any new work.
 - **Net-positive test count.** You leave more verification than you found. The system is strictly more provable after you touch it.
 
 ### Rule 3 — Bounded failure → escalate
@@ -257,7 +257,7 @@ The plan must cover:
 
 **B. Test infrastructure rebuild**
 - How pytest runs inside ComfyUI's runtime
-- Path to preserving the 2716-passing + 1-known-fail baseline (or explicit accounting for what does not survive and why; known fail per `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`)
+- Path to preserving the 2717-passing baseline (or explicit accounting for what does not survive and why)
 - Coverage parity vs current state
 
 **C. Dependency conflict resolution strategy**
@@ -365,13 +365,13 @@ Before the gate, switch to `[CRUCIBLE MODE]` and adversarially review the implem
 - **Scope flag honesty (Rule 5):** were any scope expansions silently absorbed instead of raised as `FLAGS/SCOPE_FLAG_<n>.md`?
 - **Commit-message truthfulness:** do messages describe what actually changed, not what was intended?
 - **Forbidden patterns in the diff (Rule 4):** any `# TODO`, `// ... existing code ...`, ellipses, or other truncation? Fail-closed if found.
-- **Baseline integrity:** test count after Phase 3 ≥ 2716 passing. The 1 known pre-existing fail is the only allowed failure; any new failure is a regression to fix forward.
+- **Baseline integrity:** test count after Phase 3 ≥ 2717 passing. Any new failure is a regression to fix forward.
 
 Document objections in `FLAGS/flag_forge_crucible_<n>.md`. Surface objection summary at GATE C.
 
 **Phase 3 exit criteria:**
 - [ ] All commits per Phase 2 plan made
-- [ ] All tests passing (count documented, vs Phase 6A baseline of 2716 passing + 1 known pre-existing fail per `incident_2026-05-02`; no new failures)
+- [ ] All tests passing (count documented, vs Phase 6A baseline of 2717 passing; no new failures)
 - [ ] All scope flags raised (or none)
 - [ ] All blockers resolved or escalated
 - [ ] CRUCIBLE pass on implementation complete; objections documented or none
@@ -473,7 +473,7 @@ Constitution Rule 2 in operational form:
 
 **No batch mutations.** Do not edit five files then verify. Edit one, verify, commit. Repeat.
 
-**Full-suite run** before GATE C: `pytest` against full test suite. Confirm ≥2716 passing, only the known pre-existing fail (`test_invalid_variant_name_raises_stage_error` per `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`), 0 errors. Any other failure is a regression to fix forward.
+**Full-suite run** before GATE C: `pytest` against full test suite. Confirm ≥2717 passing, 0 errors. Any failure is a regression to fix forward.
 
 ---
 
@@ -520,7 +520,7 @@ The pass does NOT exit early on:
 
 **Step 2.** Confirm via terminal:
 - `git status` — clean working tree on branch `architecture/inside-out-pass`
-- `pytest` baseline — 2716 passing + 1 known pre-existing fail (`test_invalid_variant_name_raises_stage_error` per `docs/incidents/incident_2026-05-02_unauthorized_xfail_during_preflight.md`). PROCEED if exactly this fail; STOP if any other fail or error.
+- `pytest` baseline — 2717 passing, 0 failed. STOP if any fail or error.
 - `python --version` — 3.12.10
 - `.venv312` activated
 
